@@ -105,7 +105,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/leads/search', [LeadController::class, 'search']);
     Route::get('/leads/{lead}', [LeadController::class, 'show']);
     Route::put('/leads/{lead}', [LeadController::class, 'update']);
-    Route::delete('/leads/{stageId}', [LeadController::class, 'destroy']);
+    Route::delete('/leads/{lead}', [LeadController::class, 'destroy']);
     Route::post('/leads/{lead}/move-stage', [LeadController::class, 'moveToStage']);
     Route::put('/leads/{id}/tags', [LeadController::class, 'updateTags']);
     Route::post('/leads/{lead}/assign', [LeadController::class, 'assignUser']);
