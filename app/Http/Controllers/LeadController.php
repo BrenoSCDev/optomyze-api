@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\LeadCreatedNotification;
 use App\Models\ConversationReport;
 use App\Models\Lead;
 use App\Models\LeadTransaction;
@@ -48,10 +49,13 @@ class LeadController extends Controller
         // Create a lead creation transaction
         LeadTransaction::createLeadCreation(
             $lead,
-            Auth::user(), // current authenticated user (can be null if API token or automated)
-            LeadTransaction::SOURCE_MANUAL, // or another source if you want
-            [] // optional metadata array
+            Auth::user(),
+            LeadTransaction::SOURCE_MANUAL, 
+            []
         );
+
+        // Broadcast notification to all company members (except the creator)
+        broadcast(new LeadCreatedNotification($lead, Auth::user()))->toOthers();
 
         return response()->json([
             'message' => 'Lead created successfully',

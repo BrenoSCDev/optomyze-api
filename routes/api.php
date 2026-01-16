@@ -8,6 +8,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ConversationReportController;
 use App\Http\Controllers\CustomProductFieldController;
 use App\Http\Controllers\EntryRequirementController;
+use App\Http\Controllers\EventController;
 use App\Http\Controllers\GoogleAdsIntegrationController;
 use App\Http\Controllers\IntegrationController;
 use App\Http\Controllers\LeadController;
@@ -26,12 +27,12 @@ use App\Http\Controllers\LeadProductController;
 use App\Http\Controllers\ObservationController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\SaleDocController;
-use App\Http\Controllers\WhatsAppChatController;
+// use App\Http\Controllers\WhatsAppChatController;
 use App\Http\Controllers\WhatsAppEvoIntegrationController;
 use App\Http\Controllers\WhatsAppInstanceController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-
+use Illuminate\Support\Facades\Broadcast;
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -198,8 +199,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/whatsapp-evo-integrations/{instance}/funnel', [WhatsAppInstanceController::class, 'updateFunnel']);
 
         // WhatsApp Evolution API Chat
-        Route::get('/whatsapp-evo-chat', [WhatsAppChatController::class, 'getCompanyChats']);
-        Route::post('/whatsapp-evo-chat/message/{instanceId}', [WhatsAppChatController::class, 'sendMessageToLead']);
+        // Route::get('/whatsapp-evo-chat', [WhatsAppChatController::class, 'getCompanyChats']);
+        // Route::post('/whatsapp-evo-chat/message/{instanceId}', [WhatsAppChatController::class, 'sendMessageToLead']);
         
     });
 
@@ -273,7 +274,16 @@ Route::middleware('auth:sanctum')->group(function () {
     */
     Route::get('/settings-panel', [SettingsController::class, 'panel']);
 
-    
+    /*
+    |--------------------------------------------------------------------------
+    | Calendar Events Routes
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/events', [EventController::class, 'index']);
+    Route::get('/events/{event}', [EventController::class, 'show']);
+    Route::post('/events', [EventController::class, 'store']);
+    Route::put('/events/{event}', [EventController::class, 'update']);
+    Route::delete('/events/{event}', [EventController::class, 'destroy']);
 });
 
 
@@ -291,4 +301,6 @@ Route::middleware('verify.api.token')->prefix('v1')->group(function () {
 });
 
 // WhatsApp Evolution API Chat
-Route::post('/whatsapp-evo-chat', [WhatsAppChatController::class, 'handleEvolutionWebhook']);
+// Route::post('/whatsapp-evo-chat', [WhatsAppChatController::class, 'handleEvolutionWebhook']);
+
+Broadcast::routes(['middleware' => ['auth:sanctum']]);
