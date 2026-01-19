@@ -18,4 +18,9 @@ class WhatsappEvoMessage extends Model
         'status',
         'sent_at',
     ];
+
+    public function chat()
+    {
+        return $this->belongsTo(WhatsappEvoChat::class, 'whatsapp_evo_chat_id');
+    }
 }

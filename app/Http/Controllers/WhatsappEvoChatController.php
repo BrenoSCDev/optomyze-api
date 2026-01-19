@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
 use App\Events\WhatsAppChatUpdated;
+use App\Events\WhatsAppMessageReceived;
 
 class WhatsappEvoChatController extends Controller
 {
@@ -219,8 +220,8 @@ class WhatsappEvoChatController extends Controller
                 $messageValues['media_size'] = null;
             }
 
-            // Create or update message
-            WhatsappEvoMessage::firstOrCreate(
+            // Create the message
+            $message = WhatsappEvoMessage::firstOrCreate(
                 $messageAttributes,
                 $messageValues
             );
@@ -230,12 +231,10 @@ class WhatsappEvoChatController extends Controller
                 'last_message_at' => now(),
             ]);
 
-            // 🔥 7️⃣ BROADCAST REAL-TIME UPDATE
-            // Refresh the chat with all relationships to match getCompanyChats structure
-            $chat->refresh();
-            
-            // Broadcast to all connected clients in the company's WebSocket channel
-            broadcast(new WhatsAppChatUpdated($chat))->toOthers();
+            // 🔥 7️⃣ BROADCAST REAL-TIME UPDATE (OPTIMIZED)
+            // Only broadcast the new message, not the entire chat
+            // The event will load necessary relationships efficiently
+            broadcast(new WhatsAppMessageReceived($message))->toOthers();
         }
 
         return response()->json(['status' => 'ok'], 200);
@@ -268,8 +267,7 @@ class WhatsappEvoChatController extends Controller
                 // 🔹 Load only last 20 messages per chat
                 'messages' => function ($query) {
                     $query
-                        ->orderBy('sent_at')
-                        ->limit(20);
+                        ->orderBy('sent_at');
                 }
             ])
             ->orderByDesc('last_message_at')

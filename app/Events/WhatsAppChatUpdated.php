@@ -26,7 +26,7 @@ class WhatsAppChatUpdated implements ShouldBroadcastNow
             'lead.funnel:id,name',
             'lead.stage:id,name',
             'messages' => function ($query) {
-                $query->orderBy('sent_at')->limit(20);
+                $query->orderBy('sent_at');
             }
         ]);
         
