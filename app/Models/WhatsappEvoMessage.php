@@ -11,6 +11,7 @@ class WhatsappEvoMessage extends Model
         'wa_message_id',
         'direction',
         'text',
+        'type',
         'media_url',
         'media_mime',
         'media_size',

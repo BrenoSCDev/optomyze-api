@@ -27,7 +27,7 @@ use App\Http\Controllers\LeadProductController;
 use App\Http\Controllers\ObservationController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\SaleDocController;
-// use App\Http\Controllers\WhatsAppChatController;
+use App\Http\Controllers\WhatsappEvoChatController;
 use App\Http\Controllers\WhatsAppEvoIntegrationController;
 use App\Http\Controllers\WhatsAppInstanceController;
 use Illuminate\Http\Request;
@@ -199,8 +199,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/whatsapp-evo-integrations/{instance}/funnel', [WhatsAppInstanceController::class, 'updateFunnel']);
 
         // WhatsApp Evolution API Chat
-        // Route::get('/whatsapp-evo-chat', [WhatsAppChatController::class, 'getCompanyChats']);
-        // Route::post('/whatsapp-evo-chat/message/{instanceId}', [WhatsAppChatController::class, 'sendMessageToLead']);
+        Route::get('/whatsapp-evo-chat', [WhatsappEvoChatController::class, 'getCompanyChats']);
+        Route::post('/whatsapp-evo-chat/message/{instanceId}', [WhatsappEvoChatController::class, 'sendMessageToLead']);
         
     });
 
@@ -301,6 +301,6 @@ Route::middleware('verify.api.token')->prefix('v1')->group(function () {
 });
 
 // WhatsApp Evolution API Chat
-// Route::post('/whatsapp-evo-chat', [WhatsAppChatController::class, 'handleEvolutionWebhook']);
+Route::post('/whatsapp-evo-chat', [WhatsappEvoChatController::class, 'handleEvolutionWebhook']);
 
 Broadcast::routes(['middleware' => ['auth:sanctum']]);

@@ -12,8 +12,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Storage;
+use App\Events\WhatsAppChatUpdated;
 
-class WhatsAppChatController extends Controller
+class WhatsappEvoChatController extends Controller
 {
     public function handleEvolutionWebhook(Request $request)
     {
@@ -102,29 +104,143 @@ class WhatsAppChatController extends Controller
         ) {
             $messageData = $payload['data']['message'];
             $messageType = $payload['data']['messageType'];
+            $waMessageId = Str::random(20);
 
+            // Prepare common message attributes
+            $messageAttributes = [
+                'whatsapp_evo_chat_id' => $chat->id,
+                'wa_message_id'        => $waMessageId,
+            ];
+
+            $messageValues = [
+                'direction' => 'incoming',
+                'status'    => 'delivered',
+                'sent_at'   => now(),
+            ];
+
+            // Handle different message types
+            if ($messageType === 'imageMessage') {
+                
+                // Extract image data
+                $imageMessage = $messageData['imageMessage'] ?? null;
+                
+                if ($imageMessage) {
+                    // Store the base64 image
+                    $base64Image = $payload['data']['message']['base64'] ?? null;
+                    $mediaPath = null;
+                    
+                    if ($base64Image) {
+                        // Generate unique filename
+                        $filename = 'whatsapp_' . time() . '_' . uniqid() . '.jpg';
+                        
+                        // Define storage path
+                        $storagePath = 'whatsapp/images/' . $companyId;
+                        
+                        // Decode and store the image
+                        $imageData = base64_decode($base64Image);
+                        
+                        // Store in Laravel storage
+                        Storage::disk('public')->put($storagePath . '/' . $filename, $imageData);
+                        
+                        // Get the full path
+                        $mediaPath = $storagePath . '/' . $filename;
+                    }
+                        
+                    $messageValues['type'] = 'image';
+                    $messageValues['media_url'] = $mediaPath;
+                    $messageValues['media_mime'] = $imageMessage['mimetype'] ?? 'image/jpeg';
+                    $messageValues['media_size'] = $imageMessage['fileLength'] ?? null;
+                    $messageValues['text'] = null;
+                }
+
+            } elseif ($messageType === 'audioMessage') {
+                
+                // Extract audio data
+                $audioMessage = $messageData['audioMessage'] ?? null;
+                
+                if ($audioMessage) {
+                    // Store the base64 audio
+                    $base64Audio = $payload['data']['message']['base64'] ?? null;
+                    $mediaPath = null;
+                    
+                    if ($base64Audio) {
+                        // Determine file extension based on mimetype
+                        $mimeType = $audioMessage['mimetype'] ?? 'audio/ogg';
+                        $extension = 'ogg'; // Default for WhatsApp voice notes
+                        
+                        // If it's opus codec, use .ogg extension
+                        if (str_contains($mimeType, 'opus')) {
+                            $extension = 'ogg';
+                        } elseif (str_contains($mimeType, 'mp4')) {
+                            $extension = 'm4a';
+                        } elseif (str_contains($mimeType, 'mpeg')) {
+                            $extension = 'mp3';
+                        }
+                        
+                        // Generate unique filename
+                        $filename = 'whatsapp_' . time() . '_' . uniqid() . '.' . $extension;
+                        
+                        // Define storage path
+                        $storagePath = 'whatsapp/audio/' . $companyId;
+                        
+                        // Decode and store the audio
+                        $audioData = base64_decode($base64Audio);
+                        
+                        // Store in Laravel storage
+                        Storage::disk('public')->put($storagePath . '/' . $filename, $audioData);
+                        
+                        // Get the full path
+                        $mediaPath = $storagePath . '/' . $filename;
+                    }
+                        
+                    $messageValues['type'] = 'audio';
+                    $messageValues['media_url'] = $mediaPath;
+                    $messageValues['media_mime'] = $audioMessage['mimetype'] ?? 'audio/ogg';
+                    $messageValues['media_size'] = $audioMessage['fileLength'] ?? null;
+                    $messageValues['text'] = null;
+                }
+
+            } elseif ($messageType === 'conversation') {
+                
+                // Handle text message
+                $messageValues['type'] = 'text';
+                $messageValues['text'] = $messageData['conversation'] ?? null;
+                $messageValues['media_url'] = null;
+                $messageValues['media_mime'] = null;
+                $messageValues['media_size'] = null;
+                
+            } else {
+                
+                // Fallback for unhandled message types
+                $messageValues['type'] = 'text';
+                $messageValues['text'] = $messageData['conversation'] ?? null;
+                $messageValues['media_url'] = null;
+                $messageValues['media_mime'] = null;
+                $messageValues['media_size'] = null;
+            }
+
+            // Create or update message
             WhatsappEvoMessage::firstOrCreate(
-                [
-                    'whatsapp_evo_chat_id' => $chat->id,
-                    'wa_message_id'        => $payload['data']['key']['id']
-                        ?? $payload['data']['messageTimestamp'],
-                ],
-                [
-                    'direction' => 'incoming',
-                    'type'      => $messageType === 'conversation' ? 'text' : 'text',
-                    'text'      => $messageData['conversation'] ?? null,
-                    'status'    => 'delivered',
-                    'sent_at'   => now(),
-                ]
+                $messageAttributes,
+                $messageValues
             );
 
+            // Update chat's last message timestamp
             $chat->update([
                 'last_message_at' => now(),
             ]);
+
+            // 🔥 7️⃣ BROADCAST REAL-TIME UPDATE
+            // Refresh the chat with all relationships to match getCompanyChats structure
+            $chat->refresh();
+            
+            // Broadcast to all connected clients in the company's WebSocket channel
+            broadcast(new WhatsAppChatUpdated($chat))->toOthers();
         }
 
         return response()->json(['status' => 'ok'], 200);
     }
+
 
     public function getCompanyChats(Request $request)
     {
@@ -152,15 +268,6 @@ class WhatsAppChatController extends Controller
                 // 🔹 Load only last 20 messages per chat
                 'messages' => function ($query) {
                     $query
-                        ->select(
-                            'id',
-                            'whatsapp_evo_chat_id',
-                            'direction',
-                            'type',
-                            'text',
-                            'status',
-                            'sent_at'
-                        )
                         ->orderBy('sent_at')
                         ->limit(20);
                 }
