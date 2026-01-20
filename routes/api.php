@@ -30,6 +30,7 @@ use App\Http\Controllers\SaleDocController;
 use App\Http\Controllers\WhatsappEvoChatController;
 use App\Http\Controllers\WhatsAppEvoIntegrationController;
 use App\Http\Controllers\WhatsAppInstanceController;
+use App\Http\Controllers\NotificationSettingController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Broadcast;
@@ -273,6 +274,8 @@ Route::middleware('auth:sanctum')->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::get('/settings-panel', [SettingsController::class, 'panel']);
+    Route::post('/notification-settings', [NotificationSettingController::class, 'store']);
+    Route::patch('/notification-settings', [NotificationSettingController::class, 'update']);
 
     /*
     |--------------------------------------------------------------------------
