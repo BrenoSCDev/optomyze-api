@@ -41,6 +41,42 @@ class Company extends Model
         'settings' => 'array',
     ];
 
+    public static function planLimits(string $plan): array
+    {
+        return match ($plan) {
+            'basic' => [
+                'leads_limit'         => 2000,
+                'users_limit'         => 2,
+                'storage_limit_gb'    => 5,
+                'active_deals_limit'  => 50,
+                'tasks_limit'         => 1000,
+                'integrations_limit'  => 2,
+                'products_limit'      => 50,
+            ],
+
+            'premium' => [
+                'leads_limit'         => 25000,
+                'users_limit'         => 10,
+                'storage_limit_gb'    => 50,
+                'active_deals_limit'  => 500,
+                'tasks_limit'         => 25000,
+                'integrations_limit'  => 10,
+                'products_limit'      => 500,
+            ],
+
+            'enterprise' => [
+                // NULL = unlimited
+                'leads_limit'         => null,
+                'users_limit'         => null,
+                'storage_limit_gb'    => 500,
+                'active_deals_limit'  => null,
+                'tasks_limit'         => null,
+                'integrations_limit'  => null,
+                'products_limit'      => null,
+            ],
+        };
+    }
+
     /**
      * Get the users for the company.
      */

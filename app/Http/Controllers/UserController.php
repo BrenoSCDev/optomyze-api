@@ -34,12 +34,26 @@ class UserController extends Controller
 
         $validated = $request->validate(User::validationRules());
 
-        $validated['password'] = 'changeme';
+        $validated['password'] = Hash::make('changeme');
 
         $user = User::create($validated);
 
         // dd($user->password);
 
+
+        return response()->json($user, 201);
+    }
+
+    /**
+     * Create a new user from Optomyze Manager.
+     */
+    public function storeManager(Request $request)
+    {
+        $validated = $request->validate(User::validationRules());
+
+        $validated['password'] = Hash::make('changeme');
+
+        $user = User::create($validated);
 
         return response()->json($user, 201);
     }

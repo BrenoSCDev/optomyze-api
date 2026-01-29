@@ -5,6 +5,7 @@ use App\Http\Controllers\LeadDocumentController;
 use App\Http\Controllers\ApiTokenController;
 use App\Http\Controllers\FunnelController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\ConversationReportController;
 use App\Http\Controllers\CustomProductFieldController;
 use App\Http\Controllers\EntryRequirementController;
@@ -50,6 +51,10 @@ Route::post('/auth/login', [AuthController::class, 'login']);
 Route::post('/auth/forgot-pwd', [AuthController::class, 'forgotPassword']);
 Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword']);
 Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
+
+Route::post('/companies', [CompanyController::class, 'store']);
+Route::post('/users/manager', [UserController::class, 'storeManager']);
+
 
 Route::middleware('auth:sanctum')->group(function () {
     /*

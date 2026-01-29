@@ -81,7 +81,7 @@ class WhatsappEvoChatController extends Controller
                 'phone'      => $phoneNumber,
                 'source_type' => 'chat_integration',
                 'source_platform' => 'whatsapp',
-                'sync'
+                'sync',
                 'funnel_id'  => $funnel->id,
                 'stage_id'   => $entryStage->id,
             ]);
