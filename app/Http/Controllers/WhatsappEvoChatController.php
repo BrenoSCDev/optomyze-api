@@ -15,6 +15,7 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
 use App\Events\WhatsAppChatUpdated;
 use App\Events\WhatsAppMessageReceived;
+use Illuminate\Support\Facades\Log;
 
 class WhatsappEvoChatController extends Controller
 {
@@ -78,6 +79,9 @@ class WhatsappEvoChatController extends Controller
                 'first_name' => $firstName ?: $phoneNumber,
                 'last_name'  => $lastName,
                 'phone'      => $phoneNumber,
+                'source_type' => 'chat_integration',
+                'source_platform' => 'whatsapp',
+                'sync'
                 'funnel_id'  => $funnel->id,
                 'stage_id'   => $entryStage->id,
             ]);
@@ -113,48 +117,88 @@ class WhatsappEvoChatController extends Controller
                 'wa_message_id'        => $waMessageId,
             ];
 
+            $msgDirection = $payload['data']['key']['fromMe'] ?? false ? 'outgoing' : 'incoming';
+
             $messageValues = [
-                'direction' => 'incoming',
+                'direction' => $msgDirection,
                 'status'    => 'delivered',
                 'sent_at'   => now(),
             ];
 
             // Handle different message types
             if ($messageType === 'imageMessage') {
-                
-                // Extract image data
-                $imageMessage = $messageData['imageMessage'] ?? null;
-                
-                if ($imageMessage) {
-                    // Store the base64 image
-                    $base64Image = $payload['data']['message']['base64'] ?? null;
-                    $mediaPath = null;
+    $imageMessage = $messageData['imageMessage'] ?? null;
+    
+    if ($imageMessage) {
+        $mediaPath = null;
+        $integration = WhatsAppEvoIntegration::where('company_id', $companyId)->first();
+        
+        if ($integration) {
+            $evolutionApiUrl = rtrim($integration->base_url, '/');
+            $evolutionApiKey = $integration->api_key;
+            $instanceName = $payload['instance'] ?? null;
+            $messageKey = $payload['data']['key'] ?? null;
+            
+            // Retry up to 3 times with exponential backoff
+            $maxRetries = 3;
+            $retryDelay = 2; // Initial delay in seconds
+            
+            for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+                try {
+                    $response = Http::timeout(45)
+                        ->retry(2, 1000)
+                        ->withHeaders([
+                            'apikey' => $evolutionApiKey,
+                            'Content-Type' => 'application/json',
+                        ])
+                        ->post("{$evolutionApiUrl}/chat/getBase64FromMediaMessage/{$instanceName}", [
+                            'message' => ['key' => $messageKey]
+                        ]);
                     
-                    if ($base64Image) {
-                        // Generate unique filename
-                        $filename = 'whatsapp_' . time() . '_' . uniqid() . '.jpg';
+                    if ($response->successful()) {
+                        $mediaData = $response->json();
+                        $base64Image = $mediaData['base64'] ?? null;
                         
-                        // Define storage path
-                        $storagePath = 'whatsapp/images/' . $companyId;
-                        
-                        // Decode and store the image
-                        $imageData = base64_decode($base64Image);
-                        
-                        // Store in Laravel storage
-                        Storage::disk('public')->put($storagePath . '/' . $filename, $imageData);
-                        
-                        // Get the full path
-                        $mediaPath = $storagePath . '/' . $filename;
+                        if ($base64Image) {
+                            $mimeType = $mediaData['mimetype'] ?? 'image/jpeg';
+                            $extension = match(true) {
+                                str_contains($mimeType, 'png') => 'png',
+                                str_contains($mimeType, 'webp') => 'webp',
+                                str_contains($mimeType, 'gif') => 'gif',
+                                default => 'jpg',
+                            };
+                            
+                            $filename = 'whatsapp_' . time() . '_' . uniqid() . '.' . $extension;
+                            $storagePath = 'whatsapp/images/' . $companyId;
+                            $imageData = base64_decode($base64Image);
+                            
+                            Storage::disk('public')->put($storagePath . '/' . $filename, $imageData);
+                            $mediaPath = $storagePath . '/' . $filename;
+                            
+                            break; // Success - exit retry loop
+                        }
                     }
-                        
-                    $messageValues['type'] = 'image';
-                    $messageValues['media_url'] = $mediaPath;
-                    $messageValues['media_mime'] = $imageMessage['mimetype'] ?? 'image/jpeg';
-                    $messageValues['media_size'] = $imageMessage['fileLength'] ?? null;
-                    $messageValues['text'] = null;
+                } catch (\Exception $e) {
+                    Log::warning("Image download attempt {$attempt} failed", [
+                        'error' => $e->getMessage(),
+                        'message_id' => $messageKey['id'] ?? 'unknown',
+                    ]);
+                    
+                    if ($attempt < $maxRetries) {
+                        sleep($retryDelay);
+                        $retryDelay *= 2; // 2s, 4s, 8s
+                    }
                 }
-
-            } elseif ($messageType === 'audioMessage') {
+            }
+        }
+        
+        $messageValues['type'] = 'image';
+        $messageValues['media_url'] = $mediaPath;
+        $messageValues['media_mime'] = $imageMessage['mimetype'] ?? 'image/jpeg';
+        $messageValues['media_size'] = $imageMessage['fileLength'] ?? null;
+        $messageValues['text'] = $imageMessage['caption'] ?? null;
+    }
+} elseif ($messageType === 'audioMessage') {
                 
                 // Extract audio data
                 $audioMessage = $messageData['audioMessage'] ?? null;
