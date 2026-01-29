@@ -10,6 +10,7 @@ use App\Models\WhatsAppInstance;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Funnel;
+use App\Models\OptomyzeErpIntegration;
 
 class IntegrationController extends Controller
 {
@@ -32,8 +33,7 @@ class IntegrationController extends Controller
             'meta_ads' => MetaAdsIntegration::class,
             'google_ads' => GoogleAdsIntegration::class,
             'wpp_evo' => WhatsAppEvoIntegration::class,
-            // 'hubspot'   => HubspotIntegration::class,
-            // adicionar mais aqui
+            'optomyze_erp'   => OptomyzeErpIntegration::class,
         ];
 
         $availability = [];

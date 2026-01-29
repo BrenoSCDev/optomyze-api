@@ -323,27 +323,27 @@ class LeadController extends Controller
         return response()->json($leads);
     }
 
-public function addErpBudget(Request $request, Lead $lead)
-{
-    $request->validate([
-        'erp_budget_id' => 'required|integer',
-    ]);
+    public function addErpBudget(Request $request, Lead $lead)
+    {
+        $request->validate([
+            'erp_budget_id' => 'required|integer',
+        ]);
 
-    $erpBudgetId = $request->input('erp_budget_id');
+        $erpBudgetId = $request->input('erp_budget_id');
 
-    // Decode JSON string into array
-    $currentIds = json_decode($lead->erp_budgets_ids, true) ?? [];
+        // Decode JSON string into array
+        $currentIds = json_decode($lead->erp_budgets_ids, true) ?? [];
 
-    if (!in_array($erpBudgetId, $currentIds)) {
-        $currentIds[] = $erpBudgetId;
-        $lead->erp_budgets_ids = json_encode($currentIds); // save as JSON string
-        $lead->save();
+        if (!in_array($erpBudgetId, $currentIds)) {
+            $currentIds[] = $erpBudgetId;
+            $lead->erp_budgets_ids = json_encode($currentIds); // save as JSON string
+            $lead->save();
+        }
+
+        return response()->json([
+            'message' => 'ERP budget ID added successfully',
+            'erp_budgets_ids' => $currentIds, // return as array
+        ]);
     }
-
-    return response()->json([
-        'message' => 'ERP budget ID added successfully',
-        'erp_budgets_ids' => $currentIds, // return as array
-    ]);
-}
 
 }

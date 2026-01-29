@@ -32,6 +32,7 @@ use App\Http\Controllers\WhatsappEvoChatController;
 use App\Http\Controllers\WhatsAppEvoIntegrationController;
 use App\Http\Controllers\WhatsAppInstanceController;
 use App\Http\Controllers\NotificationSettingController;
+use App\Http\Controllers\OptomyzeErpIntegrationController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Broadcast;
@@ -187,6 +188,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/google-ads', [GoogleAdsIntegrationController::class, 'createIntegration']);
         Route::put('/google-ads/configure', [GoogleAdsIntegrationController::class, 'configure']);
         Route::get('/google-ads/fetch-google-data', [GoogleAdsIntegrationController::class, 'fetchGoogleData']);
+
+        // Optomyze ERP Integration
+        Route::post('/optomyze-erp', [OptomyzeErpIntegrationController::class, 'createIntegration']);
+        Route::put('/optomyze-erp/configure', [OptomyzeErpIntegrationController::class, 'configure']);
+        Route::get('/optomyze-erp/api-key', [OptomyzeErpIntegrationController::class, 'getApiKey']);
 
         // N8N Agents
         Route::get('/agents/n8n', [N8nAgentController::class, 'index']);
