@@ -183,9 +183,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/google-ads/configure', [GoogleAdsIntegrationController::class, 'configure']);
         Route::get('/google-ads/fetch-google-data', [GoogleAdsIntegrationController::class, 'fetchGoogleData']);
 
-        // Agents
+        // N8N Agents
         Route::get('/agents/n8n', [N8nAgentController::class, 'index']);
         Route::get('/agents/n8n/executions/{agent}', [N8nAgentController::class, 'fetchExecutions']);
+        Route::get('/agents/n8n/prompt/{agent}', [N8nAgentController::class, 'fetchAiAgentSystemPrompt']);
 
         // WhatsApp Evolution API
         Route::post('/whatsapp-evo-integrations', [WhatsAppEvoIntegrationController::class, 'createIntegration']);
