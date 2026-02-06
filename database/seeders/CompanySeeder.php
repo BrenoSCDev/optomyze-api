@@ -29,6 +29,10 @@ class CompanySeeder extends Seeder
             'tasks_limit' => 25000,
             'integrations_limit' => 10,
             'products_limit' => 500,
+            'sales_funnels_limit'    => 5,
+            'deal_funnels_limit'     => 5,
+            'companies_limit'        => 1000,
+            'messages_limit'         => 50000,
             'product_module' => 'product',
 
             'created_at' => now(),

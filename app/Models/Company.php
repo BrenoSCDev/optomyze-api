@@ -45,37 +45,56 @@ class Company extends Model
     {
         return match ($plan) {
             'basic' => [
-                'leads_limit'         => 2000,
-                'users_limit'         => 2,
-                'storage_limit_gb'    => 5,
-                'active_deals_limit'  => 50,
-                'tasks_limit'         => 1000,
-                'integrations_limit'  => 2,
-                'products_limit'      => 50,
+                'leads_limit'            => 2000,
+                'users_limit'            => 2,
+                'storage_limit_gb'       => 5,
+                'active_deals_limit'     => 50,
+                'tasks_limit'            => 1000,
+                'integrations_limit'     => 2,
+                'products_limit'         => 50,
+
+                // NEW LIMITS
+                'sales_funnels_limit'    => 1,
+                'deal_funnels_limit'     => 1,
+                'companies_limit'        => 100,
+                'messages_limit'         => 10000,
             ],
 
             'premium' => [
-                'leads_limit'         => 25000,
-                'users_limit'         => 10,
-                'storage_limit_gb'    => 50,
-                'active_deals_limit'  => 500,
-                'tasks_limit'         => 25000,
-                'integrations_limit'  => 10,
-                'products_limit'      => 500,
+                'leads_limit'            => 25000,
+                'users_limit'            => 10,
+                'storage_limit_gb'       => 50,
+                'active_deals_limit'     => 500,
+                'tasks_limit'            => 25000,
+                'integrations_limit'     => 10,
+                'products_limit'         => 500,
+
+                // NEW LIMITS
+                'sales_funnels_limit'    => 5,
+                'deal_funnels_limit'     => 5,
+                'companies_limit'        => 1000,
+                'messages_limit'         => 50000,
             ],
 
             'enterprise' => [
                 // NULL = unlimited
-                'leads_limit'         => null,
-                'users_limit'         => null,
-                'storage_limit_gb'    => 500,
-                'active_deals_limit'  => null,
-                'tasks_limit'         => null,
-                'integrations_limit'  => null,
-                'products_limit'      => null,
+                'leads_limit'            => null,
+                'users_limit'            => null,
+                'storage_limit_gb'       => 500,
+                'active_deals_limit'     => null,
+                'tasks_limit'            => null,
+                'integrations_limit'     => null,
+                'products_limit'         => null,
+
+                // NEW LIMITS
+                'sales_funnels_limit'    => null,
+                'deal_funnels_limit'     => null,
+                'companies_limit'        => null,
+                'messages_limit'         => null,
             ],
         };
     }
+
 
     /**
      * Get the users for the company.

@@ -20,6 +20,10 @@ return new class extends Migration
             $table->enum('subscription_plan', ['basic', 'premium', 'enterprise'])->default('basic');
             $table->unsignedBigInteger('leads_limit')->nullable();
             $table->unsignedInteger('users_limit')->nullable();
+            $table->unsignedInteger('sales_funnels_limit')->nullable();
+            $table->unsignedInteger('companies_limit')->nullable();
+            $table->unsignedInteger('deal_funnels_limit')->nullable();
+            $table->unsignedInteger('messages_limit')->nullable();
             $table->unsignedInteger('storage_limit_gb')->nullable();
             $table->unsignedInteger('active_deals_limit')->nullable();
             $table->unsignedBigInteger('tasks_limit')->nullable();

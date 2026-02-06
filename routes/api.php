@@ -12,6 +12,7 @@ use App\Http\Controllers\EntryRequirementController;
 use App\Http\Controllers\EventController;
 use App\Http\Controllers\GoogleAdsIntegrationController;
 use App\Http\Controllers\IntegrationController;
+use App\Http\Controllers\LeadCompanyController;
 use App\Http\Controllers\LeadController;
 use App\Http\Controllers\LeadTransactionController;
 use App\Http\Controllers\MetaAdsIntegrationController;
@@ -247,6 +248,18 @@ Route::middleware('auth:sanctum')->group(function () {
     */
     Route::post('/lead-documents', [LeadDocumentController::class, 'store']);
     Route::delete('/lead-documents/{leadDocument}', [LeadDocumentController::class, 'destroy']);
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Lead Companies Routes
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/lead-companies', [LeadCompanyController::class, 'index']);
+    Route::post('/lead-companies', [LeadCompanyController::class, 'store']);
+    Route::get('/lead-companies/{id}', [LeadCompanyController::class, 'show']);
+    Route::put('/lead-companies/{id}', [LeadCompanyController::class, 'update']);
+    Route::delete('/lead-companies/{id}', [LeadCompanyController::class, 'destroy']);
 
 
     /*

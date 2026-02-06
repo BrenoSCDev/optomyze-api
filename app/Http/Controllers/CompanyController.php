@@ -44,6 +44,11 @@ class CompanyController extends Controller
             'tasks_limit'          => $limits['tasks_limit'],
             'integrations_limit'   => $limits['integrations_limit'],
             'products_limit'       => $limits['products_limit'],
+            'sales_funnels_limit'  => $limits['sales_funnels_limit'],
+            'deal_funnels_limit'   => $limits['deal_funnels_limit'],
+            'companies_limit'      => $limits['companies_limit'],
+            'messages_limit'       => $limits['messages_limit'],
+
         ]);
 
         return response()->json($company, 201);
