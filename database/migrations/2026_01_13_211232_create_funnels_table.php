@@ -20,8 +20,8 @@ return new class extends Migration
             $table->boolean('is_active')->default(true);
             $table->foreignId('created_by')->constrained('users')->onDelete('cascade');
             $table->json('settings')->nullable();
-            $table->enum('type', ['funnel', 'model'])
-                ->default('funnel');
+            $table->enum('type', ['sale', 'deal', 'sale_model', 'deal_model'])
+                ->default('sale');
 
             $table->timestamps();
             $table->softDeletes();

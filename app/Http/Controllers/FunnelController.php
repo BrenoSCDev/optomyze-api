@@ -20,7 +20,7 @@ class FunnelController extends Controller
         $user = Auth::user();
 
         $funnels = Funnel::fromCompany($user->company_id)
-            ->where('type', 'funnel')
+            ->whereIn('type', ['sale', 'deal'])
             ->get() // get results first
             ->map(function ($funnel) {
                 $funnel->nleads = $funnel->totalLeadsCount();
@@ -28,7 +28,7 @@ class FunnelController extends Controller
             });
 
             return response()->json($funnels);
-        }
+    }
 
     /**
      * Store a newly created funnel in storage.

@@ -839,10 +839,10 @@ class MetricsController extends Controller
         |--------------------------------------------------------------------------
         */
         $integrations = [
-            'n8n'        => \App\Models\N8nIntegration::class,
-            'meta_ads'  => \App\Models\MetaAdsIntegration::class,
-            'google_ads'=> \App\Models\GoogleAdsIntegration::class,
-            'wpp_evo'   => \App\Models\WhatsAppEvoIntegration::class,
+            'n8n'         => \App\Models\N8nIntegration::class,
+            'meta_ads'   => \App\Models\MetaAdsIntegration::class,
+            'google_ads' => \App\Models\GoogleAdsIntegration::class,
+            'wpp_evo'    => \App\Models\WhatsAppEvoIntegration::class,
         ];
 
         $integrationsUsed = 0;
@@ -851,6 +851,66 @@ class MetricsController extends Controller
             if ($model::where('company_id', $company->id)->active()->exists()) {
                 $integrationsUsed++;
             }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | SALES FUNNELS
+        |--------------------------------------------------------------------------
+        */
+        $salesFunnelsUsed = \App\Models\Funnel::where('company_id', $company->id)
+            ->where('type', 'sale')
+            ->count();
+
+        /*
+        |--------------------------------------------------------------------------
+        | DEAL FUNNELS
+        |--------------------------------------------------------------------------
+        */
+        $dealFunnelsUsed = \App\Models\Funnel::where('company_id', $company->id)
+            ->where('type', 'deal')
+            ->count();
+
+        /*
+        |--------------------------------------------------------------------------
+        | LEAD COMPANIES
+        |--------------------------------------------------------------------------
+        */
+        $companiesUsed = \App\Models\LeadCompany::where('company_id', $company->id)->count();
+
+        /*
+        |--------------------------------------------------------------------------
+        | MESSAGES (EXTENSIBLE AGGREGATION)
+        |--------------------------------------------------------------------------
+        |
+        | Each provider is a closure responsible for returning a count
+        | scoped by company_id. New providers can be added without
+        | changing the validation contract.
+        |
+        */
+        $messageProviders = [
+
+            // WhatsApp Evo
+            function (int $companyId) {
+                return \App\Models\WhatsappEvoChat::where('company_id', $companyId)
+                    ->withCount('messages')
+                    ->get()
+                    ->sum('messages_count');
+            },
+
+            // Future providers (examples):
+            // function (int $companyId) {
+            //     return \App\Models\FacebookChat::where('company_id', $companyId)
+            //         ->withCount('messages')
+            //         ->get()
+            //         ->sum('messages_count');
+            // },
+        ];
+
+        $messagesUsed = 0;
+
+        foreach ($messageProviders as $provider) {
+            $messagesUsed += $provider($company->id);
         }
 
         /*
@@ -890,13 +950,19 @@ class MetricsController extends Controller
         return response()->json([
             'subscription_plan' => $company->subscription_plan,
 
-            'leads' => $calculate($leadsUsed, $company->leads_limit),
-            'users' => $calculate($usersUsed, $company->users_limit),
-            'products' => $calculate($productsUsed, $company->products_limit),
-            'storage' => $calculate($storageUsed, $company->storage_limit_gb),
-            'active_deals' => $calculate($activeDealsUsed, $company->active_deals_limit),
-            'tasks' => $calculate($tasksUsed, $company->tasks_limit),
-            'integrations' => $calculate($integrationsUsed, $company->integrations_limit),
+            'leads'          => $calculate($leadsUsed, $company->leads_limit),
+            'users'          => $calculate($usersUsed, $company->users_limit),
+            'products'       => $calculate($productsUsed, $company->products_limit),
+            'storage'        => $calculate($storageUsed, $company->storage_limit_gb),
+            'active_deals'   => $calculate($activeDealsUsed, $company->active_deals_limit),
+            'tasks'          => $calculate($tasksUsed, $company->tasks_limit),
+            'integrations'   => $calculate($integrationsUsed, $company->integrations_limit),
+
+            // NEW LIMITS
+            'sales_funnels'  => $calculate($salesFunnelsUsed, $company->sales_funnels_limit),
+            'deal_funnels'   => $calculate($dealFunnelsUsed, $company->deal_funnels_limit),
+            'companies'      => $calculate($companiesUsed, $company->companies_limit),
+            'messages'       => $calculate($messagesUsed, $company->messages_limit),
         ]);
     }
 

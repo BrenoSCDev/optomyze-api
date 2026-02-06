@@ -21,9 +21,7 @@ return new class extends Migration
             // Lead identification
             $table->string('external_id')->nullable(); // ID from external platform
             $table->string('source_platform')->nullable(); // whatsapp, instagram, telegram, facebook, etc.
-            $table->string('source_type')->default('ai_automation'); // ai_automation, manual, web_form, api, etc.
-            $table->string('workflow_id')->nullable(); // AI workflow identifier
-            $table->string('automation_name')->nullable(); // Name of the automation that captured the lead
+            $table->string('source_type')->default('Manual'); // ai_automation, manual, web_form, api, etc.
             
             // Contact information
             $table->string('first_name')->nullable();
@@ -32,37 +30,18 @@ return new class extends Migration
             $table->string('phone')->nullable();
             $table->string('ddi')->nullable();
             $table->string('username')->nullable(); // Platform username (@username)
-            $table->string('platform_user_id')->nullable(); // Platform-specific user ID
             
             // Lead details
-            $table->string('status')->default('new'); // new, contacted, qualified, unqualified, converted, lost
-            $table->string('priority')->default('medium'); // low, medium, high, urgent
-            $table->decimal('estimated_value', 15, 2)->nullable();
+            $table->string('priority')->default('Medium'); // low, medium, high, urgent
             $table->string('currency', 3)->default('USD');
             
-            // Communication tracking
-            $table->json('contact_methods')->nullable(); // Available contact methods
+            // Tracking
             $table->timestamp('last_contact_at')->nullable();
             $table->string('preferred_contact_method')->nullable();
             $table->string('timezone')->nullable();
             $table->string('language', 5)->default('en');
-            
-            // AI and automation data
-            $table->json('ai_data')->nullable(); // Data from AI analysis (sentiment, intent, etc.)
-            $table->json('conversation_data')->nullable(); // Initial conversation/interaction data
-            $table->json('platform_data')->nullable(); // Platform-specific data
-            $table->text('initial_message')->nullable(); // First message/inquiry
             $table->decimal('ai_score', 5, 2)->nullable(); // AI-generated lead score (0-100)
-            $table->json('tags')->nullable(); // Tags from AI analysis
-            
-            // Tracking and attribution
-            $table->string('referrer')->nullable();
-            $table->ipAddress('ip_address')->nullable();
-            $table->text('user_agent')->nullable();
-            
-            // Additional metadata
-            $table->json('custom_fields')->nullable(); // Flexible custom data
-            $table->json('settings')->nullable(); // Lead-specific settings
+            $table->json('tags')->nullable(); // Tags from
             $table->text('notes')->nullable(); // Internal notes
             $table->json('erp_budgets_ids')->nullable();
             
@@ -72,20 +51,27 @@ return new class extends Migration
             $table->timestamp('qualified_at')->nullable();
             $table->foreignId('qualified_by')->nullable()->constrained('users')->onDelete('set null');
         
+            // Address information
+            $table->string('address_line_1')->nullable(); // Street, number
+            $table->string('address_line_2')->nullable(); // Apt, suite, unit, etc
+            $table->string('neighborhood')->nullable(); // Bairro
+            $table->string('city')->nullable();
+            $table->string('state')->nullable(); // State / Province
+            $table->string('state_code', 10)->nullable(); // SP, CA, NY, etc
+            $table->string('postal_code')->nullable(); // ZIP / CEP
+            $table->string('country')->nullable();
             
             $table->timestamps();
             
             // Indexes for performance
-            $table->index(['company_id', 'status']);
+            $table->index(['company_id']);
             $table->index(['company_id', 'funnel_id', 'stage_id']);
             $table->index(['source_platform', 'external_id']);
             $table->index(['assigned_to', 'status']);
             $table->index(['created_at', 'company_id']);
             $table->index(['email', 'company_id']);
             $table->index(['phone', 'company_id']);
-            $table->index(['platform_user_id', 'source_platform']);
-            $table->index('ai_score');
-            $table->index(['priority', 'status']);
+            $table->index(['priority']);
             $table->index(['last_contact_at', 'assigned_to']);
             
             // Unique constraints

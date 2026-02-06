@@ -20,12 +20,9 @@ class LeadController extends Controller
     {
         $query = Lead::query();
 
-        // Optional: filter by company, funnel, stage, status, etc.
+        // Optional: filter by company, funnel, stage, etc.
         if ($request->has('company_id')) {
             $query->where('company_id', $request->company_id);
-        }
-        if ($request->has('status')) {
-            $query->where('status', $request->status);
         }
         if ($request->has('assigned_to')) {
             $query->where('assigned_to', $request->assigned_to);
@@ -225,34 +222,20 @@ class LeadController extends Controller
             'external_id' => 'nullable|string|max:255',
             'source_platform' => 'nullable|string|max:50',
             'source_type' => 'nullable|string|max:50',
-            'workflow_id' => 'nullable|string|max:255',
-            'automation_name' => 'nullable|string|max:255',
             'first_name' => 'required|string|max:100',
             'last_name' => 'nullable|string|max:100',
             'email' => 'nullable|email|max:255',
             'phone' => 'nullable|string|max:20',
             'ddi' => 'nullable|string|max:20',
             'username' => 'nullable|string|max:100',
-            'platform_user_id' => 'nullable|string|max:255',
-            'status' => 'nullable|in:new,contacted,qualified,unqualified,converted,lost',
             'priority' => 'nullable|in:low,medium,high,urgent',
-            'estimated_value' => 'nullable|numeric|min:0',
             'currency' => 'nullable|string|size:3',
-            'contact_methods' => 'nullable|array',
             'preferred_contact_method' => 'nullable|string|max:50',
             'timezone' => 'nullable|string|max:50',
             'language' => 'nullable|string|max:5',
-            'ai_data' => 'nullable|array',
-            'platform_data' => 'nullable|array',
-            'initial_message' => 'nullable|string',
             'ai_score' => 'nullable|numeric|between:0,100',
             'tags' => 'nullable|array',
-            'custom_fields' => 'nullable|array',
-            'settings' => 'nullable|array',
             'notes' => 'nullable|string',
-            'webhook_data' => 'nullable|array',
-            'webhook_source' => 'nullable|string|max:100',
-            'sync_enabled' => 'boolean',
         ]);
 
         $company = $request->get('company');

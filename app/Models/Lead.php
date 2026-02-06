@@ -16,16 +16,6 @@ class Lead extends Model
     use HasFactory;
 
     /**
-     * Lead status constants
-     */
-    const STATUS_NEW = 'new';
-    const STATUS_CONTACTED = 'contacted';
-    const STATUS_QUALIFIED = 'qualified';
-    const STATUS_UNQUALIFIED = 'unqualified';
-    const STATUS_CONVERTED = 'converted';
-    const STATUS_LOST = 'lost';
-
-    /**
      * Lead priority constants
      */
     const PRIORITY_LOW = 'low';
@@ -53,7 +43,6 @@ class Lead extends Model
     const SOURCE_WEB_FORM = 'web_form';
     const SOURCE_API = 'api';
     const SOURCE_IMPORT = 'import';
-    const SOURCE_WEBHOOK = 'webhook';
 
     /**
      * The attributes that are mass assignable.
@@ -66,49 +55,26 @@ class Lead extends Model
         'external_id',
         'source_platform',
         'source_type',
-        'workflow_id',
-        'automation_name',
         'first_name',
         'last_name',
         'email',
         'phone',
         'ddi',
         'username',
-        'platform_user_id',
-        'status',
         'priority',
-        'estimated_value',
         'currency',
         'contact_methods',
         'last_contact_at',
         'preferred_contact_method',
         'timezone',
         'language',
-        'ai_data',
-        'conversation_data',
-        'platform_data',
-        'initial_message',
         'ai_score',
         'tags',
-        'utm_source',
-        'utm_medium',
-        'utm_campaign',
-        'utm_term',
-        'utm_content',
-        'referrer',
-        'ip_address',
-        'user_agent',
-        'custom_fields',
-        'settings',
         'notes',
         'is_active',
         'is_qualified',
         'qualified_at',
         'qualified_by',
-        'webhook_data',
-        'webhook_source',
-        'last_sync_at',
-        'sync_enabled',
         'erp_budgets_ids',
     ];
 
@@ -116,22 +82,13 @@ class Lead extends Model
      * The attributes that should be cast.
      */
     protected $casts = [
-        'estimated_value' => 'decimal:2',
         'ai_score' => 'decimal:2',
         'contact_methods' => 'array',
-        'ai_data' => 'array',
-        'conversation_data' => 'array',
-        'platform_data' => 'array',
         'tags' => 'array',
-        'custom_fields' => 'array',
-        'settings' => 'array',
-        'webhook_data' => 'array',
         'is_active' => 'boolean',
         'is_qualified' => 'boolean',
-        'sync_enabled' => 'boolean',
         'last_contact_at' => 'datetime',
         'qualified_at' => 'datetime',
-        'last_sync_at' => 'datetime',
     ];
 
     /**
@@ -223,14 +180,6 @@ class Lead extends Model
     public function scopeFromCompany(Builder $query, int $companyId): Builder
     {
         return $query->where('company_id', $companyId);
-    }
-
-    /**
-     * Scope a query to filter by status.
-     */
-    public function scopeByStatus(Builder $query, string $status): Builder
-    {
-        return $query->where('status', $status);
     }
 
     /**
@@ -362,16 +311,6 @@ class Lead extends Model
     }
 
     /**
-     * Check if lead is high value based on AI score or estimated value.
-     */
-    public function isHighValue(): bool
-    {
-        return $this->ai_score >= 80 || 
-               $this->estimated_value >= 10000 || 
-               $this->priority === self::PRIORITY_HIGH ||
-               $this->priority === self::PRIORITY_URGENT;
-    }
-    /**
      * Move lead to next stage.
      */
     public function moveToNextStage(User $user = null): bool
@@ -484,39 +423,12 @@ class Lead extends Model
     }
 
     /**
-     * Mark lead as qualified.
-     */
-    public function markAsQualified(int $userId): bool
-    {
-        return $this->update([
-            'is_qualified' => true,
-            'qualified_at' => now(),
-            'qualified_by' => $userId,
-            'status' => self::STATUS_QUALIFIED,
-        ]);
-    }
-
-    /**
-     * Mark lead as unqualified.
-     */
-    public function markAsUnqualified(int $userId): bool
-    {
-        return $this->update([
-            'is_qualified' => false,
-            'qualified_at' => now(),
-            'qualified_by' => $userId,
-            'status' => self::STATUS_UNQUALIFIED,
-        ]);
-    }
-
-    /**
      * Update contact timestamp.
      */
     public function updateLastContact(): bool
     {
         return $this->update([
             'last_contact_at' => now(),
-            'status' => self::STATUS_CONTACTED,
         ]);
     }
 
@@ -554,32 +466,6 @@ class Lead extends Model
             'platform' => $this->source_platform,
         ]);
     }
-
-    /**
-     * Sync with external platform.
-     */
-    public function syncWithPlatform(): bool
-    {
-        // This would be implemented based on specific platform APIs
-        $this->update(['last_sync_at' => now()]);
-        return true;
-    }
-
-    /**
-     * Get available status options.
-     */
-    public static function getStatusOptions(): array
-    {
-        return [
-            self::STATUS_NEW => 'New',
-            self::STATUS_CONTACTED => 'Contacted',
-            self::STATUS_QUALIFIED => 'Qualified',
-            self::STATUS_UNQUALIFIED => 'Unqualified',
-            self::STATUS_CONVERTED => 'Converted',
-            self::STATUS_LOST => 'Lost',
-        ];
-    }
-
     /**
      * Get available priority options.
      */
@@ -623,35 +509,20 @@ class Lead extends Model
             'external_id' => 'nullable|string|max:255',
             'source_platform' => 'string|max:50',
             'source_type' => 'string|max:50',
-            'workflow_id' => 'nullable|string|max:255',
-            'automation_name' => 'nullable|string|max:255',
             'first_name' => 'nullable|string|max:100',
             'last_name' => 'nullable|string|max:100',
             'email' => 'nullable|email|max:255',
             'phone' => 'nullable|string|max:20',
             'ddi' => 'nullable|string|max:20',
             'username' => 'nullable|string|max:100',
-            'platform_user_id' => 'nullable|string|max:255',
-            'status' => 'in:new,contacted,qualified,unqualified,converted,lost',
             'priority' => 'in:low,medium,high,urgent',
-            'estimated_value' => 'nullable|numeric|min:0',
             'currency' => 'string|size:3',
-            'contact_methods' => 'nullable|array',
             'preferred_contact_method' => 'nullable|string|max:50',
             'timezone' => 'nullable|string|max:50',
             'language' => 'string|max:5',
-            'ai_data' => 'nullable|array',
-            'conversation_data' => 'nullable|array',
-            'platform_data' => 'nullable|array',
-            'initial_message' => 'nullable|string',
             'ai_score' => 'nullable|numeric|between:0,100',
             'tags' => 'nullable|array',
-            'custom_fields' => 'nullable|array',
-            'settings' => 'nullable|array',
             'notes' => 'nullable|string',
-            'webhook_data' => 'nullable|array',
-            'webhook_source' => 'nullable|string|max:100',
-            'sync_enabled' => 'boolean',
         ];
     }
 
@@ -665,35 +536,22 @@ class Lead extends Model
             'external_id' => 'nullable|string|max:255',
             'source_platform' => 'string|max:50',
             'source_type' => 'string|max:50',
-            'workflow_id' => 'nullable|string|max:255',
-            'automation_name' => 'nullable|string|max:255',
             'first_name' => 'nullable|string|max:100',
             'last_name' => 'nullable|string|max:100',
             'email' => 'nullable|email|max:255',
             'phone' => 'nullable|string|max:20',
             'ddi' => 'nullable|string|max:20',
             'username' => 'nullable|string|max:100',
-            'platform_user_id' => 'nullable|string|max:255',
-            'status' => 'in:new,contacted,qualified,unqualified,converted,lost',
             'priority' => 'in:low,medium,high,urgent',
-            'estimated_value' => 'nullable|numeric|min:0',
             'currency' => 'string|size:3',
             'contact_methods' => 'nullable|array',
             'preferred_contact_method' => 'nullable|string|max:50',
             'timezone' => 'nullable|string|max:50',
             'language' => 'string|max:5',
-            'ai_data' => 'nullable|array',
-            'conversation_data' => 'nullable|array',
-            'platform_data' => 'nullable|array',
-            'initial_message' => 'nullable|string',
             'ai_score' => 'nullable|numeric|between:0,100',
             'tags' => 'nullable|array',
-            'custom_fields' => 'nullable|array',
             'settings' => 'nullable|array',
             'notes' => 'nullable|string',
-            'webhook_data' => 'nullable|array',
-            'webhook_source' => 'nullable|string|max:100',
-            'sync_enabled' => 'boolean',
         ];
     }
 }
