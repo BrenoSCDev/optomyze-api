@@ -58,7 +58,7 @@ class FunnelController extends Controller
             'is_active'   => $validated['is_active'] ?? true,
             'created_by'  => $user->id,
             'settings'    => $validated['settings'] ?? null,
-            'type'        => $validated['type'] ?? 'funnel',
+            'type'        => $validated['type'] ?? 'sale',
         ]);
 
         /*

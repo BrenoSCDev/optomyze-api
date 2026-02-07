@@ -67,7 +67,7 @@ return new class extends Migration
             $table->index(['company_id']);
             $table->index(['company_id', 'funnel_id', 'stage_id']);
             $table->index(['source_platform', 'external_id']);
-            $table->index(['assigned_to', 'status']);
+            $table->index(['assigned_to']);
             $table->index(['created_at', 'company_id']);
             $table->index(['email', 'company_id']);
             $table->index(['phone', 'company_id']);

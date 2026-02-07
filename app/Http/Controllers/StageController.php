@@ -26,7 +26,25 @@ class StageController extends Controller
             return $stage;
         });
 
-        return response()->json($stages);
+        return response()->json([
+            'stages' => $stages,
+            'funnel' => $funnel
+        ]);
+    }
+
+    public function stagesList($funnelId)
+    {
+        $user = Auth::user();
+
+        $funnel = Funnel::fromCompany($user->company_id)->findOrFail($funnelId);
+
+        $stages = $funnel->stages()->ordered()
+        ->select('id', 'name')
+        ->get();
+
+        return response()->json([
+            'stages' => $stages
+        ]);
     }
 
     /**

@@ -19,13 +19,23 @@ return new class extends Migration
             $table->string('color', 7)->default('#FFFFFF');
             $table->integer('order')->default(1);
             $table->enum('type', [
-                'entry',
-                'normal',
-                'service',
-                'proposition',
-                'qualified',
-                'conversion',
-                'lost'
+                // Generic / shared
+                'entry',        // Initial stage
+                'normal',       // Default progression
+                'qualified',    // Qualified lead or deal
+                'lost',         // Lost lead or deal
+                'conversion',   // Closed / converted (sale or deal)
+
+                // Sales-oriented
+                'service',      // Service discussion / discovery
+                'proposition',  // Proposal / offer sent
+
+                // Deal-oriented
+                'negotiation',  // Terms, pricing, scope negotiation
+                'approval',     // Internal or client approval
+                'contract',     // Contract drafting / signing
+                'won',          // Deal successfully closed
+                'on_hold'       // Deal paused or waiting
             ]);
             $table->boolean('is_active')->default(true);
             $table->json('settings')->nullable(); // Stage-specific settings like SLA, auto-actions, etc.

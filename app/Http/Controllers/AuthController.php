@@ -91,7 +91,8 @@ class AuthController extends Controller
 
     // Fetch funnels related to the user's company
     $funnels = Funnel::where('company_id', $user->company_id)
-        ->where(['is_active' => true, 'type' => 'funnel'])
+        ->where(['is_active' => true])
+        ->whereIn('type', ['sale', 'deal'])
         ->get()
         ->map(function ($funnel) {
             $funnel->nleads = $funnel->totalLeadsCount();

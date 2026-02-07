@@ -76,6 +76,15 @@ class Lead extends Model
         'qualified_at',
         'qualified_by',
         'erp_budgets_ids',
+        'address_line_1',
+        'address_line_2',
+        'neighborhood',
+        'city',
+        'state',
+        'state_code',
+        'postal_code',
+        'country',
+        'lead_company_id'
     ];
 
     /**
@@ -97,6 +106,14 @@ class Lead extends Model
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
+    }
+
+    /**
+     * Get the company that owns the lead.
+     */
+    public function leadCompany(): BelongsTo
+    {
+        return $this->belongsTo(LeadCompany::class);
     }
 
     /**
@@ -523,6 +540,14 @@ class Lead extends Model
             'ai_score' => 'nullable|numeric|between:0,100',
             'tags' => 'nullable|array',
             'notes' => 'nullable|string',
+            'address_line_1' => 'nullable|string|max:255',
+            'address_line_2' => 'nullable|string|max:255',
+            'neighborhood' => 'nullable|string|max:100',
+            'city' => 'nullable|string|max:100',
+            'state' => 'nullable|string|max:100',
+            'state_code' => 'nullable|string|max:10',
+            'postal_code' => 'nullable|string|max:20',
+            'country' => 'nullable|string|max:100',
         ];
     }
 
@@ -552,6 +577,17 @@ class Lead extends Model
             'tags' => 'nullable|array',
             'settings' => 'nullable|array',
             'notes' => 'nullable|string',
+            'address_line_1' => 'nullable|string|max:255',
+            'address_line_2' => 'nullable|string|max:255',
+            'neighborhood' => 'nullable|string|max:100',
+            'city' => 'nullable|string|max:100',
+            'state' => 'nullable|string|max:100',
+            'state_code' => 'nullable|string|max:10',
+            'postal_code' => 'nullable|string|max:20',
+            'country' => 'nullable|string|max:100',
+            'is_active' => 'boolean',
+            'is_qualified' => 'boolean',
+            'lead_company_id' => 'nullable|exists:lead_companies,id',
         ];
     }
 }

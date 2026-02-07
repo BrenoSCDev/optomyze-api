@@ -209,7 +209,7 @@ class Stage extends Model
         return [
             'name' => 'required|string|max:100',
             'description' => 'nullable|string|max:1000',
-            'type' => 'required|in:entry,normal,service,proposition,qualified,conversion,lost',
+            'type' => 'required|in:entry,normal,service,proposition,qualified,conversion,lost,negotiation,approval,contract,won,on_hold',
             'color' => [
                 'nullable',
                 'string',
@@ -232,7 +232,7 @@ class Stage extends Model
         return [
             'name' => 'string|max:100',
             'description' => 'nullable|string|max:1000',
-            'type' => 'in:entry,normal,service,proposition,qualified,conversion,lost',
+            'type' => 'in:entry,normal,service,proposition,qualified,conversion,lost,negotiation,approval,contract,won,on_hold',
             'color' => [
                 'nullable',
                 'string',

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Events\LeadCreatedNotification;
 use App\Models\ConversationReport;
 use App\Models\Lead;
+use App\Models\LeadCompany;
 use App\Models\LeadTransaction;
 use App\Models\Product;
 use App\Models\User;
@@ -69,12 +70,15 @@ class LeadController extends Controller
             'assignedUser:id,name,email',
             'transactions',
             'docs',
+            'leadCompany:id,legal_name,industry,logo_path',
+            'stage:id,name,funnel_id,order',
+            'stage.funnel:id,name',
+            'stage.funnel.stages:id,funnel_id,name,order',
             'whatsAppEvoChat.messages' => function ($query) {
                 $query->orderBy('sent_at');
             },
             'whatsAppEvoChat.instance:id,instance_name',
             'products:id,name,base_price,type,description',
-            'reports.agent',
             'tasks.assignee:id,name,email',
             'tasks.creator:id,name,email',
             'observations.user:id,name,email',
@@ -112,6 +116,10 @@ class LeadController extends Controller
             ->select('id', 'name')
             ->get();
 
+        $companies = LeadCompany::where('company_id', $user->company_id)
+            ->select('id', 'legal_name')
+            ->get();
+
         // Estimated value from products of interest (not sales)
         $valueEstimated = $lead->products->sum('total_price');
         $lead->value_estimated = (float) $valueEstimated;
@@ -120,6 +128,7 @@ class LeadController extends Controller
             'lead' => $lead,
             'users' => $users,
             'products' => $products,
+            'companies' => $companies,
         ]);
     }
 
