@@ -57,6 +57,16 @@ class User extends Authenticatable
         return $this->belongsTo(Company::class);
     }
 
+    /**
+     * Get the teams that the user belongs to.
+     */
+    public function teams()
+    {
+        return $this->belongsToMany(Team::class)
+            ->withPivot('role')
+            ->withTimestamps();
+    }
+
     // /**
     //  * Get the funnels created by the user.
     //  */

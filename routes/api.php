@@ -34,6 +34,7 @@ use App\Http\Controllers\WhatsAppEvoIntegrationController;
 use App\Http\Controllers\WhatsAppInstanceController;
 use App\Http\Controllers\NotificationSettingController;
 use App\Http\Controllers\OptomyzeErpIntegrationController;
+use App\Http\Controllers\TeamController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Broadcast;
@@ -80,6 +81,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/users/{id}', [UserController::class, 'update']);
     Route::patch('/users/{id}/toggle-status', [UserController::class, 'toggleStatus']);
     Route::delete('/users/{id}', [UserController::class, 'destroy']);
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Team Management Routes
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/teams', [TeamController::class, 'index']);
+    Route::post('/teams', [TeamController::class, 'store']);
+    Route::get('/teams/{team}', [TeamController::class, 'show']);
+    Route::put('/teams/{team}', [TeamController::class, 'update']);
+    Route::delete('/teams/{team}', [TeamController::class, 'destroy']);
 
 
     /*
