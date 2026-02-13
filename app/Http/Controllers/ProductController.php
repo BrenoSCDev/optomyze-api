@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\CustomProductField;
 use App\Models\Product;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
@@ -268,5 +269,31 @@ class ProductController extends Controller
             'message' => 'Custom field removed successfully.',
             'custom_fields' => $product->custom_fields,
         ]);
+    }
+
+    public function search(Request $request)
+    {
+        $user = Auth::user();
+
+        if (!$user || !$user->company_id) {
+            return response()->json([
+                'message' => 'User does not belong to a company.'
+            ], 400);
+        }
+
+        $request->validate([
+            'q' => 'required|string|min:3',
+        ]);
+
+        $query = $request->input('q');
+
+        $leads = Product::where('company_id', $user->company_id)
+            ->where('name', 'like', "%{$query}%")
+            ->select('id', 'name', 'base_price')
+            ->orderBy('name')
+            ->limit(20)
+            ->get();
+
+        return response()->json($leads);
     }
 }
