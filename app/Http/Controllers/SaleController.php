@@ -19,32 +19,46 @@ class SaleController extends Controller
             // Core sale data
             'pricing_model' => 'required|in:product,commission,hybrid',
             'notes' => 'nullable|string',
+            'name' => 'required',
 
-            // Products (from lead pivot)
+            // Products
             'product_ids' => 'nullable|array',
             'product_ids.*' => 'exists:products,id',
 
-            // Commission fields
+            // Commission
             'commission_type' => 'nullable|in:percentage,fixed',
             'commission_value' => 'nullable|numeric|min:0',
             'reference_value' => 'nullable|numeric|min:0',
 
-            // Additional charges
+            // Charges
             'charges' => 'nullable|array',
             'charges.*.name' => 'required|string',
             'charges.*.type' => 'required|in:percentage,fixed',
             'charges.*.value' => 'required|numeric|min:0',
+
+            // Discounts
+            'discounts' => 'nullable|array',
+            'discounts.*.name' => 'required|string',
+            'discounts.*.type' => 'required|in:percentage,fixed',
+            'discounts.*.value' => 'required|numeric|min:0',
+
+            // Funnel & Stage
+            'funnel_id' => 'exists:funnels,id',
+            'stage_id' => 'exists:stages,id',
         ]);
 
         $user = Auth::user();
 
         /** -----------------------------------------
-         * 1️⃣ Create Sale (base)
+         * 1️⃣ Create Sale
          * ----------------------------------------*/
         $sale = Sale::create([
             'company_id' => $user->company_id,
             'lead_id' => $lead->id,
             'user_id' => $user->id,
+            'funnel_id' => $validated['funnel_id'] ?? null,
+            'stage_id' => $validated['stage_id'] ?? null,
+            'name' => $validated['name'],
             'status' => 'pending',
             'pricing_model' => $validated['pricing_model'],
             'commission_type' => $validated['commission_type'] ?? null,
@@ -54,7 +68,7 @@ class SaleController extends Controller
         ]);
 
         /** -----------------------------------------
-         * 2️⃣ Attach product snapshot (if applicable)
+         * 2️⃣ Attach product snapshot
          * ----------------------------------------*/
         if (!empty($validated['product_ids'])) {
             $products = $lead->products()
@@ -80,12 +94,12 @@ class SaleController extends Controller
          * ----------------------------------------*/
         $baseSubtotal = 0;
 
-        // A) Product or Hybrid → sum items
+        // Products
         if (in_array($sale->pricing_model, ['product', 'hybrid'])) {
             $baseSubtotal += $sale->items->sum('total_price');
         }
 
-        // B) Commission or Hybrid → calculate commission
+        // Commission
         if (in_array($sale->pricing_model, ['commission', 'hybrid'])) {
 
             if (!$sale->commission_type || !$sale->commission_value) {
@@ -106,7 +120,7 @@ class SaleController extends Controller
         ]);
 
         /** -----------------------------------------
-         * 4️⃣ Create additional charges (on subtotal)
+         * 4️⃣ Charges (ADD on base subtotal)
          * ----------------------------------------*/
         $chargesTotal = 0;
 
@@ -129,27 +143,55 @@ class SaleController extends Controller
         }
 
         /** -----------------------------------------
-         * 5️⃣ Final total
+         * 5️⃣ Discounts (SUBTRACT on base subtotal)
          * ----------------------------------------*/
-        $finalTotal = $baseSubtotal + $chargesTotal;
+        $discountsTotal = 0;
+
+        if (!empty($validated['discounts'])) {
+            foreach ($validated['discounts'] as $discountData) {
+
+                $calculatedAmount = $discountData['type'] === 'percentage'
+                    ? $baseSubtotal * ($discountData['value'] / 100)
+                    : $discountData['value'];
+
+                $discountsTotal += $calculatedAmount;
+
+                $sale->discounts()->create([
+                    'name' => $discountData['name'],
+                    'type' => $discountData['type'],
+                    'value' => $discountData['value'],
+                    'calculated_amount' => $calculatedAmount,
+                ]);
+            }
+        }
+
+        /** -----------------------------------------
+         * 6️⃣ Final total
+         * ----------------------------------------*/
+        $finalTotal = max(
+            0,
+            $baseSubtotal + $chargesTotal - $discountsTotal
+        );
 
         $sale->update([
             'total' => $finalTotal,
         ]);
 
         /** -----------------------------------------
-         * 6️⃣ Return response
+         * 7️⃣ Response
          * ----------------------------------------*/
         return response()->json([
             'message' => 'Sale created successfully',
             'sale' => $sale->load([
                 'items',
                 'charges',
+                'discounts',
                 'lead:id,first_name,last_name',
                 'user:id,name,email',
             ]),
         ], 201);
     }
+
 
 
     public function destroy(Sale $sale): JsonResponse
