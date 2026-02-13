@@ -193,6 +193,10 @@ class FunnelController extends Controller
 
         $tags = Tag::fromCompany($user->company_id)->get();
 
+        if($funnel->company_id !== $user->company_id) {
+            throw ValidationException::withMessages(['funnel' => 'Funnel not found.']);
+        }
+
         return response()->json([
             'funnel' => $funnel,
             'tags'   => $tags,
@@ -216,7 +220,6 @@ class FunnelController extends Controller
                                     'lead.funnel:id,name',
                                     'user:id,name',
                                     'items:id,sale_id,product_name,quantity,total_price',
-                                    'docs',
                                     'charges',
                                     'discounts',
                                 ]);
@@ -224,6 +227,10 @@ class FunnelController extends Controller
                     ]);
             }
         ])->findOrFail($id);
+
+        if($funnel->company_id !== $user->company_id) {
+            throw ValidationException::withMessages(['funnel' => 'Funnel not found.']);
+        }
 
         return response()->json([
             'funnel' => $funnel
