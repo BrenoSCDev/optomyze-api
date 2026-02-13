@@ -125,7 +125,7 @@ Route::middleware('auth:sanctum')->group(function () {
     */
     Route::get('/leads', [LeadController::class, 'index']);
     Route::post('/leads', [LeadController::class, 'store']);
-    Route::get('/leads/search', [LeadController::class, 'search']);
+    Route::get('/leads/search/{products?}', [LeadController::class, 'search']);
     Route::get('/leads/{lead}', [LeadController::class, 'show']);
     Route::put('/leads/{lead}', [LeadController::class, 'update']);
     Route::delete('/leads/{lead}', [LeadController::class, 'destroy']);
@@ -141,6 +141,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/sales/{sale}/docs', [SaleDocController::class, 'store']);
     Route::delete('/sales/docs/{doc}', [SaleDocController::class, 'destroy']);
     Route::put('/sales/{sale}/status', [SaleController::class, 'updateStatus']);
+    Route::patch('/sales/{sale}/move-stage', [SaleController::class, 'moveToStage']);
 
     /*
     |--------------------------------------------------------------------------
@@ -283,6 +284,7 @@ Route::middleware('auth:sanctum')->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::get('/products', [ProductController::class, 'index']);
+    Route::get('/products/search', [ProductController::class, 'search']);
     Route::post('/products', [ProductController::class, 'store']);
     Route::put('/products/{id}', [ProductController::class, 'update']);
     Route::delete('/products/{id}', [ProductController::class, 'destroy']);

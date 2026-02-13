@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Lead;
 use App\Models\Sale;
 use App\Models\SaleItem;
+use App\Models\Stage;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
@@ -174,6 +175,7 @@ class SaleController extends Controller
         );
 
         $sale->update([
+            'discount_total' => $discountsTotal,
             'total' => $finalTotal,
         ]);
 
@@ -191,8 +193,6 @@ class SaleController extends Controller
             ]),
         ], 201);
     }
-
-
 
     public function destroy(Sale $sale): JsonResponse
     {
@@ -271,5 +271,38 @@ class SaleController extends Controller
         ]);
     }
 
+    public function moveToStage(Request $request, $saleId)
+    {
+        // Validate request
+        $request->validate([
+            'stage_id' => 'required|exists:stages,id',
+        ]);
 
+        // Find sale
+        $sale = Sale::find($saleId);
+
+        if (!$sale) {
+            return response()->json([
+                'message' => 'Sale not found.'
+            ], 404);
+        }
+
+        // Optional: check if stage belongs to same funnel (recommended if applicable)
+        $stage = Stage::find($request->stage_id);
+
+        if ($sale->funnel_id && $stage->funnel_id !== $sale->funnel_id) {
+            return response()->json([
+                'message' => 'Stage does not belong to the same funnel as this sale.'
+            ], 422);
+        }
+
+        // Update stage
+        $sale->stage_id = $request->stage_id;
+        $sale->save();
+
+        return response()->json([
+            'message' => 'Sale moved successfully.',
+            'data' => $sale->fresh()
+        ]);
+    }
 }
