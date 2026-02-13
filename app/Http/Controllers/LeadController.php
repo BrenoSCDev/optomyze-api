@@ -87,6 +87,7 @@ class LeadController extends Controller
                     'user:id,name,email',
                     'items',
                     'charges',
+                    'discounts',
                     'docs',
                     'funnel:id,name',
                     'stage:id,name,color',
@@ -298,7 +299,7 @@ class LeadController extends Controller
         ], 201);
     }
 
-    public function search(Request $request)
+    public function search(Request $request, $products = false)
     {
         $user = Auth::user();
 
@@ -316,10 +317,14 @@ class LeadController extends Controller
 
         $leads = Lead::where('company_id', $user->company_id)
             ->where('first_name', 'like', "%{$query}%")
-            ->select('id', 'first_name', 'funnel_id')
+            ->select('id', 'first_name', 'last_name', 'funnel_id')
             ->orderBy('first_name')
             ->limit(20)
             ->get();
+
+        if($products) {
+            $leads->load('products:id,name');
+        }
 
         return response()->json($leads);
     }
