@@ -88,6 +88,8 @@ class LeadController extends Controller
                     'items',
                     'charges',
                     'docs',
+                    'funnel:id,name',
+                    'stage:id,name,color',
                 ])->orderBy('created_at', 'desc');
             },
         ]);
@@ -119,6 +121,12 @@ class LeadController extends Controller
         $companies = LeadCompany::where('company_id', $user->company_id)
             ->select('id', 'legal_name')
             ->get();
+        
+        $dealFunnels = \App\Models\Funnel::where('company_id', $user->company_id)
+            ->with('stages:id,funnel_id,name,order')
+            ->select('id', 'name')
+            ->where('type', 'deal')
+            ->get();
 
         // Estimated value from products of interest (not sales)
         $valueEstimated = $lead->products->sum('total_price');
@@ -129,6 +137,7 @@ class LeadController extends Controller
             'users' => $users,
             'products' => $products,
             'companies' => $companies,
+            'dealFunnels' => $dealFunnels,
         ]);
     }
 

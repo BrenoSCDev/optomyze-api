@@ -25,6 +25,9 @@ class Sale extends Model
         'notes',
         'closed_at',
         'lost_at',
+        'name',
+        'funnel_id',
+        'stage_id',
     ];
 
     protected $appends = [
@@ -47,6 +50,11 @@ class Sale extends Model
         return $this->hasMany(SaleCharge::class);
     }
 
+    public function discounts()
+    {
+        return $this->hasMany(SaleDiscount::class);
+    }
+    
     public function lead(): BelongsTo
     {
         return $this->belongsTo(Lead::class);
@@ -65,6 +73,22 @@ class Sale extends Model
     public function docs()
     {
         return $this->hasMany(SaleDoc::class);
+    }
+
+    /**
+     * Get the funnel this deal belongs to.
+     */
+    public function funnel(): BelongsTo
+    {
+        return $this->belongsTo(Funnel::class);
+    }
+
+    /**
+     * Get the current stage of the deal.
+     */
+    public function stage(): BelongsTo
+    {
+        return $this->belongsTo(Stage::class);
     }
 
 

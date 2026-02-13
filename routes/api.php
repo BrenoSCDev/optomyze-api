@@ -104,6 +104,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/funnels/deals', [FunnelController::class, 'deals']);
     Route::post('/funnels', [FunnelController::class, 'store']);
     Route::get('/funnels/{id}', [FunnelController::class, 'leadsByStages']);
+    Route::get('/funnels/{id}/deals', [FunnelController::class, 'dealsByStages']);
     Route::put('/funnels/{id}', [FunnelController::class, 'update']);
     Route::delete('/funnels/{id}', [FunnelController::class, 'destroy']);
 

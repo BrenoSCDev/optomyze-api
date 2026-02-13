@@ -186,6 +186,14 @@ class Stage extends Model
     }
 
     /**
+     * Get all deals in this stage.
+     */
+    public function deals(): HasMany
+    {
+        return $this->hasMany(Sale::class);
+    }
+
+    /**
      * Get all entry requirements in this stage.
      */
     public function entryRequirement()

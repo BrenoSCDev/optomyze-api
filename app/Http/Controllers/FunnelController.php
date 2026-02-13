@@ -198,4 +198,35 @@ class FunnelController extends Controller
             'tags'   => $tags,
         ]);
     }
+
+    public function dealsByStages($id)
+    {
+        $user = Auth::user();
+
+        $funnel = Funnel::with([
+            'stages' => function ($query) {
+                $query->where('is_active', true)
+                    ->with([
+                        'deals' => function ($query) {
+                            $query->orderBy('created_at', 'desc')
+                                ->with([
+                                    'lead:id,first_name,last_name,email,phone,stage_id,funnel_id,assigned_to',
+                                    'lead.assignedUser:id,name',
+                                    'lead.stage:id,name,color',
+                                    'lead.funnel:id,name',
+                                    'user:id,name',
+                                    'items:id,sale_id,product_name,quantity,total_price',
+                                    'docs',
+                                    'charges',
+                                    'discounts',
+                                ]);
+                        }
+                    ]);
+            }
+        ])->findOrFail($id);
+
+        return response()->json([
+            'funnel' => $funnel
+        ]);
+    }
 }
