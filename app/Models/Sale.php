@@ -116,7 +116,7 @@ class Sale extends Model
         return 0;
     }
 
-// ✅ Charges total accessor
+    // ✅ Charges total accessor
     public function getChargesTotalAttribute(): float
     {
         return $this->charges->sum('calculated_amount');

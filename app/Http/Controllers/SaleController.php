@@ -6,6 +6,7 @@ use App\Models\Lead;
 use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\Stage;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
@@ -229,6 +230,37 @@ class SaleController extends Controller
         return response()->json([
             'message' => 'Sale deleted successfully',
             'sale_id' => $sale->id
+        ]);
+    }
+
+    /**
+     * Display a specific deal.
+     */
+    public function show(Sale $sale)
+    {
+        $sale->load([
+            'user:id,name,email',
+            'lead:id,first_name,last_name,email,phone,job_title,company_id,funnel_id,stage_id',
+            'lead.funnel:id,name',
+            'lead.stage:id,name,color',
+            'lead.leadCompany:id,legal_name,trade_name,logo_path',
+            'charges',
+            'discounts',
+            'items',
+            'docs',
+            'funnel:id,name',
+            'stage:id,name,color'
+        ]);
+
+        $user = Auth::user();
+
+        $users = User::fromCompany($user->company_id)
+            ->select('id', 'name', 'email')
+            ->get();
+
+        return response()->json([
+            'sale' => $sale,
+            'users' => $users,
         ]);
     }
 
