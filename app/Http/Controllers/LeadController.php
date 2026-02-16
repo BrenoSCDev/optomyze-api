@@ -8,6 +8,7 @@ use App\Models\Lead;
 use App\Models\LeadCompany;
 use App\Models\LeadTransaction;
 use App\Models\Product;
+use App\Models\Task;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -68,7 +69,9 @@ class LeadController extends Controller
     {
         $lead->load([
             'assignedUser:id,name,email',
-            'transactions',
+            'transactions' => function ($query) {
+                $query->latest();
+            },
             'docs',
             'leadCompany:id,legal_name,industry,logo_path',
             'stage:id,name,funnel_id,order',
@@ -327,6 +330,46 @@ class LeadController extends Controller
         }
 
         return response()->json($leads);
+    }
+
+    public function leadactivity()
+    {
+        $companyId = Auth::user()->company_id;
+
+        /*
+        |--------------------------------------------------------------------------
+        | Lead Transactions (Company Scoped)
+        |--------------------------------------------------------------------------
+        */
+        $transactions = LeadTransaction::with([
+                'lead:id,first_name,last_name,email,company_id',
+                'user:id,name,email'
+            ])
+            ->select('id', 'lead_id', 'user_id', 'type', 'source', 'action', 'description', 'created_at')
+            ->where('company_id', $companyId)
+            ->latest() // newest first
+            ->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Tasks (Only From Company Leads)
+        |--------------------------------------------------------------------------
+        */
+        $tasks = Task::with([
+                'lead:id,first_name,last_name,email,company_id',
+                'creator:id,name,email',
+                'assignee:id,name,email'
+            ])
+            ->whereHas('lead', function ($query) use ($companyId) {
+                $query->where('company_id', $companyId);
+            })
+            ->latest() // newest first
+            ->get();
+
+        return response()->json([
+            'transactions' => $transactions,
+            'tasks' => $tasks,
+        ]);
     }
 
     public function addErpBudget(Request $request, Lead $lead)

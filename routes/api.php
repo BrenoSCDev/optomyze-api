@@ -133,6 +133,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/leads/{id}/tags', [LeadController::class, 'updateTags']);
     Route::post('/leads/{lead}/assign', [LeadController::class, 'assignUser']);
     Route::post('leads/{lead}/add-erp-budget', [LeadController::class, 'addErpBudget']);
+    Route::get('/leads-activity', [LeadController::class, 'leadactivity']);
 
     Route::post('/leads/{lead}/products', [LeadProductController::class, 'store']);
     Route::post('/leads/{lead}/sales', [SaleController::class, 'store']);
