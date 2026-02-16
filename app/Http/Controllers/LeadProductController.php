@@ -6,6 +6,8 @@ use App\Models\Lead;
 use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 class LeadProductController extends Controller
 {
@@ -17,45 +19,62 @@ class LeadProductController extends Controller
             'products.*.quantity' => 'required|integer|min:1',
         ]);
 
-        // Load all products in one query (important for performance)
-        $products = Product::whereIn(
-            'id',
-            collect($validated['products'])->pluck('id')
-        )->get()->keyBy('id');
+        return DB::transaction(function () use ($validated, $lead) {
 
-        $syncData = [];
-        $grandTotal = 0;
+            $products = Product::whereIn(
+                'id',
+                collect($validated['products'])->pluck('id')
+            )->get()->keyBy('id');
 
-        foreach ($validated['products'] as $item) {
-            $product = $products[$item['id']];
-            $unitPrice = $product->base_price;
-            $quantity = $item['quantity'];
-            $totalPrice = $unitPrice * $quantity;
+            $syncData = [];
+            $grandTotal = 0;
+            $descriptionParts = [];
 
-            $syncData[$product->id] = [
-                'quantity' => $quantity,
-                'unit_price' => $unitPrice,
-                'total_price' => $totalPrice,
-            ];
+            foreach ($validated['products'] as $item) {
 
-            $grandTotal += $totalPrice;
-        }
+                if (!isset($products[$item['id']])) {
+                    abort(400, "Invalid product ID: {$item['id']}");
+                }
 
-        // Sync pivot data
-        $lead->products()->sync($syncData);
+                $product = $products[$item['id']];
+                $unitPrice = $product->base_price;
+                $quantity = $item['quantity'];
+                $totalPrice = $unitPrice * $quantity;
 
-        // Reload products with pivot info
-        $lead->load([
-            'products:id,name,base_price'
-        ]);
+                $syncData[$product->id] = [
+                    'quantity' => $quantity,
+                    'unit_price' => $unitPrice,
+                    'total_price' => $totalPrice,
+                ];
 
-        return response()->json([
-            'message' => 'Products successfully linked to lead',
-            'data' => [
-                'lead_id' => $lead->id,
-                'products' => $lead->products,
-                'grand_total' => $grandTotal,
-            ],
-        ]);
+                $grandTotal += $totalPrice;
+
+                $descriptionParts[] = "{$product->name} ({$quantity}x)";
+            }
+
+            $lead->products()->sync($syncData);
+
+            // Create Lead Transaction
+            $lead->transactions()->create([
+                'company_id' => $lead->company_id,
+                'user_id' => Auth::user()->id,
+                'type' => 'product_update',
+                'action' => 'products_linked',
+                'description' => Auth::user()->name . ' updated the products of interest linked to the lead: ' .
+                    implode(', ', $descriptionParts) .
+                    ' — Total: ' . number_format($grandTotal, 2, ',', '.'),
+            ]);
+
+            $lead->load('products:id,name,base_price');
+
+            return response()->json([
+                'message' => 'Products successfully linked to lead',
+                'data' => [
+                    'lead_id' => $lead->id,
+                    'products' => $lead->products,
+                    'grand_total' => $grandTotal,
+                ],
+            ]);
+        });
     }
 }
