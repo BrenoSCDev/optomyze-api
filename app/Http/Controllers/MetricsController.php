@@ -18,64 +18,141 @@ class MetricsController extends Controller
 {
     /**
      * Get comprehensive dashboard metrics.
+     *
+     * Accepts an optional ?period= query param:
+     *   today | yesterday | 7_days | 30_days (default) | 60_days | 90_days | 120_days | full
      */
     public function dashboard(Request $request): JsonResponse
     {
         $user = $request->user();
         $company = $user->company;
         $companyId = $company->id;
-        
-        // Get current and last month dates
-        $currentMonth = Carbon::now()->startOfMonth();
-        $lastMonth = Carbon::now()->subMonth()->startOfMonth();
-        $endOfCurrentMonth = Carbon::now()->endOfMonth();
-        $endOfLastMonth = Carbon::now()->subMonth()->endOfMonth();
+
+        [$startDate, $endDate, $prevStart, $prevEnd, $periodLabel] =
+            $this->resolvePeriod($request->input('period', '30_days'));
 
         // 1. Lead Statistics by Stage Type
-        $leadStats = $this->getLeadStatistics($companyId);
-        $lastMonthLeadStats = $this->getLeadStatistics($companyId, $lastMonth, $endOfLastMonth);
+        $leadStats     = $this->getLeadStatistics($companyId, $startDate, $endDate);
+        $prevLeadStats = $this->getLeadStatistics($companyId, $prevStart, $prevEnd);
 
         // 2. Conversion Rate
-        $conversionRate = $this->getConversionRate($companyId);
-        $lastMonthConversionRate = $this->getConversionRate($companyId, $lastMonth, $endOfLastMonth);
-        
-        // 3. Month-over-Month Performance Comparison
-        $performance = $this->calculatePerformanceComparison(
-            $leadStats,
-            $lastMonthLeadStats,
-            $conversionRate,
-            $lastMonthConversionRate
-        );
+        $conversionRate     = $this->getConversionRate($companyId, $startDate, $endDate);
+        $prevConversionRate = $this->getConversionRate($companyId, $prevStart, $prevEnd);
 
+        // 3. Performance Comparison (skipped when full period — no previous window)
+        $performance = ($prevStart !== null)
+            ? $this->calculatePerformanceComparison($leadStats, $prevLeadStats, $conversionRate, $prevConversionRate)
+            : null;
 
+        // 4. Leads by Funnel Stage (scoped to selected period)
+        $leadsByFunnelStage = $this->getLeadsByFunnelStage($companyId, $startDate, $endDate);
 
-        // 4. Leads by Funnel Stage Analysis
-        $leadsByFunnelStage = $this->getLeadsByFunnelStage($companyId);
+        // 5. Estimated vs Closed Value (closed_at scoped to selected period)
+        $estimatedVsClosedValue = $this->getEstimatedVsClosedValue($company, $startDate, $endDate);
 
-        // 5. Estimated vs Closed Value Analysis (Product Module Only)
-        $estimatedVsClosedValue = $this->getEstimatedVsClosedValue($company);
+        // 6. Deals by Funnel Stage (scoped to selected period)
+        $dealsByFunnelStage = $this->getSalesByFunnelStage($companyId, $startDate, $endDate);
 
-        // 6. Leads by Funnel Stage Analysis
-        $dealsByFunnelStage = $this->getSalesByFunnelStage($companyId);
+        // 7. Deal Statistics scoped to period (uses closed_at / lost_at)
+        $dealStats = $this->getDealStatistics($companyId, $startDate, $endDate);
 
         return response()->json([
             'data' => [
-                'lead_statistics' => $leadStats,
-                'conversion_rate' => round($conversionRate, 2),
-                'performance_comparison' => $performance,
-                'leads_by_funnel_stage' => $leadsByFunnelStage,
-                'deals_by_funnel_stage' => $dealsByFunnelStage,
+                'lead_statistics'          => $leadStats,
+                'deal_statistics'          => $dealStats,
+                'conversion_rate'          => round($conversionRate, 2),
+                'performance_comparison'   => $performance,
+                'leads_by_funnel_stage'    => $leadsByFunnelStage,
+                'deals_by_funnel_stage'    => $dealsByFunnelStage,
                 'estimated_vs_closed_value' => $estimatedVsClosedValue,
                 'summary' => [
-                    'period' => [
-                        'current_month' => $currentMonth->format('F Y'),
-                        'last_month' => $lastMonth->format('F Y'),
-                    ],
-                    'company_id' => $companyId,
+                    'period'       => $periodLabel,
+                    'company_id'   => $companyId,
                     'generated_at' => now()->toISOString(),
                 ],
             ],
         ]);
+    }
+
+    /**
+     * Resolve the requested period string into date boundaries.
+     *
+     * Returns [startDate, endDate, previousStart, previousEnd, periodLabel].
+     * For the 'full' period, start/end and previous boundaries are null.
+     */
+    private function resolvePeriod(string $period): array
+    {
+        $now = Carbon::now();
+
+        $make = fn(int $days) => [
+            $now->copy()->subDays($days)->startOfDay(),
+            $now->copy()->endOfDay(),
+            $now->copy()->subDays($days * 2)->startOfDay(),
+            $now->copy()->subDays($days + 1)->endOfDay(),
+            [
+                'label' => "last_{$days}_days",
+                'start' => $now->copy()->subDays($days)->toDateString(),
+                'end'   => $now->toDateString(),
+            ],
+        ];
+
+        return match ($period) {
+            'today' => [
+                $now->copy()->startOfDay(),
+                $now->copy()->endOfDay(),
+                $now->copy()->subDay()->startOfDay(),
+                $now->copy()->subDay()->endOfDay(),
+                ['label' => 'today', 'start' => $now->toDateString(), 'end' => $now->toDateString()],
+            ],
+            'yesterday' => [
+                $now->copy()->subDay()->startOfDay(),
+                $now->copy()->subDay()->endOfDay(),
+                $now->copy()->subDays(2)->startOfDay(),
+                $now->copy()->subDays(2)->endOfDay(),
+                ['label' => 'yesterday', 'start' => $now->copy()->subDay()->toDateString(), 'end' => $now->copy()->subDay()->toDateString()],
+            ],
+            '7_days'   => $make(7),
+            '60_days'  => $make(60),
+            '90_days'  => $make(90),
+            '120_days' => $make(120),
+            'full'     => [null, null, null, null, ['label' => 'full_period', 'start' => null, 'end' => null]],
+            default    => $make(30), // 30_days
+        };
+    }
+
+    /**
+     * Get deal statistics for a period, using closed_at / lost_at timestamps.
+     * Total deals and conversion rate are scoped by created_at.
+     */
+    private function getDealStatistics(int $companyId, ?Carbon $startDate, ?Carbon $endDate): array
+    {
+        $closedQuery = Sale::where('company_id', $companyId)->where('status', 'closed');
+        $lostQuery   = Sale::where('company_id', $companyId)->where('status', 'lost');
+        $totalQuery  = Sale::where('company_id', $companyId);
+
+        if ($startDate && $endDate) {
+            $closedQuery->whereBetween('closed_at', [$startDate, $endDate]);
+            $lostQuery->whereBetween('lost_at', [$startDate, $endDate]);
+            $totalQuery->whereBetween('created_at', [$startDate, $endDate]);
+        }
+
+        $closedCount = (clone $closedQuery)->count();
+        $revenue     = (clone $closedQuery)->sum('total');
+        $lostCount   = (clone $lostQuery)->count();
+        $totalDeals  = (clone $totalQuery)->count();
+
+        $conversionRate = $totalDeals > 0
+            ? round(($closedCount / $totalDeals) * 100, 2)
+            : 0.0;
+
+        return [
+            'total_deals'          => $totalDeals,
+            'closed_deals'         => $closedCount,
+            'lost_deals'           => $lostCount,
+            'revenue'              => round((float) $revenue, 2),
+            'average_deal_value'   => $closedCount > 0 ? round((float) $revenue / $closedCount, 2) : 0.0,
+            'deal_conversion_rate' => $conversionRate,
+        ];
     }
 
     /**
@@ -103,7 +180,7 @@ class MetricsController extends Controller
     /**
      * Get lead statistics by stage type.
      */
-    private function getLeadStatistics(int $companyId, Carbon $startDate = null, Carbon $endDate = null): array
+    private function getLeadStatistics(int $companyId, ?Carbon $startDate = null, ?Carbon $endDate = null): array
     {
         $query = Lead::query()
             ->fromCompany($companyId)
@@ -125,19 +202,18 @@ class MetricsController extends Controller
             ->toArray();
 
         return [
-            'total_leads' => $totalLeads,
+            'total_leads'     => $totalLeads,
             'total_leads_lost' => $leadsByType['lost'] ?? 0,
             'converted_leads' => $leadsByType['conversion'] ?? 0,
-            'in_service' => $leadsByType['service'] ?? 0,
-            'in_pipeline' => $leadsByType['pipeline'] ?? 0,
-            'breakdown' => $leadsByType,
+            'qualified_leads' => $leadsByType['qualified'] ?? 0,
+            'breakdown'       => $leadsByType,
         ];
     }
 
     /**
      * Calculate conversion rate.
      */
-    private function getConversionRate(int $companyId, Carbon $startDate = null, Carbon $endDate = null): float
+    private function getConversionRate(int $companyId, ?Carbon $startDate = null, ?Carbon $endDate = null): float
     {
         $query = Lead::query()
             ->fromCompany($companyId)
@@ -215,9 +291,9 @@ class MetricsController extends Controller
                 $lastMonthStats['total_leads_lost'],
                 'lower_is_better'
             ),
-            'in_service' => $this->calculateMetricComparison(
-                $currentStats['in_service'],
-                $lastMonthStats['in_service'],
+            'qualified_leads' => $this->calculateMetricComparison(
+                $currentStats['qualified_leads'],
+                $lastMonthStats['qualified_leads'],
                 'higher_is_better'
             ),
             'conversion_rate' => $this->calculateMetricComparison(
@@ -656,129 +732,113 @@ class MetricsController extends Controller
     }
 
     /**
-     * Get leads distribution by funnel stage.
+     * Get leads distribution by funnel stage, scoped to the selected period.
      * Shows lead count and percentage per stage in each funnel.
      */
-    private function getLeadsByFunnelStage(int $companyId): array
+    private function getLeadsByFunnelStage(int $companyId, ?Carbon $startDate = null, ?Carbon $endDate = null): array
     {
-        // Get all funnels with their stages and leads (eager loading)
         $funnels = Funnel::where(['company_id' => $companyId, 'type' => 'sale'])
-            ->with(['stages' => function ($query) use ($companyId) {
-                $query->with(['leads' => function ($leadsQuery) use ($companyId) {
-                    $leadsQuery->where('company_id', $companyId)
-                        ->select('id', 'stage_id', 'funnel_id', 'company_id');
-                }]);
-            }])
+            ->with('stages')
             ->get();
-
 
         $funnelAnalysis = [];
 
         foreach ($funnels as $funnel) {
-            // Count total leads in funnel
-            $totalLeadsInFunnel = Lead::where('funnel_id', $funnel->id)
+            $baseQuery = fn() => Lead::where('funnel_id', $funnel->id)
                 ->where('company_id', $companyId)
-                ->count();
+                ->when($startDate && $endDate, fn($q) => $q->whereBetween('created_at', [$startDate, $endDate]));
+
+            $totalLeadsInFunnel = $baseQuery()->count();
 
             $stagesData = [];
 
             foreach ($funnel->stages as $stage) {
-                $leadsInStage = Lead::where('stage_id', $stage->id)
-                    ->where('funnel_id', $funnel->id)
-                    ->where('company_id', $companyId)
+                $leadsInStage = $baseQuery()
+                    ->where('stage_id', $stage->id)
                     ->count();
 
-                // Calculate percentage
                 $percentage = $totalLeadsInFunnel > 0
                     ? round(($leadsInStage / $totalLeadsInFunnel) * 100, 2)
                     : 0;
 
                 $stagesData[] = [
-                    'stage_id' => $stage->id,
+                    'stage_id'   => $stage->id,
                     'stage_name' => $stage->name,
                     'stage_type' => $stage->type ?? null,
-                    'leads' => $leadsInStage,
+                    'leads'      => $leadsInStage,
                     'percentage' => $percentage,
                 ];
             }
 
             $funnelAnalysis[] = [
-                'funnel_id' => $funnel->id,
+                'funnel_id'   => $funnel->id,
                 'funnel_name' => $funnel->name,
                 'total_leads' => $totalLeadsInFunnel,
-                'stages' => $stagesData,
+                'stages'      => $stagesData,
             ];
         }
 
         return [
-            'available' => true,
-            'funnels' => $funnelAnalysis,
+            'available'     => true,
+            'funnels'       => $funnelAnalysis,
             'total_funnels' => count($funnelAnalysis),
         ];
     }
 
     /**
-     * Get sales distribution by funnel stage.
+     * Get sales distribution by funnel stage, scoped to the selected period.
      * Shows sales count and percentage per stage in each deal funnel.
      */
-    private function getSalesByFunnelStage(int $companyId): array
+    private function getSalesByFunnelStage(int $companyId, ?Carbon $startDate = null, ?Carbon $endDate = null): array
     {
-        // Get all deal funnels with their stages and sales (eager loading)
-        $funnels = Funnel::where([
-                'company_id' => $companyId,
-                'type' => 'deal'
-            ])
-            ->with(['stages' => function ($query) use ($companyId) {
-                $query->with(['deals' => function ($salesQuery) use ($companyId) {
-                    $salesQuery->where('company_id', $companyId)
-                        ->select('id', 'stage_id', 'funnel_id', 'company_id');
-                }]);
-            }])
+        $funnels = Funnel::where(['company_id' => $companyId, 'type' => 'deal'])
+            ->with('stages')
             ->get();
 
         $funnelAnalysis = [];
 
         foreach ($funnels as $funnel) {
-
-            // Count total sales in funnel
-            $totalSalesInFunnel = Sale::where('funnel_id', $funnel->id)
+            $baseQuery = fn() => Sale::where('funnel_id', $funnel->id)
                 ->where('company_id', $companyId)
-                ->count();
+                ->when($startDate && $endDate, fn($q) => $q->where(function ($q) use ($startDate, $endDate) {
+                    $q->whereBetween('created_at', [$startDate, $endDate])
+                      ->orWhereBetween('closed_at', [$startDate, $endDate])
+                      ->orWhereBetween('lost_at', [$startDate, $endDate]);
+                }));
+
+            $totalSalesInFunnel = $baseQuery()->count();
 
             $stagesData = [];
 
             foreach ($funnel->stages as $stage) {
-
-                $salesInStage = Sale::where('stage_id', $stage->id)
-                    ->where('funnel_id', $funnel->id)
-                    ->where('company_id', $companyId)
+                $salesInStage = $baseQuery()
+                    ->where('stage_id', $stage->id)
                     ->count();
 
-                // Calculate percentage
                 $percentage = $totalSalesInFunnel > 0
                     ? round(($salesInStage / $totalSalesInFunnel) * 100, 2)
                     : 0;
 
                 $stagesData[] = [
-                    'stage_id' => $stage->id,
+                    'stage_id'   => $stage->id,
                     'stage_name' => $stage->name,
                     'stage_type' => $stage->type ?? null,
-                    'sales' => $salesInStage,
+                    'sales'      => $salesInStage,
                     'percentage' => $percentage,
                 ];
             }
 
             $funnelAnalysis[] = [
-                'funnel_id' => $funnel->id,
+                'funnel_id'   => $funnel->id,
                 'funnel_name' => $funnel->name,
                 'total_sales' => $totalSalesInFunnel,
-                'stages' => $stagesData,
+                'stages'      => $stagesData,
             ];
         }
 
         return [
-            'available' => true,
-            'funnels' => $funnelAnalysis,
+            'available'     => true,
+            'funnels'       => $funnelAnalysis,
             'total_funnels' => count($funnelAnalysis),
         ];
     }
@@ -787,7 +847,7 @@ class MetricsController extends Controller
      * Get estimated value vs closed value analysis per funnel.
      * Only available for product module.
      */
-    private function getEstimatedVsClosedValue($company): array
+    private function getEstimatedVsClosedValue($company, ?Carbon $startDate = null, ?Carbon $endDate = null): array
     {
         // Check if module supports this analysis
         if ($company->product_module !== 'product') {
@@ -822,13 +882,18 @@ class MetricsController extends Controller
                 }
             }
 
-            // Calculate closed value from sales
-            $closedValue = Sale::where('company_id', $companyId)
+            // Calculate closed value from sales using closed_at for period scoping
+            $closedQuery = Sale::where('company_id', $companyId)
                 ->where('status', 'closed')
                 ->whereHas('lead', function ($query) use ($funnel) {
                     $query->where('funnel_id', $funnel->id);
-                })
-                ->sum('total');
+                });
+
+            if ($startDate && $endDate) {
+                $closedQuery->whereBetween('closed_at', [$startDate, $endDate]);
+            }
+
+            $closedValue = $closedQuery->sum('total');
 
             // Calculate conversion percentage
             $conversionPercentage = $funnelEstimatedValue > 0
