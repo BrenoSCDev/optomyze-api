@@ -29,6 +29,7 @@ use App\Http\Controllers\LeadProductController;
 use App\Http\Controllers\ObservationController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\SaleDocController;
+use App\Http\Controllers\SaleTransactionController;
 use App\Http\Controllers\WhatsappEvoChatController;
 use App\Http\Controllers\WhatsAppEvoIntegrationController;
 use App\Http\Controllers\WhatsAppInstanceController;
@@ -133,7 +134,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/leads/{id}/tags', [LeadController::class, 'updateTags']);
     Route::post('/leads/{lead}/assign', [LeadController::class, 'assignUser']);
     Route::post('leads/{lead}/add-erp-budget', [LeadController::class, 'addErpBudget']);
-    Route::get('/leads-activity', [LeadController::class, 'leadactivity']);
+    Route::get('/leads-activity/transactions', [LeadController::class, 'leadTransactions']);
+    Route::get('/leads-activity/tasks', [LeadController::class, 'leadTasks']);
 
     Route::post('/leads/{lead}/products', [LeadProductController::class, 'store']);
     Route::post('/leads/{lead}/sales', [SaleController::class, 'store']);
@@ -177,7 +179,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/companies/{companyId}/transactions', [LeadTransactionController::class, 'transactionsByCompany']);
     Route::get('/leads/{leadId}/transactions', [LeadTransactionController::class, 'transactionsByLead']);
 
+    Route::get('/sales/{saleId}/transactions', [SaleTransactionController::class, 'transactionsBySale']);
+    Route::get('/companies/{companyId}/sale-transactions', [SaleTransactionController::class, 'transactionsByCompany']);
+
     Route::get('/metrics/leads-breakdown', [MetricsController::class, 'dashboard']);
+    Route::get('/metrics/monthly-charts', [MetricsController::class, 'monthlyCharts']);
     Route::get('/metrics/plan-usage', [MetricsController::class, 'planUsage']);
 
 

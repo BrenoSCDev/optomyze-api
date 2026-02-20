@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Lead;
 use App\Models\Sale;
 use App\Models\SaleItem;
+use App\Models\SaleTransaction;
 use App\Models\Stage;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -181,7 +182,12 @@ class SaleController extends Controller
         ]);
 
         /** -----------------------------------------
-         * 7️⃣ Response
+         * 7️⃣ Log creation transaction
+         * ----------------------------------------*/
+        SaleTransaction::createSaleCreation($sale, $user);
+
+        /** -----------------------------------------
+         * 8️⃣ Response
          * ----------------------------------------*/
         return response()->json([
             'message' => 'Sale created successfully',
@@ -206,7 +212,10 @@ class SaleController extends Controller
             ], 403);
         }
 
-        DB::transaction(function () use ($sale) {
+        DB::transaction(function () use ($sale, $user) {
+
+            // Log deletion before the sale is removed
+            SaleTransaction::createSaleDeletion($sale, $user);
 
             // Delete related sale items
             $sale->items()->delete();
@@ -249,7 +258,8 @@ class SaleController extends Controller
             'items',
             'docs',
             'funnel:id,name',
-            'stage:id,name,color'
+            'stage:id,name,color',
+            'transactions'
         ]);
 
         $user = Auth::user();
@@ -295,7 +305,10 @@ class SaleController extends Controller
             $updateData['closed_at'] = null; // ensure consistency
         }
 
+        $fromStatus = $sale->status;
         $sale->update($updateData);
+
+        SaleTransaction::createStatusChange($sale, $fromStatus, $data['status'], Auth::user());
 
         return response()->json([
             'message' => 'Sale status updated successfully.',
@@ -328,9 +341,23 @@ class SaleController extends Controller
             ], 422);
         }
 
+        // Capture current stage before moving
+        $fromStage = $sale->stage_id ? Stage::find($sale->stage_id) : null;
+
         // Update stage
         $sale->stage_id = $request->stage_id;
+
+        if ($stage->type === 'won') {
+            $sale->status = 'closed';
+            $sale->closed_at = now();
+        } elseif ($stage->type === 'lost') {
+            $sale->status = 'lost';
+            $sale->lost_at = now();
+        }
+
         $sale->save();
+
+        SaleTransaction::createStageChange($sale, $fromStage, $stage, Auth::user());
 
         return response()->json([
             'message' => 'Sale moved successfully.',
