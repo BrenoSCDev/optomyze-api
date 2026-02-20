@@ -15,7 +15,7 @@ return new class extends Migration {
             $table->foreignId('company_id')->constrained()->cascadeOnDelete();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete(); // seller
 
-            $table->enum('status', ['pending', 'sent', 'closed', 'lost'])->default('pending');
+            $table->enum('status', ['in_pipeline', 'closed', 'lost'])->default('in_pipeline');
 
             $table->enum('pricing_model', ['product', 'commission', 'hybrid'])->default('product');
 
