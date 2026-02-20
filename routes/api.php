@@ -27,6 +27,8 @@ use App\Http\Controllers\TaskController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\LeadProductController;
 use App\Http\Controllers\ObservationController;
+use App\Http\Controllers\ConversationController;
+use App\Http\Controllers\InternalMessageController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\SaleDocController;
 use App\Http\Controllers\SaleTransactionController;
@@ -352,6 +354,20 @@ Route::middleware('verify.api.token')->prefix('v1')->group(function () {
     Route::post('/leads', [LeadController::class, 'apiStore']);
     
     Route::post('/conversation-reports', [ConversationReportController::class, 'store']);
+});
+
+// Internal Chat
+Route::prefix('chat')->middleware('auth:sanctum')->group(function () {
+    Route::get('conversations', [ConversationController::class, 'index']);
+    Route::get('contacts', [ConversationController::class, 'contacts']);
+    Route::post('private', [ConversationController::class, 'storePrivate']);
+    Route::post('group', [ConversationController::class, 'storeGroup']);
+    Route::delete('group/{conversation}', [ConversationController::class, 'destroyGroup']);
+    Route::post('group/{conversation}/members', [ConversationController::class, 'addMembers']);
+    Route::post('group/{conversation}/admins', [ConversationController::class, 'promoteAdmin']);
+    Route::get('{conversation}/messages', [InternalMessageController::class, 'index']);
+    Route::post('messages', [InternalMessageController::class, 'store']);
+    Route::delete('messages', [InternalMessageController::class, 'deleteMultiple']);
 });
 
 // WhatsApp Evolution API Chat

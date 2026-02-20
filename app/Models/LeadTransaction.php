@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Events\LeadTransactionNotification;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,6 +12,13 @@ use Carbon\Carbon;
 class LeadTransaction extends Model
 {
     use HasFactory;
+
+    protected static function booted(): void
+    {
+        static::created(function (LeadTransaction $transaction) {
+            broadcast(new LeadTransactionNotification($transaction));
+        });
+    }
 
     /**
      * Transaction type constants

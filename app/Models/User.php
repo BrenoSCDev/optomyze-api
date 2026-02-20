@@ -5,11 +5,13 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 // use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 
 class User extends Authenticatable
 {
@@ -65,6 +67,16 @@ class User extends Authenticatable
         return $this->belongsToMany(Team::class)
             ->withPivot('role')
             ->withTimestamps();
+    }
+
+    public function conversations(): BelongsToMany
+    {
+        return $this->belongsToMany(Conversation::class, 'conversation_user')->withTimestamps();
+    }
+
+    public function getProfilePicUrlAttribute(): ?string
+    {
+        return $this->profile_pic ? Storage::url($this->profile_pic) : null;
     }
 
     // /**
