@@ -332,29 +332,28 @@ class LeadController extends Controller
         return response()->json($leads);
     }
 
-    public function leadactivity()
+    public function leadTransactions()
     {
         $companyId = Auth::user()->company_id;
 
-        /*
-        |--------------------------------------------------------------------------
-        | Lead Transactions (Company Scoped)
-        |--------------------------------------------------------------------------
-        */
         $transactions = LeadTransaction::with([
                 'lead:id,first_name,last_name,email,company_id',
                 'user:id,name,email'
             ])
             ->select('id', 'lead_id', 'user_id', 'type', 'source', 'action', 'description', 'created_at')
             ->where('company_id', $companyId)
-            ->latest() // newest first
+            ->latest()
             ->get();
 
-        /*
-        |--------------------------------------------------------------------------
-        | Tasks (Only From Company Leads)
-        |--------------------------------------------------------------------------
-        */
+        return response()->json([
+            'transactions' => $transactions,
+        ]);
+    }
+
+    public function leadTasks()
+    {
+        $companyId = Auth::user()->company_id;
+
         $tasks = Task::with([
                 'lead:id,first_name,last_name,email,company_id',
                 'creator:id,name,email',
@@ -363,11 +362,10 @@ class LeadController extends Controller
             ->whereHas('lead', function ($query) use ($companyId) {
                 $query->where('company_id', $companyId);
             })
-            ->latest() // newest first
+            ->latest()
             ->get();
 
         return response()->json([
-            'transactions' => $transactions,
             'tasks' => $tasks,
         ]);
     }
