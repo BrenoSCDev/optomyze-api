@@ -146,6 +146,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/sales/{sale}', [SaleController::class, 'show']);
     Route::put('/sales/{sale}/status', [SaleController::class, 'updateStatus']);
     Route::patch('/sales/{sale}/move-stage', [SaleController::class, 'moveToStage']);
+    Route::get('/deals-activity/transactions', [SaleController::class, 'dealTransactions']);
 
     /*
     |--------------------------------------------------------------------------

@@ -363,5 +363,23 @@ class SaleController extends Controller
             'message' => 'Sale moved successfully.',
             'data' => $sale->fresh()
         ]);
-    }
+        }
+
+        public function dealTransactions()
+        {
+            $companyId = Auth::user()->company_id;
+
+            $transactions = SaleTransaction::with([
+                    'sale:id,lead_id,user_id,name,total,created_at',
+                    'sale.lead:id,first_name,last_name,email,phone',
+                    'user:id,name,email'
+                ])
+                ->where('company_id', $companyId)
+                ->latest()
+                ->get();
+
+            return response()->json([
+                'transactions' => $transactions,
+            ]);
+        }
 }
