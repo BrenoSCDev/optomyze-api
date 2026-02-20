@@ -38,11 +38,8 @@ class MetricsController extends Controller
         // 2. Conversion Rate
         $conversionRate = $this->getConversionRate($companyId);
         $lastMonthConversionRate = $this->getConversionRate($companyId, $lastMonth, $endOfLastMonth);
-
-        // 3. Monthly Lead Creation Data (Current Year)
-        $monthlyLeadData = $this->getMonthlyLeadData($companyId);
-
-        // 4. Month-over-Month Performance Comparison
+        
+        // 3. Month-over-Month Performance Comparison
         $performance = $this->calculatePerformanceComparison(
             $leadStats,
             $lastMonthLeadStats,
@@ -50,23 +47,24 @@ class MetricsController extends Controller
             $lastMonthConversionRate
         );
 
-        // 5. Revenue Metrics (Module-aware)
-        $revenueMetrics = $this->getRevenueMetricsByModule($company);
 
-        // 6. Leads by Funnel Stage Analysis
+
+        // 4. Leads by Funnel Stage Analysis
         $leadsByFunnelStage = $this->getLeadsByFunnelStage($companyId);
 
-        // 7. Estimated vs Closed Value Analysis (Product Module Only)
+        // 5. Estimated vs Closed Value Analysis (Product Module Only)
         $estimatedVsClosedValue = $this->getEstimatedVsClosedValue($company);
+
+        // 6. Leads by Funnel Stage Analysis
+        $dealsByFunnelStage = $this->getSalesByFunnelStage($companyId);
 
         return response()->json([
             'data' => [
                 'lead_statistics' => $leadStats,
                 'conversion_rate' => round($conversionRate, 2),
-                'monthly_lead_data' => $monthlyLeadData,
                 'performance_comparison' => $performance,
-                'revenue_metrics' => $revenueMetrics,
                 'leads_by_funnel_stage' => $leadsByFunnelStage,
+                'deals_by_funnel_stage' => $dealsByFunnelStage,
                 'estimated_vs_closed_value' => $estimatedVsClosedValue,
                 'summary' => [
                     'period' => [
@@ -76,6 +74,28 @@ class MetricsController extends Controller
                     'company_id' => $companyId,
                     'generated_at' => now()->toISOString(),
                 ],
+            ],
+        ]);
+    }
+
+    /**
+     * Get comprehensive monthly metrics.
+     */
+    public function monthlyCharts(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $company = $user->company;
+        $companyId = $company->id;
+
+        // 1. Revenue Metrics (Module-aware)
+        $revenueMetrics = $this->getRevenueMetricsByModule($company);
+
+        // 2. Monthly Lead Creation Data (Current Year)
+        $monthlyLeadData = $this->getMonthlyLeadData($companyId);
+        return response()->json([
+            'data' => [
+                'monthly_lead_data' => $monthlyLeadData,
+                'revenue_metrics' => $revenueMetrics,
             ],
         ]);
     }
@@ -642,14 +662,14 @@ class MetricsController extends Controller
     private function getLeadsByFunnelStage(int $companyId): array
     {
         // Get all funnels with their stages and leads (eager loading)
-    $funnels = Funnel::where('company_id', $companyId)
-        ->with(['stages' => function ($query) use ($companyId) {
-            $query->with(['leads' => function ($leadsQuery) use ($companyId) {
-                $leadsQuery->where('company_id', $companyId)
-                    ->select('id', 'stage_id', 'funnel_id', 'company_id');
-            }]);
-        }])
-        ->get();
+        $funnels = Funnel::where(['company_id' => $companyId, 'type' => 'sale'])
+            ->with(['stages' => function ($query) use ($companyId) {
+                $query->with(['leads' => function ($leadsQuery) use ($companyId) {
+                    $leadsQuery->where('company_id', $companyId)
+                        ->select('id', 'stage_id', 'funnel_id', 'company_id');
+                }]);
+            }])
+            ->get();
 
 
         $funnelAnalysis = [];
@@ -686,6 +706,72 @@ class MetricsController extends Controller
                 'funnel_id' => $funnel->id,
                 'funnel_name' => $funnel->name,
                 'total_leads' => $totalLeadsInFunnel,
+                'stages' => $stagesData,
+            ];
+        }
+
+        return [
+            'available' => true,
+            'funnels' => $funnelAnalysis,
+            'total_funnels' => count($funnelAnalysis),
+        ];
+    }
+
+    /**
+     * Get sales distribution by funnel stage.
+     * Shows sales count and percentage per stage in each deal funnel.
+     */
+    private function getSalesByFunnelStage(int $companyId): array
+    {
+        // Get all deal funnels with their stages and sales (eager loading)
+        $funnels = Funnel::where([
+                'company_id' => $companyId,
+                'type' => 'deal'
+            ])
+            ->with(['stages' => function ($query) use ($companyId) {
+                $query->with(['deals' => function ($salesQuery) use ($companyId) {
+                    $salesQuery->where('company_id', $companyId)
+                        ->select('id', 'stage_id', 'funnel_id', 'company_id');
+                }]);
+            }])
+            ->get();
+
+        $funnelAnalysis = [];
+
+        foreach ($funnels as $funnel) {
+
+            // Count total sales in funnel
+            $totalSalesInFunnel = Sale::where('funnel_id', $funnel->id)
+                ->where('company_id', $companyId)
+                ->count();
+
+            $stagesData = [];
+
+            foreach ($funnel->stages as $stage) {
+
+                $salesInStage = Sale::where('stage_id', $stage->id)
+                    ->where('funnel_id', $funnel->id)
+                    ->where('company_id', $companyId)
+                    ->count();
+
+                // Calculate percentage
+                $percentage = $totalSalesInFunnel > 0
+                    ? round(($salesInStage / $totalSalesInFunnel) * 100, 2)
+                    : 0;
+
+                $stagesData[] = [
+                    'stage_id' => $stage->id,
+                    'stage_name' => $stage->name,
+                    'stage_type' => $stage->type ?? null,
+                    'sales' => $salesInStage,
+                    'percentage' => $percentage,
+                ];
+            }
+
+            $funnelAnalysis[] = [
+                'funnel_id' => $funnel->id,
+                'funnel_name' => $funnel->name,
+                'total_sales' => $totalSalesInFunnel,
                 'stages' => $stagesData,
             ];
         }
