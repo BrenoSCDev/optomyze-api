@@ -14,6 +14,7 @@ return new class extends Migration
         Schema::create('tasks', function (Blueprint $table) {
             $table->id();
             $table->foreignId('lead_id')
+                ->nullable()
                 ->constrained('leads')
                 ->cascadeOnDelete();
 
