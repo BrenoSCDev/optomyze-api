@@ -109,11 +109,11 @@ class ProductController extends Controller
         ], 201);
     }
 
-    public function show(Request $request, $id)
+    public function show(Request $request, $product)
     {
-        $product = Product::with(['images'])
+        $product = Product::with(['images', 'primaryImage', 'fields'])
             ->fromCompany($request->user()->company_id)
-            ->findOrFail($id);
+            ->findOrFail($product);
 
         return response()->json(['product' => $product]);
     }

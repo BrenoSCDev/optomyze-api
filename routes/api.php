@@ -80,6 +80,7 @@ Route::middleware('auth:sanctum')->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::get('/users', [UserController::class, 'index']);
+    Route::get('/users/search', [UserController::class, 'search']);
     Route::post('/users', [UserController::class, 'store']);
     Route::put('/users/{id}', [UserController::class, 'update']);
     Route::patch('/users/{id}/toggle-status', [UserController::class, 'toggleStatus']);
@@ -141,6 +142,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/leads/{lead}/products', [LeadProductController::class, 'store']);
     Route::post('/leads/{lead}/sales', [SaleController::class, 'store']);
+    Route::get('/sales/search', [SaleController::class, 'search']);
     Route::delete('/sales/{sale}', [SaleController::class, 'destroy']);
 
     Route::post('/sales/{sale}/docs', [SaleDocController::class, 'store']);
@@ -262,6 +264,7 @@ Route::middleware('auth:sanctum')->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::get('/tasks', [TaskController::class, 'companyTasks']);
+    Route::get('/tasks/search', [TaskController::class, 'search']);
     Route::post('/tasks', [TaskController::class, 'store']);
     Route::get('/tasks/{task}', [TaskController::class, 'show']);
     Route::put('/tasks/{task}', [TaskController::class, 'update']);
@@ -296,6 +299,7 @@ Route::middleware('auth:sanctum')->group(function () {
     */
     Route::get('/products', [ProductController::class, 'index']);
     Route::get('/products/search', [ProductController::class, 'search']);
+    Route::get('/products/get/{product}', [ProductController::class, 'show']);
     Route::post('/products', [ProductController::class, 'store']);
     Route::put('/products/{id}', [ProductController::class, 'update']);
     Route::delete('/products/{id}', [ProductController::class, 'destroy']);

@@ -154,4 +154,21 @@ class TaskController extends Controller
             'message' => 'Tarefa removida com sucesso'
         ]);
     }
+
+    public function search(Request $request)
+    {
+        $request->validate(['q' => 'required|string|min:1']);
+
+        $companyId = Auth::user()->company_id;
+        $query     = $request->input('q');
+
+        $tasks = Task::whereHas('lead', fn ($q) => $q->where('company_id', $companyId))
+            ->where('title', 'like', "%{$query}%")
+            ->select('id', 'title', 'status', 'priority', 'due_date', 'lead_id')
+            ->orderBy('title')
+            ->limit(20)
+            ->get();
+
+        return response()->json($tasks);
+    }
 }

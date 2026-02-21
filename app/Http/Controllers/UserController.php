@@ -116,4 +116,21 @@ class UserController extends Controller
 
         return response()->json(['message' => 'User deleted successfully']);
     }
+
+    public function search(Request $request)
+    {
+        $request->validate(['q' => 'required|string|min:1']);
+
+        $companyId = Auth::user()->company_id;
+        $query     = $request->input('q');
+
+        $users = User::where('company_id', $companyId)
+            ->where('name', 'like', "%{$query}%")
+            ->select('id', 'name', 'email', 'role')
+            ->orderBy('name')
+            ->limit(20)
+            ->get();
+
+        return response()->json($users);
+    }
 }

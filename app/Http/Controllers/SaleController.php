@@ -363,23 +363,40 @@ class SaleController extends Controller
             'message' => 'Sale moved successfully.',
             'data' => $sale->fresh()
         ]);
-        }
+    }
 
-        public function dealTransactions()
-        {
-            $companyId = Auth::user()->company_id;
+    public function dealTransactions()
+    {
+        $companyId = Auth::user()->company_id;
 
-            $transactions = SaleTransaction::with([
-                    'sale:id,lead_id,user_id,name,total,created_at',
-                    'sale.lead:id,first_name,last_name,email,phone',
-                    'user:id,name,email'
-                ])
-                ->where('company_id', $companyId)
-                ->latest()
-                ->get();
+        $transactions = SaleTransaction::with([
+                'sale:id,lead_id,user_id,name,total,created_at',
+                'sale.lead:id,first_name,last_name,email,phone',
+                'user:id,name,email'
+            ])
+            ->where('company_id', $companyId)
+            ->latest()
+            ->get();
 
-            return response()->json([
-                'transactions' => $transactions,
-            ]);
-        }
+        return response()->json([
+            'transactions' => $transactions,
+        ]);
+    }
+
+    public function search(Request $request): JsonResponse
+    {
+        $request->validate(['q' => 'required|string|min:1']);
+
+        $user  = Auth::user();
+        $query = $request->input('q');
+
+        $sales = Sale::where('company_id', $user->company_id)
+            ->where('name', 'like', "%{$query}%")
+            ->select('id', 'name', 'total', 'status')
+            ->orderBy('name')
+            ->limit(20)
+            ->get();
+
+        return response()->json($sales);
+    }
 }
