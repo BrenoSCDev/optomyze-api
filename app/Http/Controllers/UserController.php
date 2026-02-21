@@ -133,4 +133,119 @@ class UserController extends Controller
 
         return response()->json($users);
     }
+
+    //////////////////// INTERNAL CRM API METHODS //////////////////////////
+
+    public function apiIndex(Request $request)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $query = User::where('company_id', $company->id);
+
+        if ($request->has('is_active')) {
+            $query->where('is_active', $request->boolean('is_active'));
+        }
+        if ($request->has('role')) {
+            $query->where('role', $request->role);
+        }
+
+        $users = $query
+            ->select('id', 'name', 'email', 'phone', 'role', 'is_active', 'created_at')
+            ->paginate($request->input('per_page', 20));
+
+        return response()->json($users);
+    }
+
+    public function apiShow(Request $request, int $id)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $user = User::where('company_id', $company->id)
+            ->select('id', 'name', 'email', 'phone', 'role', 'is_active', 'last_login_at', 'created_at')
+            ->find($id);
+
+        if (!$user) {
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        return response()->json(['data' => $user]);
+    }
+
+    public function apiStore(Request $request)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $validated = $request->validate([
+            'name'      => 'required|string|max:255',
+            'email'     => 'required|string|email|max:255|unique:users,email',
+            'phone'     => 'nullable|string|max:20',
+            'role'      => 'required|in:admin,manager,agent',
+            'is_active' => 'boolean',
+        ]);
+
+        $user = User::create([
+            ...$validated,
+            'company_id' => $company->id,
+            'password'   => Hash::make('changeme'),
+        ]);
+
+        return response()->json([
+            'message' => 'User created successfully',
+            'data'    => $user->only(['id', 'name', 'email', 'phone', 'role', 'is_active', 'created_at']),
+        ], 201);
+    }
+
+    public function apiUpdate(Request $request, int $id)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $user = User::where('company_id', $company->id)->find($id);
+        if (!$user) {
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        $validated = $request->validate([
+            'name'      => 'nullable|string|max:255',
+            'email'     => ['nullable', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
+            'phone'     => 'nullable|string|max:20',
+            'role'      => 'nullable|in:admin,manager,agent',
+            'is_active' => 'boolean',
+        ]);
+
+        $user->update($validated);
+
+        return response()->json([
+            'message' => 'User updated successfully',
+            'data'    => $user->fresh()->only(['id', 'name', 'email', 'phone', 'role', 'is_active']),
+        ]);
+    }
+
+    public function apiDestroy(Request $request, int $id)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $user = User::where('company_id', $company->id)->find($id);
+        if (!$user) {
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        $user->delete();
+
+        return response()->json(['message' => 'User deleted successfully']);
+    }
 }

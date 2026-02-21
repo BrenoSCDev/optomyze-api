@@ -230,79 +230,7 @@ class LeadController extends Controller
         ]);
     }
 
-    //////////////////// INTERNAL CRM API METHODS //////////////////////////
-
-    /**
-     * Store a newly created lead via API token authentication.
-     */
-    public function apiStore(Request $request)
-    {
-        // Validate only personal lead data + funnel_id
-        $validated = $request->validate([
-            'funnel_id' => 'required|exists:funnels,id',
-            'assigned_to' => 'nullable|exists:users,id',
-            'external_id' => 'nullable|string|max:255',
-            'source_platform' => 'nullable|string|max:50',
-            'source_type' => 'nullable|string|max:50',
-            'first_name' => 'required|string|max:100',
-            'last_name' => 'nullable|string|max:100',
-            'email' => 'nullable|email|max:255',
-            'phone' => 'nullable|string|max:20',
-            'ddi' => 'nullable|string|max:20',
-            'username' => 'nullable|string|max:100',
-            'priority' => 'nullable|in:low,medium,high,urgent',
-            'currency' => 'nullable|string|size:3',
-            'preferred_contact_method' => 'nullable|string|max:50',
-            'timezone' => 'nullable|string|max:50',
-            'language' => 'nullable|string|max:5',
-            'ai_score' => 'nullable|numeric|between:0,100',
-            'tags' => 'nullable|array',
-            'notes' => 'nullable|string',
-        ]);
-
-        $company = $request->get('company');
-        if (!$company) {
-            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
-        }
-
-        $funnel = \App\Models\Funnel::findOrFail($validated['funnel_id']);
-        $stage = $funnel->stages()->where('type', 'entry')->first();
-
-        if (!$stage) {
-            return response()->json([
-                'message' => 'No entry stage found for this funnel'
-            ], 422);
-        }
-
-        // 🔍 Check if lead already exists in this company
-        $existingLead = Lead::where('company_id', $company->id)
-            ->where('first_name', $validated['first_name'] ?? null)
-            ->where('last_name', $validated['last_name'] ?? null)
-            ->where('email', $validated['email'] ?? null)
-            ->where('phone', $validated['phone'] ?? null)
-            ->first();
-
-        if ($existingLead) {
-            return response()->json([
-                'message' => 'Duplicate lead detected',
-                'data' => $existingLead
-            ], 200); // returning 200 since it's not really an error
-        }
-
-        $leadData = array_merge($validated, [
-            'company_id' => $company->id,
-            'stage_id' => $stage->id,
-        ]);
-
-        $lead = Lead::create($leadData);
-
-        return response()->json([
-            'message' => 'Lead created successfully',
-            'data' => $lead
-        ], 201);
-    }
-
-    public function search(Request $request, $products = false)
+        public function search(Request $request, $products = false)
     {
         $user = Auth::user();
 
@@ -391,6 +319,219 @@ class LeadController extends Controller
             'message' => 'ERP budget ID added successfully',
             'erp_budgets_ids' => $currentIds, // return as array
         ]);
+    }
+
+    //////////////////// INTERNAL CRM API METHODS //////////////////////////
+
+    /**
+     * List leads for the authenticated company via API token.
+     */
+    public function apiIndex(Request $request)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $query = Lead::fromCompany($company->id);
+
+        if ($request->has('funnel_id')) {
+            $query->where('funnel_id', $request->funnel_id);
+        }
+        if ($request->has('stage_id')) {
+            $query->where('stage_id', $request->stage_id);
+        }
+        if ($request->has('assigned_to')) {
+            $query->where('assigned_to', $request->assigned_to);
+        }
+        if ($request->has('priority')) {
+            $query->where('priority', $request->priority);
+        }
+        if ($request->has('source_platform')) {
+            $query->where('source_platform', $request->source_platform);
+        }
+        if ($request->has('external_id')) {
+            $query->where('external_id', $request->external_id);
+        }
+
+        $leads = $query
+            ->with(['stage:id,name,funnel_id', 'assignedUser:id,name,email'])
+            ->latest()
+            ->paginate($request->input('per_page', 20));
+
+        return response()->json($leads);
+    }
+
+    /**
+     * Show a specific lead via API token authentication.
+     */
+    public function apiShow(Request $request, int $id)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $lead = Lead::fromCompany($company->id)
+            ->with([
+                'stage:id,name,funnel_id,order',
+                'stage.funnel:id,name',
+                'assignedUser:id,name,email',
+                'products:id,name,base_price,type',
+                'observations.user:id,name,email',
+            ])
+            ->find($id);
+
+        if (!$lead) {
+            return response()->json(['message' => 'Lead not found'], 404);
+        }
+
+        return response()->json(['data' => $lead]);
+    }
+
+    /**
+     * Update a lead via API token authentication.
+     */
+    public function apiUpdate(Request $request, int $id)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $lead = Lead::fromCompany($company->id)->find($id);
+
+        if (!$lead) {
+            return response()->json(['message' => 'Lead not found'], 404);
+        }
+
+        $validated = $request->validate([
+            'assigned_to' => 'nullable|exists:users,id',
+            'external_id' => 'nullable|string|max:255',
+            'source_platform' => 'nullable|string|max:50',
+            'source_type' => 'nullable|string|max:50',
+            'first_name' => 'nullable|string|max:100',
+            'last_name' => 'nullable|string|max:100',
+            'email' => 'nullable|email|max:255',
+            'phone' => 'nullable|string|max:20',
+            'ddi' => 'nullable|string|max:20',
+            'username' => 'nullable|string|max:100',
+            'priority' => 'nullable|in:low,medium,high,urgent',
+            'currency' => 'nullable|string|size:3',
+            'preferred_contact_method' => 'nullable|string|max:50',
+            'timezone' => 'nullable|string|max:50',
+            'language' => 'nullable|string|max:5',
+            'ai_score' => 'nullable|numeric|between:0,100',
+            'tags' => 'nullable|array',
+            'notes' => 'nullable|string',
+            'is_active' => 'nullable|boolean',
+            'address_line_1' => 'nullable|string|max:255',
+            'address_line_2' => 'nullable|string|max:255',
+            'neighborhood' => 'nullable|string|max:100',
+            'city' => 'nullable|string|max:100',
+            'state' => 'nullable|string|max:100',
+            'state_code' => 'nullable|string|max:10',
+            'postal_code' => 'nullable|string|max:20',
+            'country' => 'nullable|string|max:100',
+        ]);
+
+        $lead->update($validated);
+
+        return response()->json([
+            'message' => 'Lead updated successfully',
+            'data' => $lead->fresh(),
+        ]);
+    }
+
+    /**
+     * Delete a lead via API token authentication.
+     */
+    public function apiDestroy(Request $request, int $id)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $lead = Lead::fromCompany($company->id)->find($id);
+
+        if (!$lead) {
+            return response()->json(['message' => 'Lead not found'], 404);
+        }
+
+        $lead->delete();
+
+        return response()->json(['message' => 'Lead deleted successfully']);
+    }
+
+    /**
+     * Store a newly created lead via API token authentication.
+     */
+    public function apiStore(Request $request)
+    {
+        // Validate only personal lead data + funnel_id
+        $validated = $request->validate([
+            'funnel_id' => 'required|exists:funnels,id',
+            'assigned_to' => 'nullable|exists:users,id',
+            'external_id' => 'nullable|string|max:255',
+            'source_platform' => 'nullable|string|max:50',
+            'source_type' => 'nullable|string|max:50',
+            'first_name' => 'required|string|max:100',
+            'last_name' => 'nullable|string|max:100',
+            'email' => 'nullable|email|max:255',
+            'phone' => 'nullable|string|max:20',
+            'ddi' => 'nullable|string|max:20',
+            'username' => 'nullable|string|max:100',
+            'priority' => 'nullable|in:low,medium,high,urgent',
+            'currency' => 'nullable|string|size:3',
+            'preferred_contact_method' => 'nullable|string|max:50',
+            'timezone' => 'nullable|string|max:50',
+            'language' => 'nullable|string|max:5',
+            'ai_score' => 'nullable|numeric|between:0,100',
+            'tags' => 'nullable|array',
+            'notes' => 'nullable|string',
+        ]);
+
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $funnel = \App\Models\Funnel::findOrFail($validated['funnel_id']);
+        $stage = $funnel->stages()->where('type', 'entry')->first();
+
+        if (!$stage) {
+            return response()->json([
+                'message' => 'No entry stage found for this funnel'
+            ], 422);
+        }
+
+        // 🔍 Check if lead already exists in this company
+        $existingLead = Lead::where('company_id', $company->id)
+            ->where('first_name', $validated['first_name'] ?? null)
+            ->where('last_name', $validated['last_name'] ?? null)
+            ->where('email', $validated['email'] ?? null)
+            ->where('phone', $validated['phone'] ?? null)
+            ->first();
+
+        if ($existingLead) {
+            return response()->json([
+                'message' => 'Duplicate lead detected',
+                'data' => $existingLead
+            ], 200); // returning 200 since it's not really an error
+        }
+
+        $leadData = array_merge($validated, [
+            'company_id' => $company->id,
+            'stage_id' => $stage->id,
+        ]);
+
+        $lead = Lead::create($leadData);
+
+        return response()->json([
+            'message' => 'Lead created successfully',
+            'data' => $lead
+        ], 201);
     }
 
 }

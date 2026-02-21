@@ -134,4 +134,136 @@ class LeadCompanyController extends Controller
 
         return response()->json(['message' => 'Lead company deleted']);
     }
+
+    //////////////////// INTERNAL CRM API METHODS //////////////////////////
+
+    public function apiIndex(Request $request): JsonResponse
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $companies = LeadCompany::where('company_id', $company->id)
+            ->withCount('leads')
+            ->paginate($request->input('per_page', 20));
+
+        return response()->json($companies);
+    }
+
+    public function apiShow(Request $request, int $id): JsonResponse
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $leadCompany = LeadCompany::where('company_id', $company->id)->find($id);
+        if (!$leadCompany) {
+            return response()->json(['message' => 'Company not found'], 404);
+        }
+
+        return response()->json(['data' => $leadCompany]);
+    }
+
+    public function apiStore(Request $request): JsonResponse
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $validated = $request->validate([
+            'legal_name'      => 'required|string|max:255',
+            'trade_name'      => 'nullable|string|max:255',
+            'tax_id'          => 'nullable|string|max:100',
+            'industry'        => 'nullable|string|max:255',
+            'company_size'    => 'nullable|string|max:50',
+            'website'         => 'nullable|url',
+            'email'           => 'nullable|email',
+            'phone'           => 'nullable|string|max:50',
+            'secondary_phone' => 'nullable|string|max:50',
+            'street'          => 'nullable|string|max:255',
+            'number'          => 'nullable|string|max:50',
+            'complement'      => 'nullable|string|max:255',
+            'neighborhood'    => 'nullable|string|max:255',
+            'city'            => 'nullable|string|max:255',
+            'state'           => 'nullable|string|max:255',
+            'postal_code'     => 'nullable|string|max:50',
+            'country'         => 'nullable|string|max:255',
+            'source'          => 'nullable|string|max:255',
+            'status'          => 'nullable|string|max:50',
+            'notes'           => 'nullable|string',
+        ]);
+
+        $leadCompany = LeadCompany::create([
+            ...$validated,
+            'company_id' => $company->id,
+        ]);
+
+        return response()->json([
+            'message' => 'Company created successfully',
+            'data'    => $leadCompany,
+        ], 201);
+    }
+
+    public function apiUpdate(Request $request, int $id): JsonResponse
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $leadCompany = LeadCompany::where('company_id', $company->id)->find($id);
+        if (!$leadCompany) {
+            return response()->json(['message' => 'Company not found'], 404);
+        }
+
+        $validated = $request->validate([
+            'legal_name'      => 'nullable|string|max:255',
+            'trade_name'      => 'nullable|string|max:255',
+            'tax_id'          => 'nullable|string|max:100',
+            'industry'        => 'nullable|string|max:255',
+            'company_size'    => 'nullable|string|max:50',
+            'website'         => 'nullable|url',
+            'email'           => 'nullable|email',
+            'phone'           => 'nullable|string|max:50',
+            'secondary_phone' => 'nullable|string|max:50',
+            'street'          => 'nullable|string|max:255',
+            'number'          => 'nullable|string|max:50',
+            'complement'      => 'nullable|string|max:255',
+            'neighborhood'    => 'nullable|string|max:255',
+            'city'            => 'nullable|string|max:255',
+            'state'           => 'nullable|string|max:255',
+            'postal_code'     => 'nullable|string|max:50',
+            'country'         => 'nullable|string|max:255',
+            'source'          => 'nullable|string|max:255',
+            'status'          => 'nullable|string|max:50',
+            'notes'           => 'nullable|string',
+        ]);
+
+        $leadCompany->update($validated);
+
+        return response()->json([
+            'message' => 'Company updated successfully',
+            'data'    => $leadCompany->fresh(),
+        ]);
+    }
+
+    public function apiDestroy(Request $request, int $id): JsonResponse
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $leadCompany = LeadCompany::where('company_id', $company->id)->find($id);
+        if (!$leadCompany) {
+            return response()->json(['message' => 'Company not found'], 404);
+        }
+
+        $leadCompany->delete();
+
+        return response()->json(['message' => 'Company deleted successfully']);
+    }
 }

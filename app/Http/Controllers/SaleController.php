@@ -399,4 +399,230 @@ class SaleController extends Controller
 
         return response()->json($sales);
     }
+
+    //////////////////// INTERNAL CRM API METHODS //////////////////////////
+
+    public function apiIndex(Request $request): JsonResponse
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $query = Sale::where('company_id', $company->id);
+
+        if ($request->has('lead_id')) {
+            $query->where('lead_id', $request->lead_id);
+        }
+        if ($request->has('status')) {
+            $query->where('status', $request->status);
+        }
+        if ($request->has('funnel_id')) {
+            $query->where('funnel_id', $request->funnel_id);
+        }
+
+        $sales = $query
+            ->with(['lead:id,first_name,last_name,email', 'user:id,name,email', 'stage:id,name,color'])
+            ->latest()
+            ->paginate($request->input('per_page', 20));
+
+        return response()->json($sales);
+    }
+
+    public function apiShow(Request $request, int $id): JsonResponse
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $sale = Sale::where('company_id', $company->id)
+            ->with(['lead:id,first_name,last_name,email,phone', 'user:id,name,email', 'items', 'charges', 'discounts', 'stage:id,name,color', 'funnel:id,name'])
+            ->find($id);
+
+        if (!$sale) {
+            return response()->json(['message' => 'Sale not found'], 404);
+        }
+
+        return response()->json(['data' => $sale]);
+    }
+
+    public function apiStore(Request $request): JsonResponse
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $validated = $request->validate([
+            'lead_id'          => 'required|exists:leads,id',
+            'name'             => 'required|string|max:255',
+            'pricing_model'    => 'required|in:product,commission,hybrid',
+            'notes'            => 'nullable|string',
+            'user_id'          => 'nullable|exists:users,id',
+            'funnel_id'        => 'nullable|exists:funnels,id',
+            'stage_id'         => 'nullable|exists:stages,id',
+            'commission_type'  => 'nullable|in:percentage,fixed',
+            'commission_value' => 'nullable|numeric|min:0',
+            'reference_value'  => 'nullable|numeric|min:0',
+            'items'              => 'nullable|array',
+            'items.*.product_id' => 'nullable|exists:products,id',
+            'items.*.product_name' => 'required|string|max:255',
+            'items.*.quantity'   => 'required|integer|min:1',
+            'items.*.unit_price' => 'required|numeric|min:0',
+            'charges'            => 'nullable|array',
+            'charges.*.name'     => 'required|string',
+            'charges.*.type'     => 'required|in:percentage,fixed',
+            'charges.*.value'    => 'required|numeric|min:0',
+            'discounts'          => 'nullable|array',
+            'discounts.*.name'   => 'required|string',
+            'discounts.*.type'   => 'required|in:percentage,fixed',
+            'discounts.*.value'  => 'required|numeric|min:0',
+        ]);
+
+        $lead = Lead::where('id', $validated['lead_id'])->where('company_id', $company->id)->first();
+        if (!$lead) {
+            return response()->json(['message' => 'Lead not found or does not belong to this company'], 404);
+        }
+
+        $sale = Sale::create([
+            'company_id'       => $company->id,
+            'lead_id'          => $lead->id,
+            'user_id'          => $validated['user_id'] ?? null,
+            'funnel_id'        => $validated['funnel_id'] ?? null,
+            'stage_id'         => $validated['stage_id'] ?? null,
+            'name'             => $validated['name'],
+            'status'           => 'pending',
+            'pricing_model'    => $validated['pricing_model'],
+            'commission_type'  => $validated['commission_type'] ?? null,
+            'commission_value' => $validated['commission_value'] ?? null,
+            'reference_value'  => $validated['reference_value'] ?? null,
+            'notes'            => $validated['notes'] ?? null,
+        ]);
+
+        $baseSubtotal = 0;
+
+        if (!empty($validated['items'])) {
+            foreach ($validated['items'] as $item) {
+                $totalPrice = $item['unit_price'] * $item['quantity'];
+                $baseSubtotal += $totalPrice;
+                SaleItem::create([
+                    'sale_id'      => $sale->id,
+                    'product_id'   => $item['product_id'] ?? null,
+                    'product_name' => $item['product_name'],
+                    'quantity'     => $item['quantity'],
+                    'unit_price'   => $item['unit_price'],
+                    'total_price'  => $totalPrice,
+                ]);
+            }
+        }
+
+        if (in_array($sale->pricing_model, ['commission', 'hybrid'])) {
+            $reference = $validated['reference_value'] ?? $baseSubtotal;
+            $commissionAmount = ($validated['commission_type'] ?? null) === 'percentage'
+                ? $reference * (($validated['commission_value'] ?? 0) / 100)
+                : ($validated['commission_value'] ?? 0);
+            $baseSubtotal += $commissionAmount;
+        }
+
+        $sale->update(['subtotal' => $baseSubtotal]);
+
+        $chargesTotal = 0;
+        if (!empty($validated['charges'])) {
+            foreach ($validated['charges'] as $chargeData) {
+                $calculatedAmount = $chargeData['type'] === 'percentage'
+                    ? $baseSubtotal * ($chargeData['value'] / 100)
+                    : $chargeData['value'];
+                $chargesTotal += $calculatedAmount;
+                $sale->charges()->create([
+                    'name'              => $chargeData['name'],
+                    'type'              => $chargeData['type'],
+                    'value'             => $chargeData['value'],
+                    'calculated_amount' => $calculatedAmount,
+                ]);
+            }
+        }
+
+        $discountsTotal = 0;
+        if (!empty($validated['discounts'])) {
+            foreach ($validated['discounts'] as $discountData) {
+                $calculatedAmount = $discountData['type'] === 'percentage'
+                    ? $baseSubtotal * ($discountData['value'] / 100)
+                    : $discountData['value'];
+                $discountsTotal += $calculatedAmount;
+                $sale->discounts()->create([
+                    'name'              => $discountData['name'],
+                    'type'              => $discountData['type'],
+                    'value'             => $discountData['value'],
+                    'calculated_amount' => $calculatedAmount,
+                ]);
+            }
+        }
+
+        $sale->update([
+            'discount_total' => $discountsTotal,
+            'total'          => max(0, $baseSubtotal + $chargesTotal - $discountsTotal),
+        ]);
+
+        return response()->json([
+            'message' => 'Sale created successfully',
+            'data'    => $sale->load(['items', 'charges', 'discounts']),
+        ], 201);
+    }
+
+    public function apiUpdate(Request $request, int $id): JsonResponse
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $sale = Sale::where('company_id', $company->id)->find($id);
+        if (!$sale) {
+            return response()->json(['message' => 'Sale not found'], 404);
+        }
+
+        $validated = $request->validate([
+            'name'      => 'nullable|string|max:255',
+            'notes'     => 'nullable|string',
+            'status'    => 'nullable|in:pending,sent,closed,lost',
+            'user_id'   => 'nullable|exists:users,id',
+            'funnel_id' => 'nullable|exists:funnels,id',
+            'stage_id'  => 'nullable|exists:stages,id',
+        ]);
+
+        $sale->update($validated);
+
+        return response()->json([
+            'message' => 'Sale updated successfully',
+            'data'    => $sale->fresh(),
+        ]);
+    }
+
+    public function apiDestroy(Request $request, int $id): JsonResponse
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $sale = Sale::where('company_id', $company->id)->find($id);
+        if (!$sale) {
+            return response()->json(['message' => 'Sale not found'], 404);
+        }
+
+        DB::transaction(function () use ($sale) {
+            $sale->items()->delete();
+            $sale->charges()->delete();
+            foreach ($sale->docs as $doc) {
+                if ($doc->storage_path) {
+                    Storage::delete($doc->storage_path);
+                }
+                $doc->delete();
+            }
+            $sale->delete();
+        });
+
+        return response()->json(['message' => 'Sale deleted successfully']);
+    }
 }

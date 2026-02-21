@@ -81,4 +81,121 @@ class EventController extends Controller
 
         return response()->noContent();
     }
+
+    //////////////////// INTERNAL CRM API METHODS //////////////////////////
+
+    public function apiIndex(Request $request)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $query = Event::where('company_id', $company->id);
+
+        if ($request->has('type')) {
+            $query->where('type', $request->type);
+        }
+        if ($request->has('start_from')) {
+            $query->where('start_at', '>=', $request->start_from);
+        }
+        if ($request->has('start_to')) {
+            $query->where('start_at', '<=', $request->start_to);
+        }
+
+        $events = $query->orderBy('start_at')->paginate($request->input('per_page', 20));
+
+        return response()->json($events);
+    }
+
+    public function apiShow(Request $request, int $id)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $event = Event::where('company_id', $company->id)->find($id);
+
+        if (!$event) {
+            return response()->json(['message' => 'Event not found'], 404);
+        }
+
+        return response()->json(['data' => $event]);
+    }
+
+    public function apiStore(Request $request)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $validated = $request->validate([
+            'title'       => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'type'        => 'nullable|string|max:50',
+            'start_at'    => 'required|date',
+            'end_at'      => 'nullable|date|after_or_equal:start_at',
+            'all_day'     => 'boolean',
+            'reminder'    => 'boolean',
+        ]);
+
+        $event = Event::create([
+            ...$validated,
+            'company_id' => $company->id,
+        ]);
+
+        return response()->json([
+            'message' => 'Event created successfully',
+            'data'    => $event,
+        ], 201);
+    }
+
+    public function apiUpdate(Request $request, int $id)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $event = Event::where('company_id', $company->id)->find($id);
+        if (!$event) {
+            return response()->json(['message' => 'Event not found'], 404);
+        }
+
+        $validated = $request->validate([
+            'title'       => 'nullable|string|max:255',
+            'description' => 'nullable|string',
+            'type'        => 'nullable|string|max:50',
+            'start_at'    => 'nullable|date',
+            'end_at'      => 'nullable|date|after_or_equal:start_at',
+            'all_day'     => 'boolean',
+            'reminder'    => 'boolean',
+        ]);
+
+        $event->update($validated);
+
+        return response()->json([
+            'message' => 'Event updated successfully',
+            'data'    => $event->fresh(),
+        ]);
+    }
+
+    public function apiDestroy(Request $request, int $id)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $event = Event::where('company_id', $company->id)->find($id);
+        if (!$event) {
+            return response()->json(['message' => 'Event not found'], 404);
+        }
+
+        $event->delete();
+
+        return response()->json(['message' => 'Event deleted successfully']);
+    }
 }

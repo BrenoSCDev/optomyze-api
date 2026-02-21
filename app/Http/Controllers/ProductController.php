@@ -296,4 +296,132 @@ class ProductController extends Controller
 
         return response()->json($leads);
     }
+
+    //////////////////// INTERNAL CRM API METHODS //////////////////////////
+
+    public function apiIndex(Request $request)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $query = Product::fromCompany($company->id)->with(['primaryImage']);
+
+        if ($request->has('is_active')) {
+            $query->where('is_active', $request->boolean('is_active'));
+        }
+        if ($request->has('type')) {
+            $query->where('type', $request->type);
+        }
+        if ($request->has('category')) {
+            $query->where('category', $request->category);
+        }
+        if ($request->has('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('sku', 'like', "%{$search}%");
+            });
+        }
+
+        $products = $query->latest()->paginate($request->input('per_page', 20));
+
+        return response()->json($products);
+    }
+
+    public function apiShow(Request $request, int $id)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $product = Product::fromCompany($company->id)->with(['images', 'primaryImage'])->find($id);
+
+        if (!$product) {
+            return response()->json(['message' => 'Product not found'], 404);
+        }
+
+        return response()->json(['data' => $product]);
+    }
+
+    public function apiStore(Request $request)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $validated = $request->validate([
+            'name'        => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'sku'         => 'required|string|max:255',
+            'base_price'  => 'required|numeric|min:0',
+            'type'        => 'required|in:product,service',
+            'category'    => 'nullable|string|max:255',
+            'is_active'   => 'boolean',
+            'cost_price'  => 'nullable|numeric|min:0',
+            'metadata'    => 'nullable|array',
+        ]);
+
+        $product = Product::create([
+            'company_id' => $company->id,
+            ...$validated,
+        ]);
+
+        return response()->json([
+            'message' => 'Product created successfully',
+            'data'    => $product,
+        ], 201);
+    }
+
+    public function apiUpdate(Request $request, int $id)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $product = Product::fromCompany($company->id)->find($id);
+        if (!$product) {
+            return response()->json(['message' => 'Product not found'], 404);
+        }
+
+        $validated = $request->validate([
+            'name'        => 'nullable|string|max:255',
+            'description' => 'nullable|string',
+            'sku'         => 'nullable|string|max:255',
+            'base_price'  => 'nullable|numeric|min:0',
+            'type'        => 'nullable|in:product,service',
+            'category'    => 'nullable|string|max:255',
+            'is_active'   => 'boolean',
+            'cost_price'  => 'nullable|numeric|min:0',
+            'metadata'    => 'nullable|array',
+        ]);
+
+        $product->update($validated);
+
+        return response()->json([
+            'message' => 'Product updated successfully',
+            'data'    => $product->fresh(),
+        ]);
+    }
+
+    public function apiDestroy(Request $request, int $id)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $product = Product::fromCompany($company->id)->find($id);
+        if (!$product) {
+            return response()->json(['message' => 'Product not found'], 404);
+        }
+
+        $product->delete();
+
+        return response()->json(['message' => 'Product deleted successfully']);
+    }
 }

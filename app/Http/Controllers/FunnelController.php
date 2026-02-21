@@ -236,4 +236,117 @@ class FunnelController extends Controller
             'funnel' => $funnel
         ]);
     }
+
+    //////////////////// INTERNAL CRM API METHODS //////////////////////////
+
+    public function apiIndex(Request $request)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $query = Funnel::fromCompany($company->id)
+            ->with(['stages:id,funnel_id,name,order,type,color']);
+
+        if ($request->has('type')) {
+            $query->where('type', $request->type);
+        }
+        if ($request->has('is_active')) {
+            $query->where('is_active', $request->boolean('is_active'));
+        }
+
+        $funnels = $query->paginate($request->input('per_page', 20));
+
+        return response()->json($funnels);
+    }
+
+    public function apiShow(Request $request, int $id)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $funnel = Funnel::fromCompany($company->id)
+            ->with(['stages' => fn ($q) => $q->ordered()])
+            ->find($id);
+
+        if (!$funnel) {
+            return response()->json(['message' => 'Funnel not found'], 404);
+        }
+
+        return response()->json(['data' => $funnel]);
+    }
+
+    public function apiStore(Request $request)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $validated = $request->validate([
+            'name'        => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'type'        => 'nullable|in:sale,deal',
+            'is_active'   => 'boolean',
+        ]);
+
+        $funnel = Funnel::create([
+            'company_id'  => $company->id,
+            'name'        => $validated['name'],
+            'description' => $validated['description'] ?? null,
+            'is_active'   => $validated['is_active'] ?? true,
+            'type'        => $validated['type'] ?? 'sale',
+        ]);
+
+        return response()->json([
+            'message' => 'Funnel created successfully',
+            'data'    => $funnel,
+        ], 201);
+    }
+
+    public function apiUpdate(Request $request, int $id)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $funnel = Funnel::fromCompany($company->id)->find($id);
+        if (!$funnel) {
+            return response()->json(['message' => 'Funnel not found'], 404);
+        }
+
+        $validated = $request->validate([
+            'name'        => 'nullable|string|max:255',
+            'description' => 'nullable|string',
+            'is_active'   => 'boolean',
+        ]);
+
+        $funnel->update($validated);
+
+        return response()->json([
+            'message' => 'Funnel updated successfully',
+            'data'    => $funnel->fresh(),
+        ]);
+    }
+
+    public function apiDestroy(Request $request, int $id)
+    {
+        $company = $request->get('company');
+        if (!$company) {
+            return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
+        }
+
+        $funnel = Funnel::fromCompany($company->id)->find($id);
+        if (!$funnel) {
+            return response()->json(['message' => 'Funnel not found'], 404);
+        }
+
+        $funnel->delete();
+
+        return response()->json(['message' => 'Funnel deleted successfully']);
+    }
 }

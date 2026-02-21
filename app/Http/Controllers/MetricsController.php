@@ -1049,6 +1049,13 @@ class MetricsController extends Controller
                     ->sum('messages_count');
             },
 
+            function (int $companyId) {
+                return \App\Models\Conversation::where('company_id', $companyId)
+                    ->withCount('messages')
+                    ->get()
+                    ->sum('messages_count');
+            },
+
             // Future providers (examples):
             // function (int $companyId) {
             //     return \App\Models\FacebookChat::where('company_id', $companyId)

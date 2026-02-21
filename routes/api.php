@@ -344,6 +344,22 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/events', [EventController::class, 'store']);
     Route::put('/events/{event}', [EventController::class, 'update']);
     Route::delete('/events/{event}', [EventController::class, 'destroy']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Internal Chat
+    |--------------------------------------------------------------------------
+    */
+    Route::get('conversations', [ConversationController::class, 'index']);
+    Route::get('contacts', [ConversationController::class, 'contacts']);
+    Route::post('private', [ConversationController::class, 'storePrivate']);
+    Route::post('group', [ConversationController::class, 'storeGroup']);
+    Route::delete('group/{conversation}', [ConversationController::class, 'destroyGroup']);
+    Route::post('group/{conversation}/members', [ConversationController::class, 'addMembers']);
+    Route::post('group/{conversation}/admins', [ConversationController::class, 'promoteAdmin']);
+    Route::get('{conversation}/messages', [InternalMessageController::class, 'index']);
+    Route::post('messages', [InternalMessageController::class, 'store']);
+    Route::delete('messages', [InternalMessageController::class, 'deleteMultiple']);
 });
 
 
@@ -355,23 +371,106 @@ Route::middleware('verify.api.token')->prefix('v1')->group(function () {
         ]);
     });
 
+    /*
+    |--------------------------------------------------------------------------
+    | Leads
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/leads', [LeadController::class, 'apiIndex']);
     Route::post('/leads', [LeadController::class, 'apiStore']);
-    
-    Route::post('/conversation-reports', [ConversationReportController::class, 'store']);
-});
+    Route::get('/leads/{id}', [LeadController::class, 'apiShow']);
+    Route::put('/leads/{id}', [LeadController::class, 'apiUpdate']);
+    Route::delete('/leads/{id}', [LeadController::class, 'apiDestroy']);
 
-// Internal Chat
-Route::prefix('chat')->middleware('auth:sanctum')->group(function () {
-    Route::get('conversations', [ConversationController::class, 'index']);
-    Route::get('contacts', [ConversationController::class, 'contacts']);
-    Route::post('private', [ConversationController::class, 'storePrivate']);
-    Route::post('group', [ConversationController::class, 'storeGroup']);
-    Route::delete('group/{conversation}', [ConversationController::class, 'destroyGroup']);
-    Route::post('group/{conversation}/members', [ConversationController::class, 'addMembers']);
-    Route::post('group/{conversation}/admins', [ConversationController::class, 'promoteAdmin']);
-    Route::get('{conversation}/messages', [InternalMessageController::class, 'index']);
-    Route::post('messages', [InternalMessageController::class, 'store']);
-    Route::delete('messages', [InternalMessageController::class, 'deleteMultiple']);
+    /*
+    |--------------------------------------------------------------------------
+    | Sales / Deals
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/sales', [SaleController::class, 'apiIndex']);
+    Route::post('/sales', [SaleController::class, 'apiStore']);
+    Route::get('/sales/{id}', [SaleController::class, 'apiShow']);
+    Route::put('/sales/{id}', [SaleController::class, 'apiUpdate']);
+    Route::delete('/sales/{id}', [SaleController::class, 'apiDestroy']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Products
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/products', [ProductController::class, 'apiIndex']);
+    Route::post('/products', [ProductController::class, 'apiStore']);
+    Route::get('/products/{id}', [ProductController::class, 'apiShow']);
+    Route::put('/products/{id}', [ProductController::class, 'apiUpdate']);
+    Route::delete('/products/{id}', [ProductController::class, 'apiDestroy']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Events
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/events', [EventController::class, 'apiIndex']);
+    Route::post('/events', [EventController::class, 'apiStore']);
+    Route::get('/events/{id}', [EventController::class, 'apiShow']);
+    Route::put('/events/{id}', [EventController::class, 'apiUpdate']);
+    Route::delete('/events/{id}', [EventController::class, 'apiDestroy']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Users
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/users', [UserController::class, 'apiIndex']);
+    Route::post('/users', [UserController::class, 'apiStore']);
+    Route::get('/users/{id}', [UserController::class, 'apiShow']);
+    Route::put('/users/{id}', [UserController::class, 'apiUpdate']);
+    Route::delete('/users/{id}', [UserController::class, 'apiDestroy']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Teams
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/teams', [TeamController::class, 'apiIndex']);
+    Route::post('/teams', [TeamController::class, 'apiStore']);
+    Route::get('/teams/{id}', [TeamController::class, 'apiShow']);
+    Route::put('/teams/{id}', [TeamController::class, 'apiUpdate']);
+    Route::delete('/teams/{id}', [TeamController::class, 'apiDestroy']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Lead Companies
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/lead-companies', [LeadCompanyController::class, 'apiIndex']);
+    Route::post('/lead-companies', [LeadCompanyController::class, 'apiStore']);
+    Route::get('/lead-companies/{id}', [LeadCompanyController::class, 'apiShow']);
+    Route::put('/lead-companies/{id}', [LeadCompanyController::class, 'apiUpdate']);
+    Route::delete('/lead-companies/{id}', [LeadCompanyController::class, 'apiDestroy']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Funnels
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/funnels', [FunnelController::class, 'apiIndex']);
+    Route::post('/funnels', [FunnelController::class, 'apiStore']);
+    Route::get('/funnels/{id}', [FunnelController::class, 'apiShow']);
+    Route::put('/funnels/{id}', [FunnelController::class, 'apiUpdate']);
+    Route::delete('/funnels/{id}', [FunnelController::class, 'apiDestroy']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Stages (nested under funnels)
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/funnels/{funnelId}/stages', [StageController::class, 'apiIndex']);
+    Route::post('/funnels/{funnelId}/stages', [StageController::class, 'apiStore']);
+    Route::get('/funnels/{funnelId}/stages/{stageId}', [StageController::class, 'apiShow']);
+    Route::put('/funnels/{funnelId}/stages/{stageId}', [StageController::class, 'apiUpdate']);
+    Route::delete('/funnels/{funnelId}/stages/{stageId}', [StageController::class, 'apiDestroy']);
+
+    Route::post('/conversation-reports', [ConversationReportController::class, 'store']);
 });
 
 // WhatsApp Evolution API Chat
