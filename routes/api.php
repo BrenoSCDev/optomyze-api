@@ -350,16 +350,19 @@ Route::middleware('auth:sanctum')->group(function () {
     | Internal Chat
     |--------------------------------------------------------------------------
     */
-    Route::get('conversations', [ConversationController::class, 'index']);
-    Route::get('contacts', [ConversationController::class, 'contacts']);
-    Route::post('private', [ConversationController::class, 'storePrivate']);
-    Route::post('group', [ConversationController::class, 'storeGroup']);
-    Route::delete('group/{conversation}', [ConversationController::class, 'destroyGroup']);
-    Route::post('group/{conversation}/members', [ConversationController::class, 'addMembers']);
-    Route::post('group/{conversation}/admins', [ConversationController::class, 'promoteAdmin']);
-    Route::get('{conversation}/messages', [InternalMessageController::class, 'index']);
-    Route::post('messages', [InternalMessageController::class, 'store']);
-    Route::delete('messages', [InternalMessageController::class, 'deleteMultiple']);
+
+    Route::prefix('chat')->middleware('auth:sanctum')->group(function () {
+        Route::get('conversations', [ConversationController::class, 'index']);
+        Route::get('contacts', [ConversationController::class, 'contacts']);
+        Route::post('private', [ConversationController::class, 'storePrivate']);
+        Route::post('group', [ConversationController::class, 'storeGroup']);
+        Route::delete('group/{conversation}', [ConversationController::class, 'destroyGroup']);
+        Route::post('group/{conversation}/members', [ConversationController::class, 'addMembers']);
+        Route::post('group/{conversation}/admins', [ConversationController::class, 'promoteAdmin']);
+        Route::get('{conversation}/messages', [InternalMessageController::class, 'index']);
+        Route::post('messages', [InternalMessageController::class, 'store']);
+        Route::delete('messages', [InternalMessageController::class, 'deleteMultiple']);
+    });
 });
 
 
