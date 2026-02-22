@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Storage;
 use App\Events\ChatMessagesCleared;
 use App\Events\WhatsAppChatUpdated;
 use App\Events\WhatsAppMessageReceived;
+use App\Services\LeadQueueAssignmentService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -83,16 +84,16 @@ class WhatsappEvoChatController extends Controller
         $leadCreated = false;
         if (!$lead) {
             $lead = Lead::create([
-                'company_id' => $companyId,
-                'first_name' => $firstName ?: $phoneNumber,
-                'last_name'  => $lastName,
-                'phone'      => $phoneNumber,
-                'source_type' => 'chat_integration',
+                'company_id'      => $companyId,
+                'first_name'      => $firstName ?: $phoneNumber,
+                'last_name'       => $lastName,
+                'phone'           => $phoneNumber,
+                'source_type'     => 'chat_integration',
                 'source_platform' => 'whatsapp',
-                'sync',
-                'funnel_id'  => $funnel->id,
-                'stage_id'   => $entryStage->id,
+                'funnel_id'       => $funnel->id,
+                'stage_id'        => $entryStage->id,
             ]);
+            LeadQueueAssignmentService::assign($lead);
             $leadCreated = true;
         }
 

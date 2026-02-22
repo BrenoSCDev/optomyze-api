@@ -24,6 +24,7 @@ class Funnel extends Model
         'created_by',
         'settings',
         'type',
+        'funnel_manager_queue_id',
     ];
 
     /**
@@ -64,6 +65,14 @@ class Funnel extends Model
     public function instances(): HasMany
     {
         return $this->hasMany(WhatsAppInstance::class)->orderBy('order');
+    }
+
+    /**
+     * Get the funnel manager queue assigned to this funnel.
+     */
+    public function queue(): BelongsTo
+    {
+        return $this->belongsTo(FunnelManagerQueue::class, 'funnel_manager_queue_id');
     }
 
     /**

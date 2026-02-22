@@ -4,6 +4,8 @@ use App\Http\Controllers\ProductController;
 use App\Http\Controllers\LeadDocumentController;
 use App\Http\Controllers\ApiTokenController;
 use App\Http\Controllers\FunnelController;
+use App\Http\Controllers\FunnelManagerQueueController;
+use App\Http\Controllers\LostReasonController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\ConversationReportController;
@@ -97,6 +99,29 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/teams/{team}', [TeamController::class, 'show']);
     Route::put('/teams/{team}', [TeamController::class, 'update']);
     Route::delete('/teams/{team}', [TeamController::class, 'destroy']);
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Lost Reasons Routes
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/lost-reasons', [LostReasonController::class, 'index']);
+    Route::post('/lost-reasons', [LostReasonController::class, 'store']);
+    Route::put('/lost-reasons/{lostReason}', [LostReasonController::class, 'update']);
+    Route::delete('/lost-reasons/{lostReason}', [LostReasonController::class, 'destroy']);
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Funnel Manager Queues Routes
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/funnel-manager-queues', [FunnelManagerQueueController::class, 'index']);
+    Route::post('/funnel-manager-queues', [FunnelManagerQueueController::class, 'store']);
+    Route::get('/funnel-manager-queues/{funnelManagerQueue}', [FunnelManagerQueueController::class, 'show']);
+    Route::put('/funnel-manager-queues/{funnelManagerQueue}', [FunnelManagerQueueController::class, 'update']);
+    Route::delete('/funnel-manager-queues/{funnelManagerQueue}', [FunnelManagerQueueController::class, 'destroy']);
 
 
     /*

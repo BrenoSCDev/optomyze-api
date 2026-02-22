@@ -3,13 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Events\LeadCreatedNotification;
-use App\Models\ConversationReport;
 use App\Models\Lead;
 use App\Models\LeadCompany;
 use App\Models\LeadTransaction;
 use App\Models\Product;
 use App\Models\Task;
 use App\Models\User;
+use App\Services\LeadQueueAssignmentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -44,6 +44,9 @@ class LeadController extends Controller
 
         // Create the lead
         $lead = Lead::create($validated);
+
+        // Auto-assign via funnel manager queue (round-robin)
+        $this->applyQueueAssignment($lead);
 
         // Create a lead creation transaction
         LeadTransaction::createLeadCreation(
@@ -528,10 +531,17 @@ class LeadController extends Controller
 
         $lead = Lead::create($leadData);
 
+        LeadQueueAssignmentService::assign($lead);
+
         return response()->json([
             'message' => 'Lead created successfully',
             'data' => $lead
         ], 201);
+    }
+
+    private function applyQueueAssignment(Lead $lead): void
+    {
+        LeadQueueAssignmentService::assign($lead);
     }
 
 }
