@@ -147,8 +147,14 @@ class WhatsAppInstanceController extends Controller
                 ], 422);
             }
 
-            // Success → return Evolution response as-is
-            return response()->json($response->json(), 200);
+            // Update instance status to connected
+            $instance->update(['status' => 'connected']);
+
+            // Success → return Evolution response with updated status
+            return response()->json([
+                'data'   => $response->json(),
+                'status' => 'connected',
+            ], 200);
 
         } catch (\Throwable $e) {
             return response()->json([
@@ -195,6 +201,48 @@ class WhatsAppInstanceController extends Controller
         } catch (\Throwable $e) {
             return response()->json([
                 'message' => 'Failed to generate WhatsApp QR Code',
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function disconnectInstance($instanceId)
+    {
+        $user = Auth::user();
+        $companyId = $user->company_id;
+
+        $instance = WhatsAppInstance::where('id', $instanceId)
+            ->where('company_id', $companyId)
+            ->firstOrFail();
+
+        $integration = WhatsAppEvoIntegration::where('id', $instance->whats_app_evo_integration_id)
+            ->where('company_id', $companyId)
+            ->firstOrFail();
+
+        try {
+            $response = Http::withHeaders([
+                'apikey' => $integration->api_key,
+            ])->delete(
+                rtrim($integration->base_url, '/') . '/instance/logout/' . $instance->instance_name
+            );
+
+            if (!$response->successful()) {
+                return response()->json([
+                    'message' => 'Failed to disconnect instance in Evolution API',
+                    'error'   => $response->json() ?? $response->body(),
+                ], 422);
+            }
+
+            $instance->update(['status' => 'disconnected']);
+
+            return response()->json([
+                'message' => 'WhatsApp instance disconnected successfully',
+                'status'  => 'disconnected',
+            ], 200);
+
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => 'Failed to disconnect WhatsApp instance',
                 'error'   => $e->getMessage(),
             ], 500);
         }
