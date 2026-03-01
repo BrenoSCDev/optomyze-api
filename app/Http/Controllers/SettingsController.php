@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\CustomProductField;
 use App\Models\Funnel;
+use App\Models\FunnelManagerQueue;
+use App\Models\LostReason;
 use App\Models\NotificationSetting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -21,10 +23,23 @@ class SettingsController extends Controller
             ->get();
         $notificationSettings = NotificationSetting::where('company_id', $user->company_id)->first();
 
+        $queues = FunnelManagerQueue::fromCompany($user->company_id)
+            ->with([
+                'users:id,name,email',
+                'funnels:id,funnel_manager_queue_id,name,type,is_active',
+            ])
+            ->get();
+
+        $lostReasons = LostReason::fromCompany($user->company_id)
+            ->latest()
+            ->get();
+
         return response()->json([
-            "customProductFields" => $customProductFields,
-            "funnels" => $funnels,
+            "customProductFields"  => $customProductFields,
+            "funnels"              => $funnels,
             "notificationSettings" => $notificationSettings,
+            "queues"               => $queues,
+            "lostReasons"          => $lostReasons,
         ]);
     }
 }

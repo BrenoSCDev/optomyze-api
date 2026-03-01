@@ -25,7 +25,7 @@ return new class extends Migration
             $table->enum('direction', ['incoming', 'outgoing'])->index();
 
             // Message type
-            $table->enum('type', ['text', 'image', 'audio'])->index();
+            $table->string('type')->index();
 
             // Content
             $table->text('text')->nullable();

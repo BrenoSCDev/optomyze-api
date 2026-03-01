@@ -26,6 +26,7 @@ class WhatsAppMessageReceived implements ShouldBroadcastNow
             'chat.lead:id,company_id,first_name,last_name,phone,funnel_id,stage_id',
             'chat.lead.funnel:id,name',
             'chat.lead.stage:id,name',
+            'user:id,name',
         ]);
         
         $this->companyId = $message->chat->company_id;
@@ -56,19 +57,27 @@ class WhatsAppMessageReceived implements ShouldBroadcastNow
     {
         return [
             'message' => [
-                'id' => $this->message->id,
+                'id'                   => $this->message->id,
                 'whatsapp_evo_chat_id' => $this->message->whatsapp_evo_chat_id,
-                'wa_message_id' => $this->message->wa_message_id,
-                'direction' => $this->message->direction,
-                'type' => $this->message->type,
-                'text' => $this->message->text,
-                'media_url' => $this->message->media_url,
-                'media_mime' => $this->message->media_mime,
-                'media_size' => $this->message->media_size,
-                'status' => $this->message->status,
-                'sent_at' => $this->message->sent_at,
-                'created_at' => $this->message->created_at,
-                'updated_at' => $this->message->updated_at,
+                'user_id'              => $this->message->user_id,
+                'wa_message_id'        => $this->message->wa_message_id,
+                'direction'            => $this->message->direction,
+                'message_mode'         => $this->message->message_mode,
+                'type'                 => $this->message->type,
+                'text'                 => $this->message->text,
+                'media_url'            => $this->message->media_url,
+                'media_mime'           => $this->message->media_mime,
+                'media_size'           => $this->message->media_size,
+                'latitude'             => $this->message->latitude,
+                'longitude'            => $this->message->longitude,
+                'metadata'             => $this->message->metadata,
+                'status'               => $this->message->status,
+                'sent_at'              => $this->message->sent_at,
+                'created_at'           => $this->message->created_at,
+                'updated_at'           => $this->message->updated_at,
+                'user'                 => $this->message->user
+                    ? ['id' => $this->message->user->id, 'name' => $this->message->user->name]
+                    : null,
             ],
             'chat' => [
                 'id' => $this->message->chat->id,

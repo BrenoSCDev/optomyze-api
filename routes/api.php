@@ -4,6 +4,8 @@ use App\Http\Controllers\ProductController;
 use App\Http\Controllers\LeadDocumentController;
 use App\Http\Controllers\ApiTokenController;
 use App\Http\Controllers\FunnelController;
+use App\Http\Controllers\FunnelManagerQueueController;
+use App\Http\Controllers\LostReasonController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\ConversationReportController;
@@ -114,6 +116,29 @@ Route::middleware('auth:sanctum')->group(function () {
 
     /*
     |--------------------------------------------------------------------------
+    | Lost Reasons Routes
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/lost-reasons', [LostReasonController::class, 'index']);
+    Route::post('/lost-reasons', [LostReasonController::class, 'store']);
+    Route::put('/lost-reasons/{lostReason}', [LostReasonController::class, 'update']);
+    Route::delete('/lost-reasons/{lostReason}', [LostReasonController::class, 'destroy']);
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Funnel Manager Queues Routes
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/funnel-manager-queues', [FunnelManagerQueueController::class, 'index']);
+    Route::post('/funnel-manager-queues', [FunnelManagerQueueController::class, 'store']);
+    Route::get('/funnel-manager-queues/{funnelManagerQueue}', [FunnelManagerQueueController::class, 'show']);
+    Route::put('/funnel-manager-queues/{funnelManagerQueue}', [FunnelManagerQueueController::class, 'update']);
+    Route::delete('/funnel-manager-queues/{funnelManagerQueue}', [FunnelManagerQueueController::class, 'destroy']);
+
+
+    /*
+    |--------------------------------------------------------------------------
     | Funnels & Stages Routes
     |--------------------------------------------------------------------------
     */
@@ -149,6 +174,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/leads/{lead}/move-stage', [LeadController::class, 'moveToStage']);
     Route::put('/leads/{id}/tags', [LeadController::class, 'updateTags']);
     Route::post('/leads/{lead}/assign', [LeadController::class, 'assignUser']);
+    Route::post('/leads/{lead}/lost-reason', [LeadController::class, 'recordLostReason']);
     Route::post('leads/{lead}/add-erp-budget', [LeadController::class, 'addErpBudget']);
     Route::get('/leads-activity/transactions', [LeadController::class, 'leadTransactions']);
     Route::get('/leads-activity/tasks', [LeadController::class, 'leadTasks']);
@@ -252,11 +278,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/whatsapp-evo-instances/{instanceId}', [WhatsAppInstanceController::class, 'deleteInstance']);
         Route::get('/whatsapp-evo-instances/qrcode/{instanceId}', [WhatsAppInstanceController::class, 'generateQrCode']);
         Route::post('/whatsapp-evo-instances/send-message/{instanceId}', [WhatsAppInstanceController::class, 'sendMessage']);
+        Route::post('/whatsapp-evo-instances/disconnect/{instanceId}', [WhatsAppInstanceController::class, 'disconnectInstance']);
         Route::put('/whatsapp-evo-integrations/{instance}/funnel', [WhatsAppInstanceController::class, 'updateFunnel']);
 
         // WhatsApp Evolution API Chat
         Route::get('/whatsapp-evo-chat', [WhatsappEvoChatController::class, 'getCompanyChats']);
         Route::post('/whatsapp-evo-chat/message/{instanceId}', [WhatsappEvoChatController::class, 'sendMessageToLead']);
+        Route::delete('/whatsapp-evo-chats/{chat}/clear-messages', [WhatsappEvoChatController::class, 'clearMessages']);
         
     });
 

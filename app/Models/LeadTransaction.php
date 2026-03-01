@@ -8,6 +8,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Builder;
 use Carbon\Carbon;
+use App\Models\LostReason;
+use App\Models\User;
+use App\Models\WhatsappEvoChat;
+use App\Models\WhatsAppInstance;
 
 class LeadTransaction extends Model
 {
@@ -38,6 +42,8 @@ class LeadTransaction extends Model
     const TYPE_RESTORATION = 'restoration';
     const TYPE_TAG_CHANGE = 'tag_change';
     const TYPE_FIELD_CHANGE = 'field_change';
+    const TYPE_WHATSAPP_CHAT = 'whatsapp_chat';
+    const TYPE_LOST = 'lost';
 
     /**
      * Transaction action constants
@@ -56,6 +62,8 @@ class LeadTransaction extends Model
     const ACTION_CHANGED = 'changed';
     const ACTION_ADDED = 'added';
     const ACTION_REMOVED = 'removed';
+    const ACTION_CHAT_STARTED = 'chat_started';
+    const ACTION_LOST = 'lost';
 
     /**
      * Source constants
@@ -140,6 +148,75 @@ class LeadTransaction extends Model
     public function assignedToUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_to');
+    }
+
+    /**
+     * Create a lead creation transaction.
+     */
+    public static function createLeadCreation(
+        Lead $lead,
+        User $user = null,
+        string $source = self::SOURCE_MANUAL,
+        array $metadata = []
+    ): self {
+        return self::create([
+            'lead_id'     => $lead->id,
+            'company_id'  => $lead->company_id,
+            'user_id'     => $user?->id,
+            'type'        => self::TYPE_CREATION,
+            'action'      => self::ACTION_CREATED,
+            'description' => 'Lead created',
+            'source'      => $source,
+            'metadata'    => $metadata,
+            'is_important' => true,
+        ]);
+    }
+
+    /**
+     * Create a WhatsApp chat started transaction.
+     */
+    public static function createWhatsAppChatStarted(
+        Lead $lead,
+        WhatsappEvoChat $chat,
+        WhatsAppInstance $instance
+    ): self {
+        return self::create([
+            'lead_id'     => $lead->id,
+            'company_id'  => $lead->company_id,
+            'user_id'     => null,
+            'type'        => self::TYPE_WHATSAPP_CHAT,
+            'action'      => self::ACTION_CHAT_STARTED,
+            'description' => "New WhatsApp conversation started via instance '{$instance->instance_name}'",
+            'source'      => self::SOURCE_WEBHOOK,
+            'metadata'    => [
+                'chat_id'       => $chat->id,
+                'instance_id'   => $instance->id,
+                'instance_name' => $instance->instance_name,
+                'phone_number'  => $chat->phone_number,
+            ],
+            'is_important' => true,
+        ]);
+    }
+
+    /**
+     * Create a lost lead transaction with the selected reason.
+     */
+    public static function createLeadLost(
+        Lead $lead,
+        LostReason $reason,
+        User $user = null
+    ): self {
+        return self::create([
+            'lead_id'      => $lead->id,
+            'company_id'   => $lead->company_id,
+            'user_id'      => $user?->id,
+            'type'         => self::TYPE_LOST,
+            'action'       => self::ACTION_LOST,
+            'description'  => $reason->description,
+            'source'       => $user ? self::SOURCE_MANUAL : self::SOURCE_SYSTEM,
+            'metadata'     => ['lost_reason_id' => $reason->id],
+            'is_important' => true,
+        ]);
     }
 
     /**

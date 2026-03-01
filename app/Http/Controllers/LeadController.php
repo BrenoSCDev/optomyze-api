@@ -3,13 +3,16 @@
 namespace App\Http\Controllers;
 
 use App\Events\LeadCreatedNotification;
-use App\Models\ConversationReport;
+use App\Models\EntryRequirement;
 use App\Models\Lead;
 use App\Models\LeadCompany;
 use App\Models\LeadTransaction;
+use App\Models\LostReason;
 use App\Models\Product;
+use App\Models\Stage;
 use App\Models\Task;
 use App\Models\User;
+use App\Services\LeadQueueAssignmentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -44,6 +47,9 @@ class LeadController extends Controller
 
         // Create the lead
         $lead = Lead::create($validated);
+
+        // Auto-assign via funnel manager queue (round-robin)
+        $this->applyQueueAssignment($lead);
 
         // Create a lead creation transaction
         LeadTransaction::createLeadCreation(
@@ -181,12 +187,100 @@ class LeadController extends Controller
             'stage_id' => 'required|exists:stages,id',
         ]);
 
-        $lead->moveToStage($validated['stage_id']);
+        // Load target stage with its entry requirement before moving
+        $targetStage = Stage::where('id', $validated['stage_id'])
+            ->with('entryRequirement')
+            ->firstOrFail();
+
+        // Run entry requirement checks — bail early if any fail
+        $errors = $this->checkEntryRequirements($lead, $targetStage->entryRequirement);
+
+        if (!empty($errors)) {
+            return response()->json([
+                'message'                   => 'Lead does not meet the entry requirements for this stage.',
+                'entry_requirement_errors'  => $errors,
+            ], 422);
+        }
+
+        $lead->moveToStage($targetStage->id, Auth::user());
+
+        $freshLead = $lead->fresh(['stage']);
+        $isLost    = $freshLead->stage && $freshLead->stage->type === 'lost';
 
         return response()->json([
-            'message' => 'Lead moved successfully',
-            'data' => $lead->fresh()
+            'message'            => 'Lead moved successfully',
+            'data'               => $freshLead,
+            'prompt_lost_reason' => $isLost,
         ]);
+    }
+
+    private function checkEntryRequirements(Lead $lead, ?EntryRequirement $req): array
+    {
+        if (!$req) {
+            return [];
+        }
+
+        $errors = [];
+
+        if ($req->require_assigned_owner && empty($lead->assigned_to)) {
+            $errors[] = [
+                'field'   => 'require_assigned_owner',
+                'message' => 'Lead must have an assigned owner.',
+            ];
+        }
+
+        if ($req->require_contact_email && empty($lead->email)) {
+            $errors[] = [
+                'field'   => 'require_contact_email',
+                'message' => 'Lead must have a contact email.',
+            ];
+        }
+
+        if ($req->require_phone_number && empty($lead->phone)) {
+            $errors[] = [
+                'field'   => 'require_phone_number',
+                'message' => 'Lead must have a phone number.',
+            ];
+        }
+
+        if ($req->require_at_least_one_product && !$lead->products()->exists()) {
+            $errors[] = [
+                'field'   => 'require_at_least_one_product',
+                'message' => 'Lead must have at least one product of interest.',
+            ];
+        }
+
+        if ($req->require_deal_value && !$lead->sales()->exists()) {
+            $errors[] = [
+                'field'   => 'require_deal_value',
+                'message' => 'Lead must have at least one deal.',
+            ];
+        }
+
+        if ($req->require_recent_activity && $lead->updated_at->lt(now()->subDays(3))) {
+            $errors[] = [
+                'field'   => 'require_recent_activity',
+                'message' => 'Lead must have had activity within the last 3 days.',
+            ];
+        }
+
+        return $errors;
+    }
+
+    public function recordLostReason(Request $request, Lead $lead)
+    {
+        $validated = $request->validate([
+            'lost_reason_id' => 'required|exists:lost_reasons,id',
+        ]);
+
+        $user       = Auth::user();
+        $lostReason = LostReason::where('id', $validated['lost_reason_id'])
+            ->where('company_id', $lead->company_id)
+            ->firstOrFail();
+
+        LeadTransaction::createLeadLost($lead, $lostReason, $user);
+
+        return response()->json(['message' => 'Lost reason recorded successfully']);
     }
 
     /**
@@ -528,10 +622,17 @@ class LeadController extends Controller
 
         $lead = Lead::create($leadData);
 
+        LeadQueueAssignmentService::assign($lead);
+
         return response()->json([
             'message' => 'Lead created successfully',
             'data' => $lead
         ], 201);
+    }
+
+    private function applyQueueAssignment(Lead $lead): void
+    {
+        LeadQueueAssignmentService::assign($lead);
     }
 
 }

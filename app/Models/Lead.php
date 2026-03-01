@@ -100,6 +100,17 @@ class Lead extends Model
         'qualified_at' => 'datetime',
     ];
 
+    protected static function booted(): void
+    {
+        static::deleting(function (Lead $lead) {
+            $chat = $lead->whatsAppEvoChat;
+            if ($chat) {
+                $chat->messages()->delete();
+                $chat->delete();
+            }
+        });
+    }
+
     /**
      * Get the company that owns the lead.
      */
