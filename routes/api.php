@@ -58,8 +58,21 @@ Route::post('/auth/forgot-pwd', [AuthController::class, 'forgotPassword']);
 Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword']);
 Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
 
-Route::post('/companies', [CompanyController::class, 'store']);
 Route::post('/users/manager', [UserController::class, 'storeManager']);
+
+/*
+|--------------------------------------------------------------------------
+| Company Management Routes (Manager Key required)
+|--------------------------------------------------------------------------
+*/
+Route::middleware('verify.manager.key')->prefix('manager')->group(function () {
+    Route::get('/companies', [CompanyController::class, 'index']);
+    Route::post('/companies', [CompanyController::class, 'store']);
+    Route::get('/companies/{id}', [CompanyController::class, 'show']);
+    Route::put('/companies/{id}', [CompanyController::class, 'update']);
+    Route::delete('/companies/{id}', [CompanyController::class, 'destroy']);
+    Route::post('/companies/{id}/restore', [CompanyController::class, 'restore']);
+});
 
 
 Route::middleware('auth:sanctum')->group(function () {
