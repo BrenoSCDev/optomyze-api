@@ -17,14 +17,32 @@ class VerifyApiToken
         }
 
         $tokenValue = $matches[1];
-        $token = ApiToken::where('token', $tokenValue)->first();
+        $token = ApiToken::where('token', $tokenValue)->with('company')->first();
 
         if (!$token) {
-            return response()->json(['message' => 'Invalid token', 'token' => $token], 401);
+            return response()->json(['message' => 'Invalid token'], 401);
         }
 
-        // Attach company to request
-        $request->merge(['company' => $token->company]);
+        $company = $token->company;
+
+        // Enforce monthly api_requests_limit
+        if ($company->api_requests_limit !== null) {
+            // Reset counter on new month
+            if ($company->api_requests_reset_at === null || now()->gte($company->api_requests_reset_at)) {
+                $company->update([
+                    'api_requests_count'    => 0,
+                    'api_requests_reset_at' => now()->addMonthNoOverflow()->startOfMonth(),
+                ]);
+            }
+
+            if ($company->api_requests_count >= $company->api_requests_limit) {
+                return response()->json(['message' => 'Monthly API request limit exceeded'], 429);
+            }
+
+            $company->increment('api_requests_count');
+        }
+
+        $request->merge(['company' => $company]);
 
         return $next($request);
     }

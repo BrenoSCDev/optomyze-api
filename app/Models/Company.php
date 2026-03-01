@@ -22,6 +22,7 @@ class Company extends Model
         'subscription_plan',
         'is_active',
         'settings',
+        'product_module',
         'leads_limit',
         'users_limit',
         'storage_limit_gb',
@@ -29,16 +30,23 @@ class Company extends Model
         'tasks_limit',
         'integrations_limit',
         'products_limit',
-        'product_module',
-        'currency' => 'string|size:3',
+        'sales_funnels_limit',
+        'deal_funnels_limit',
+        'companies_limit',
+        'messages_limit',
+        'api_tokens_limit',
+        'api_requests_limit',
+        'api_requests_count',
+        'api_requests_reset_at',
     ];
 
     /**
      * The attributes that should be cast.
      */
     protected $casts = [
-        'is_active' => 'boolean',
-        'settings' => 'array',
+        'is_active'              => 'boolean',
+        'settings'               => 'array',
+        'api_requests_reset_at'  => 'datetime',
     ];
 
     public static function planLimits(string $plan): array
@@ -52,12 +60,12 @@ class Company extends Model
                 'tasks_limit'            => 1000,
                 'integrations_limit'     => 2,
                 'products_limit'         => 50,
-
-                // NEW LIMITS
                 'sales_funnels_limit'    => 1,
                 'deal_funnels_limit'     => 1,
                 'companies_limit'        => 100,
                 'messages_limit'         => 10000,
+                'api_tokens_limit'       => 2,
+                'api_requests_limit'     => 1000,
             ],
 
             'premium' => [
@@ -68,16 +76,16 @@ class Company extends Model
                 'tasks_limit'            => 25000,
                 'integrations_limit'     => 10,
                 'products_limit'         => 500,
-
-                // NEW LIMITS
                 'sales_funnels_limit'    => 5,
                 'deal_funnels_limit'     => 5,
                 'companies_limit'        => 1000,
                 'messages_limit'         => 50000,
+                'api_tokens_limit'       => 10,
+                'api_requests_limit'     => 10000,
             ],
 
             'enterprise' => [
-                // NULL = unlimited
+                // null = unlimited
                 'leads_limit'            => null,
                 'users_limit'            => null,
                 'storage_limit_gb'       => 500,
@@ -85,12 +93,12 @@ class Company extends Model
                 'tasks_limit'            => null,
                 'integrations_limit'     => null,
                 'products_limit'         => null,
-
-                // NEW LIMITS
                 'sales_funnels_limit'    => null,
                 'deal_funnels_limit'     => null,
                 'companies_limit'        => null,
                 'messages_limit'         => null,
+                'api_tokens_limit'       => null,
+                'api_requests_limit'     => null,
             ],
         };
     }
