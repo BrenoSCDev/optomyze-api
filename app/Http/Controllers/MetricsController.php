@@ -8,6 +8,7 @@ use App\Models\Lead;
 use App\Models\Stage;
 use App\Models\LeadTransaction;
 use App\Models\Sale;
+use App\Models\SaleItem;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -56,15 +57,23 @@ class MetricsController extends Controller
         // 7. Deal Statistics scoped to period (uses closed_at / lost_at)
         $dealStats = $this->getDealStatistics($companyId, $startDate, $endDate);
 
+        // 8. Agent sales performance (closed deals) for the selected period
+        $agentSalesPerformance = $this->getAgentSalesPerformance($companyId, $startDate, $endDate);
+
+        // 9. Product sales performance (closed deals) for the selected period
+        $productSalesPerformance = $this->getProductSalesPerformance($companyId, $startDate, $endDate);
+
         return response()->json([
             'data' => [
-                'lead_statistics'          => $leadStats,
-                'deal_statistics'          => $dealStats,
-                'conversion_rate'          => round($conversionRate, 2),
-                'performance_comparison'   => $performance,
-                'leads_by_funnel_stage'    => $leadsByFunnelStage,
-                'deals_by_funnel_stage'    => $dealsByFunnelStage,
+                'lead_statistics'           => $leadStats,
+                'deal_statistics'           => $dealStats,
+                'conversion_rate'           => round($conversionRate, 2),
+                'performance_comparison'    => $performance,
+                'leads_by_funnel_stage'     => $leadsByFunnelStage,
+                'deals_by_funnel_stage'     => $dealsByFunnelStage,
                 'estimated_vs_closed_value' => $estimatedVsClosedValue,
+                'agent_sales_performance'   => $agentSalesPerformance,
+                'product_sales_performance' => $productSalesPerformance,
                 'summary' => [
                     'period'       => $periodLabel,
                     'company_id'   => $companyId,
@@ -861,7 +870,7 @@ class MetricsController extends Controller
         $companyId = $company->id;
 
         // Get all funnels with their stages and leads (with products)
-        $funnels = Funnel::where('company_id', $companyId)
+        $funnels = Funnel::where(['company_id' => $companyId, 'type' => 'sale'])
             ->with(['stages.leads.products'])
             ->get();
 
@@ -924,6 +933,81 @@ class MetricsController extends Controller
                 'total_closed_value' => round(array_sum(array_column($funnelValueAnalysis, 'closed_value')), 2),
             ],
         ];
+    }
+
+    /**
+     * Get agent (user) sales performance for closed deals in the selected period.
+     * Returns sales count and revenue generated per agent, sorted by revenue desc.
+     */
+    private function getAgentSalesPerformance(int $companyId, ?Carbon $startDate, ?Carbon $endDate): array
+    {
+        $query = Sale::where('sales.company_id', $companyId)
+            ->where('sales.status', 'closed')
+            ->join('users', 'sales.user_id', '=', 'users.id')
+            ->select(
+                'users.id as user_id',
+                'users.name as user_name',
+                DB::raw('COUNT(sales.id) as sales_count'),
+                DB::raw('SUM(sales.total) as revenue')
+            )
+            ->groupBy('users.id', 'users.name')
+            ->orderByDesc('revenue');
+
+        if ($startDate && $endDate) {
+            $query->whereBetween('sales.closed_at', [$startDate, $endDate]);
+        }
+
+        $rows = $query->get();
+
+        return $rows->map(fn($row) => [
+            'user_id'     => $row->user_id,
+            'user_name'   => $row->user_name,
+            'sales_count' => (int) $row->sales_count,
+            'revenue'     => round((float) $row->revenue, 2),
+        ])->values()->all();
+    }
+
+    /**
+     * Get product sales performance for closed deals in the selected period.
+     *
+     * Revenue per product is proportionally attributed from sales.total
+     * (which already includes charges added and discounts subtracted) using
+     * each item's share of the sale's subtotal:
+     *
+     *   attributed_revenue = item.total_price / NULLIF(sale.subtotal, 0) * sale.total
+     *
+     * This ensures discounts and charges at the sale level are correctly
+     * reflected in per-product revenue figures.
+     */
+    private function getProductSalesPerformance(int $companyId, ?Carbon $startDate, ?Carbon $endDate): array
+    {
+        $query = SaleItem::query()
+            ->join('sales', 'sale_items.sale_id', '=', 'sales.id')
+            ->where('sales.company_id', $companyId)
+            ->where('sales.status', 'closed')
+            ->select(
+                'sale_items.product_id',
+                DB::raw('COALESCE(sale_items.product_name, "Unknown") as product_name'),
+                DB::raw('COUNT(DISTINCT sale_items.sale_id) as sales_count'),
+                DB::raw('SUM(sale_items.quantity) as quantity_sold'),
+                DB::raw('SUM(sale_items.total_price / NULLIF(sales.subtotal, 0) * sales.total) as revenue')
+            )
+            ->groupBy('sale_items.product_id', 'sale_items.product_name')
+            ->orderByDesc('revenue');
+
+        if ($startDate && $endDate) {
+            $query->whereBetween('sales.closed_at', [$startDate, $endDate]);
+        }
+
+        $rows = $query->get();
+
+        return $rows->map(fn($row) => [
+            'product_id'    => $row->product_id,
+            'product_name'  => $row->product_name,
+            'sales_count'   => (int) $row->sales_count,
+            'quantity_sold' => (int) $row->quantity_sold,
+            'revenue'       => round((float) $row->revenue, 2),
+        ])->values()->all();
     }
 
     public function planUsage()

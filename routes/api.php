@@ -6,6 +6,8 @@ use App\Http\Controllers\ApiTokenController;
 use App\Http\Controllers\FunnelController;
 use App\Http\Controllers\FunnelManagerQueueController;
 use App\Http\Controllers\LostReasonController;
+use App\Http\Controllers\PermissionController;
+use App\Http\Controllers\RoleController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\ConversationReportController;
@@ -71,6 +73,7 @@ Route::middleware('auth:sanctum')->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::get('/auth/me', [AuthController::class, 'me']);
+    Route::get('/auth/me/permissions', [AuthController::class, 'myPermissions']);
     Route::post('/auth/update', [AuthController::class, 'updateProfile']);
     Route::post('/auth/reset/password', [AuthController::class, 'resetPasswordAuth']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
@@ -99,6 +102,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/teams/{team}', [TeamController::class, 'show']);
     Route::put('/teams/{team}', [TeamController::class, 'update']);
     Route::delete('/teams/{team}', [TeamController::class, 'destroy']);
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Permissions & Roles Routes
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/permissions', [PermissionController::class, 'index']);
+    Route::get('/roles', [RoleController::class, 'index']);
+    Route::get('/roles/{role}/permissions', [RoleController::class, 'show']);
+    Route::put('/roles/{role}/permissions', [RoleController::class, 'update'])->middleware('permission:roles.edit');
 
 
     /*

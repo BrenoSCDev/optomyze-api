@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\CheckPermission;
 use App\Http\Middleware\VerifyApiToken;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -16,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function ($middleware) {
         $middleware->alias([
             'verify.api.token' => VerifyApiToken::class,
+            'permission'       => CheckPermission::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
