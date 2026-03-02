@@ -21,7 +21,7 @@ class CompanyController extends Controller
             $query->where('is_active', $active)->whereNull('deleted_at');
         }
 
-        $companies = $query->paginate(20);
+        $companies = $query->get();
 
         return response()->json($companies);
     }

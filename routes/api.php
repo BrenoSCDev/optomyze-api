@@ -10,6 +10,7 @@ use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CompanyController;
+use App\Http\Controllers\ManagerUserController;
 use App\Http\Controllers\ConversationReportController;
 use App\Http\Controllers\CustomProductFieldController;
 use App\Http\Controllers\EntryRequirementController;
@@ -70,12 +71,21 @@ Route::post('/users/manager', [UserController::class, 'storeManager']);
 |--------------------------------------------------------------------------
 */
 Route::middleware('verify.manager.key')->prefix('manager')->group(function () {
+    // Company management
     Route::get('/companies', [CompanyController::class, 'index']);
     Route::post('/companies', [CompanyController::class, 'store']);
     Route::get('/companies/{id}', [CompanyController::class, 'show']);
     Route::put('/companies/{id}', [CompanyController::class, 'update']);
     Route::delete('/companies/{id}', [CompanyController::class, 'destroy']);
     Route::post('/companies/{id}/restore', [CompanyController::class, 'restore']);
+
+    // User management
+    Route::get('/users', [ManagerUserController::class, 'index']);
+    Route::post('/users', [ManagerUserController::class, 'store']);
+    Route::get('/users/{id}', [ManagerUserController::class, 'show']);
+    Route::put('/users/{id}', [ManagerUserController::class, 'update']);
+    Route::patch('/users/{id}/deactivate', [ManagerUserController::class, 'deactivate']);
+    Route::delete('/users/{id}', [ManagerUserController::class, 'destroy']);
 });
 
 

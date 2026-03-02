@@ -166,6 +166,10 @@ class MetricsController extends Controller
 
     /**
      * Get comprehensive monthly metrics.
+     *
+     * Accepts an optional ?year= query param (defaults to current year).
+     * Returns a monthly_overview array with leads and deals created per month,
+     * suitable for a dual-series line chart comparison.
      */
     public function monthlyCharts(Request $request): JsonResponse
     {
@@ -173,15 +177,19 @@ class MetricsController extends Controller
         $company = $user->company;
         $companyId = $company->id;
 
+        $year = (int) $request->input('year', Carbon::now()->year);
+
         // 1. Revenue Metrics (Module-aware)
         $revenueMetrics = $this->getRevenueMetricsByModule($company);
 
-        // 2. Monthly Lead Creation Data (Current Year)
-        $monthlyLeadData = $this->getMonthlyLeadData($companyId);
+        // 2. Monthly Leads vs Deals overview for the selected year
+        $monthlyOverview = $this->getMonthlyOverview($companyId, $year);
+
         return response()->json([
             'data' => [
-                'monthly_lead_data' => $monthlyLeadData,
-                'revenue_metrics' => $revenueMetrics,
+                'year'             => $year,
+                'monthly_overview' => $monthlyOverview,
+                'revenue_metrics'  => $revenueMetrics,
             ],
         ]);
     }
@@ -244,35 +252,46 @@ class MetricsController extends Controller
     }
 
     /**
-     * Get monthly lead creation data for current year.
+     * Get monthly leads vs deals created for the given year.
+     *
+     * Each entry represents one calendar month and exposes two series:
+     *   - leads: number of leads created that month
+     *   - deals: number of sales/deals created that month
+     *
+     * This is the data source for the dual-series line chart on the frontend.
      */
-    private function getMonthlyLeadData(int $companyId): array
+    private function getMonthlyOverview(int $companyId, int $year): array
     {
-        $currentYear = Carbon::now()->year;
-        $months = [
+        $labels = [
             1 => 'Jan', 2 => 'Feb', 3 => 'Mar', 4 => 'Apr',
             5 => 'May', 6 => 'Jun', 7 => 'Jul', 8 => 'Aug',
-            9 => 'Sep', 10 => 'Oct', 11 => 'Nov', 12 => 'Dec'
+            9 => 'Sep', 10 => 'Oct', 11 => 'Nov', 12 => 'Dec',
         ];
 
-        // Get lead counts by month for current year
-        $leadCountsByMonth = Lead::fromCompany($companyId)
-            ->whereYear('created_at', $currentYear)
-            ->select(DB::raw('MONTH(created_at) as month'), DB::raw('COUNT(*) as leads'))
+        $leadsByMonth = Lead::fromCompany($companyId)
+            ->whereYear('created_at', $year)
+            ->select(DB::raw('MONTH(created_at) as month'), DB::raw('COUNT(*) as total'))
             ->groupBy(DB::raw('MONTH(created_at)'))
-            ->pluck('leads', 'month')
+            ->pluck('total', 'month')
             ->toArray();
 
-        // Format the data
-        $monthlyData = [];
-        for ($month = 1; $month <= 12; $month++) {
-            $monthlyData[] = [
-                'month' => $months[$month],
-                'leads' => $leadCountsByMonth[$month] ?? 0,
+        $dealsByMonth = Sale::where('company_id', $companyId)
+            ->whereYear('created_at', $year)
+            ->select(DB::raw('MONTH(created_at) as month'), DB::raw('COUNT(*) as total'))
+            ->groupBy(DB::raw('MONTH(created_at)'))
+            ->pluck('total', 'month')
+            ->toArray();
+
+        $result = [];
+        for ($m = 1; $m <= 12; $m++) {
+            $result[] = [
+                'month' => $labels[$m],
+                'leads' => (int) ($leadsByMonth[$m] ?? 0),
+                'deals' => (int) ($dealsByMonth[$m] ?? 0),
             ];
         }
 
-        return $monthlyData;
+        return $result;
     }
 
     /**
@@ -1157,6 +1176,20 @@ class MetricsController extends Controller
 
         /*
         |--------------------------------------------------------------------------
+        | API TOKENS
+        |--------------------------------------------------------------------------
+        */
+        $apiTokensUsed = \App\Models\ApiToken::where('company_id', $company->id)->count();
+
+        /*
+        |--------------------------------------------------------------------------
+        | API REQUESTS (monthly, reset via middleware)
+        |--------------------------------------------------------------------------
+        */
+        $apiRequestsUsed = (int) ($company->api_requests_count ?? 0);
+
+        /*
+        |--------------------------------------------------------------------------
         | Helper for limit calculation
         |--------------------------------------------------------------------------
         */
@@ -1205,6 +1238,13 @@ class MetricsController extends Controller
             'deal_funnels'   => $calculate($dealFunnelsUsed, $company->deal_funnels_limit),
             'companies'      => $calculate($companiesUsed, $company->companies_limit),
             'messages'       => $calculate($messagesUsed, $company->messages_limit),
+
+            // API USAGE
+            'api_tokens'   => $calculate($apiTokensUsed, $company->api_tokens_limit),
+            'api_requests' => array_merge(
+                $calculate($apiRequestsUsed, $company->api_requests_limit),
+                ['resets_at' => $company->api_requests_reset_at?->toISOString()],
+            ),
         ]);
     }
 
