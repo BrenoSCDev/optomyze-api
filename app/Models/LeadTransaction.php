@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Events\LeadTransactionNotification;
+use App\Traits\HasCompanyTimezone;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -15,7 +16,7 @@ use App\Models\WhatsAppInstance;
 
 class LeadTransaction extends Model
 {
-    use HasFactory;
+    use HasCompanyTimezone, HasFactory;
 
     protected static function booted(): void
     {

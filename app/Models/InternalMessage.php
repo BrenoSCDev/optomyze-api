@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use App\Traits\HasCompanyTimezone;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Storage;
 
 class InternalMessage extends Model
 {
+    use HasCompanyTimezone;
+
     protected $fillable = [
         'conversation_id',
         'user_id',
@@ -15,6 +18,15 @@ class InternalMessage extends Model
         'body',
         'file_path',
     ];
+
+    public function getCompanyTimezone(): string
+    {
+        if ($this->relationLoaded('conversation') && $this->conversation) {
+            return $this->conversation->getCompanyTimezone();
+        }
+
+        return config('app.timezone');
+    }
 
     public function conversation(): BelongsTo
     {

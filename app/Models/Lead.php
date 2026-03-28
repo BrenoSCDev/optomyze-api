@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\HasCompanyTimezone;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Lead extends Model
 {
-    use HasFactory;
+    use HasCompanyTimezone, HasFactory;
 
     /**
      * Lead priority constants
@@ -422,6 +423,14 @@ class Lead extends Model
     public function reports()
     {
         return $this->hasMany(ConversationReport::class);
+    }
+
+    /**
+     * Custom fields relationship
+     */
+    public function fields()
+    {
+        return $this->hasMany(LeadCustomField::class);
     }
 
     /**

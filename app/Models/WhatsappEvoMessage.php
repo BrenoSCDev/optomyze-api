@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\HasCompanyTimezone;
 use Illuminate\Database\Eloquent\Model;
 
 class WhatsappEvoMessage extends Model
 {
+    use HasCompanyTimezone;
+
     protected $fillable = [
         'whatsapp_evo_chat_id',
         'user_id',
@@ -28,7 +31,17 @@ class WhatsappEvoMessage extends Model
         'latitude'  => 'float',
         'longitude' => 'float',
         'metadata'  => 'array',
+        'sent_at'   => 'datetime',
     ];
+
+    public function getCompanyTimezone(): string
+    {
+        if ($this->relationLoaded('chat') && $this->chat) {
+            return $this->chat->getCompanyTimezone();
+        }
+
+        return config('app.timezone');
+    }
 
     public function chat()
     {

@@ -23,10 +23,14 @@ class InternalMessageController extends Controller
             403
         );
 
+        $conversation->load('company');
+
         $messages = $conversation->messages()
             ->with('sender:id,name,profile_pic')
             ->orderBy('created_at')
             ->paginate(50);
+
+        $messages->getCollection()->each(fn($m) => $m->setRelation('conversation', $conversation));
 
         return response()->json([
             'data' => $messages->getCollection()->map(fn($m) => $this->formatMessage($m)),
@@ -72,6 +76,8 @@ class InternalMessageController extends Controller
 
         $conversation->update(['last_message_at' => now()]);
 
+        $conversation->load('company');
+        $message->setRelation('conversation', $conversation);
         $message->load('sender:id,name,profile_pic');
 
         broadcast(new InternalMessageSent($message));
@@ -142,7 +148,7 @@ class InternalMessageController extends Controller
                     ? Storage::url($sender->profile_pic)
                     : null,
             ],
-            'created_at' => $message->created_at->toISOString(),
+            'created_at' => $message->created_at->toIso8601String(),
         ];
     }
 }

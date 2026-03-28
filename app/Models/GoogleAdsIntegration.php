@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\HasCompanyTimezone;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Validator;
@@ -9,7 +10,7 @@ use Illuminate\Validation\ValidationException;
 
 class GoogleAdsIntegration extends Model
 {
-    use HasFactory;
+    use HasCompanyTimezone, HasFactory;
 
     protected $fillable = [
         'company_id',

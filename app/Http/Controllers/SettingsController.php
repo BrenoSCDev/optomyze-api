@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\CustomProductField;
 use App\Models\Funnel;
+use App\Models\LeadCustomField;
 use App\Models\FunnelManagerQueue;
 use App\Models\LostReason;
 use App\Models\NotificationSetting;
@@ -17,6 +18,7 @@ class SettingsController extends Controller
         $user = Auth::user();
 
         $customProductFields = CustomProductField::where(['type' => 'model', 'company_id' => $user->company_id])->get();
+        $customLeadFields    = LeadCustomField::where(['type' => 'model', 'company_id' => $user->company_id])->get();
         $funnels = Funnel::fromCompany($user->company_id)
             ->where('type', 'sale_model')
             ->with('stages.entryRequirement')
@@ -36,6 +38,7 @@ class SettingsController extends Controller
 
         return response()->json([
             "customProductFields"  => $customProductFields,
+            "customLeadFields"     => $customLeadFields,
             "funnels"              => $funnels,
             "notificationSettings" => $notificationSettings,
             "queues"               => $queues,

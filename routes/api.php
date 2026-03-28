@@ -13,6 +13,7 @@ use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\ManagerUserController;
 use App\Http\Controllers\ConversationReportController;
 use App\Http\Controllers\CustomProductFieldController;
+use App\Http\Controllers\LeadCustomFieldController;
 use App\Http\Controllers\EntryRequirementController;
 use App\Http\Controllers\EventController;
 use App\Http\Controllers\GoogleAdsIntegrationController;
@@ -389,6 +390,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/custom-product-fields', [CustomProductFieldController::class, 'store']);
     Route::put('/custom-product-fields/{customProductField}', [CustomProductFieldController::class, 'update']);
     Route::delete('/custom-product-fields/{customProductField}', [CustomProductFieldController::class, 'destroy']);
+
+    // Lead custom fields (model-level defaults)
+    Route::get('/lead-custom-fields', [LeadCustomFieldController::class, 'index']);
+    Route::post('/lead-custom-fields', [LeadCustomFieldController::class, 'store']);
+    Route::put('/lead-custom-fields/{leadCustomField}', [LeadCustomFieldController::class, 'update']);
+    Route::delete('/lead-custom-fields/{leadCustomField}', [LeadCustomFieldController::class, 'destroy']);
+
+    // Lead-specific custom field values
+    Route::get('/leads/{lead}/custom-fields', [LeadCustomFieldController::class, 'forLead']);
+    Route::post('/leads/{lead}/custom-fields', [LeadCustomFieldController::class, 'storeForLead']);
+    Route::delete('/leads/{lead}/custom-fields/{fieldKey}', [LeadCustomFieldController::class, 'destroyForLead']);
 
     /*
     |--------------------------------------------------------------------------
