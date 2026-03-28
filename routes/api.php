@@ -408,6 +408,7 @@ Route::middleware('auth:sanctum')->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::get('/settings-panel', [SettingsController::class, 'panel']);
+    Route::put('/settings-panel', [SettingsController::class, 'update']);
     Route::post('/notification-settings', [NotificationSettingController::class, 'store']);
     Route::patch('/notification-settings', [NotificationSettingController::class, 'update']);
 
