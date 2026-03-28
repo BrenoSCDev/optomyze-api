@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\HasCompanyTimezone;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -9,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Company extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasCompanyTimezone, HasFactory, SoftDeletes;
 
     /**
      * The attributes that are mass assignable.
@@ -38,6 +39,8 @@ class Company extends Model
         'api_requests_limit',
         'api_requests_count',
         'api_requests_reset_at',
+        'timezone',
+        'currency',
     ];
 
     /**

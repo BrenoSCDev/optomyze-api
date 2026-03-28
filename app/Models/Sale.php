@@ -3,6 +3,7 @@
 // app/Models/Sale.php
 namespace App\Models;
 
+use App\Traits\HasCompanyTimezone;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,6 +11,8 @@ use App\Models\SaleTransaction;
 
 class Sale extends Model
 {
+    use HasCompanyTimezone;
+
     protected $fillable = [
         'lead_id',
         'company_id',
@@ -37,8 +40,10 @@ class Sale extends Model
     ];
 
     protected $casts = [
-    'total' => 'decimal:2',
-];
+        'total'     => 'decimal:2',
+        'closed_at' => 'datetime',
+        'lost_at'   => 'datetime',
+    ];
 
 
     public function company():BelongsTo

@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use App\Traits\HasCompanyTimezone;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class LeadCompany extends Model
 {
+    use HasCompanyTimezone;
+
     protected $fillable = [
         'company_id',
 

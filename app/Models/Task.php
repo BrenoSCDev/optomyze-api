@@ -2,11 +2,49 @@
 
 namespace App\Models;
 
+use App\Support\CompanyTimezoneCache;
+use App\Traits\HasCompanyTimezone;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Carbon;
 
 class Task extends Model
 {
+    use HasCompanyTimezone;
+
+    /**
+     * Task has no company_id column — timezone is resolved through its Lead.
+     *
+     * Resolution order:
+     *  1. The `lead` relation is already loaded — delegate to Lead::getCompanyTimezone().
+     *  2. lead_id is present — query Lead for company_id, then cache and resolve.
+     *  3. Fall back to the application timezone.
+     */
+    public function getCompanyTimezone(): string
+    {
+        // 1. Lead relation already loaded — delegate (uses Lead's own cache chain).
+        if ($this->relationLoaded('lead') && $this->lead instanceof Lead) {
+            return $this->lead->getCompanyTimezone();
+        }
+
+        // 2. Resolve via lead_id with per-request cache.
+        if ($this->lead_id) {
+            $companyId = Lead::where('id', $this->lead_id)->value('company_id');
+
+            if ($companyId) {
+                $cached = CompanyTimezoneCache::get((int) $companyId);
+                if ($cached !== null) {
+                    return $cached;
+                }
+
+                $tz = \App\Models\Company::where('id', $companyId)->value('timezone')
+                    ?: config('app.timezone');
+
+                CompanyTimezoneCache::set((int) $companyId, $tz);
+                return $tz;
+            }
+        }
+
+        return config('app.timezone');
+    }
 
     protected $fillable = [
         'lead_id',

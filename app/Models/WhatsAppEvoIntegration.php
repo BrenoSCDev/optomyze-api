@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\HasCompanyTimezone;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Validator;
@@ -9,6 +10,8 @@ use Illuminate\Validation\ValidationException;
 
 class WhatsAppEvoIntegration extends Model
 {
+    use HasCompanyTimezone;
+
     protected $fillable = [
         'name',
         'company_id',

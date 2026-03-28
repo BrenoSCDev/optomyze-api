@@ -445,6 +445,9 @@ class WhatsappEvoChatController extends Controller
         $chats = WhatsappEvoChat::query()
             ->where('company_id', $companyId)
             ->with([
+                // 🔹 Company (needed for timezone resolution on messages)
+                'company:id,timezone',
+
                 // 🔹 Instance info
                 'instance:id,instance_name,company_id',
 
@@ -460,6 +463,11 @@ class WhatsappEvoChatController extends Controller
             ])
             ->orderByDesc('last_message_at')
             ->get();
+
+        // Stamp each message with its parent chat so timezone resolves correctly
+        $chats->each(function ($chat) {
+            $chat->messages->each(fn($msg) => $msg->setRelation('chat', $chat));
+        });
 
         return response()->json([
             'data' => $chats
@@ -562,6 +570,9 @@ class WhatsappEvoChatController extends Controller
 
             // 7️⃣ Broadcast real-time update
             broadcast(new WhatsAppMessageReceived($message))->toOthers();
+
+            $chat->load('company:id,timezone');
+            $message->setRelation('chat', $chat);
 
             return response()->json([
                 'status'  => 'sent',

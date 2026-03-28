@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Traits\HasCompanyTimezone;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class WhatsAppInstance extends Model
 {
+    use HasCompanyTimezone;
+
     protected $fillable = [
         'company_id',
         'whats_app_evo_integration_id',

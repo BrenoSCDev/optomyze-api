@@ -2,10 +2,14 @@
 
 namespace App\Models;
 
+use App\Traits\HasCompanyTimezone;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Model;
 
 class WhatsappEvoChat extends Model
 {
+    use HasCompanyTimezone;
+
     protected $fillable = [
         'company_id',
         'whatsapp_instance_id',
@@ -17,7 +21,11 @@ class WhatsappEvoChat extends Model
         'last_message_at',
     ];
 
-    // WhatsappEvoChat.php
+    public function company(): BelongsTo
+    {
+        return $this->belongsTo(Company::class);
+    }
+
     public function lead()
     {
         return $this->belongsTo(Lead::class);

@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\HasCompanyTimezone;
 use Illuminate\Database\Eloquent\Model;
 
 class NotificationSetting extends Model
 {
+    use HasCompanyTimezone;
+
     protected $fillable = [
         'company_id',
         'channels',
