@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Models\Funnel;
+use App\Models\RolePermission;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
@@ -99,11 +100,14 @@ class AuthController extends Controller
             return $funnel;
         });
 
+    $permissions = RolePermission::keysForRole($user->role, $user->company_id);
+
     return response()->json([
         'access_token' => $token,
         'token_type'   => 'Bearer',
         'user'         => $user,
         'funnels'      => $funnels,
+        'permissions'  => $permissions,
     ]);
 }
 
@@ -299,6 +303,19 @@ class AuthController extends Controller
                 'error' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Return the authenticated user's resolved permission keys.
+     */
+    public function myPermissions(Request $request)
+    {
+        $user = $request->user();
+
+        return response()->json([
+            'role'        => $user->role,
+            'permissions' => RolePermission::keysForRole($user->role, $user->company_id),
+        ]);
     }
 
     public function resetPassword(Request $request)
