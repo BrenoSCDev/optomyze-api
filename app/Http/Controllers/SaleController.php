@@ -46,6 +46,9 @@ class SaleController extends Controller
             'discounts.*.type' => 'required|in:percentage,fixed',
             'discounts.*.value' => 'required|numeric|min:0',
 
+            // Manual value (when no products)
+            'manual_value' => 'nullable|numeric|min:0',
+
             // Funnel & Stage
             'funnel_id' => 'exists:funnels,id',
             'stage_id' => 'exists:stages,id',
@@ -101,6 +104,7 @@ class SaleController extends Controller
         // Products
         if (in_array($sale->pricing_model, ['product', 'hybrid'])) {
             $baseSubtotal += $sale->items->sum('total_price');
+            $baseSubtotal += $validated['manual_value'] ?? 0;
         }
 
         // Commission
