@@ -8,6 +8,7 @@ use App\Models\SaleItem;
 use App\Models\SaleTransaction;
 use App\Models\Stage;
 use App\Models\User;
+use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
@@ -187,7 +188,21 @@ class SaleController extends Controller
         SaleTransaction::createSaleCreation($sale, $user);
 
         /** -----------------------------------------
-         * 8️⃣ Response
+         * 8️⃣ Notify — deal_created
+         * ----------------------------------------*/
+        app(NotificationService::class)->dispatch('deal_created', $sale->company_id, [
+            'deal_owner_id' => $sale->user_id,
+            'lead_owner_id' => $lead->assigned_to,
+            'actor_name'    => $user->name,
+            'sale'          => ['id' => $sale->id, 'name' => $sale->name, 'total' => $finalTotal],
+            'lead'          => [
+                'id'   => $lead->id,
+                'name' => trim("{$lead->first_name} {$lead->last_name}"),
+            ],
+        ]);
+
+        /** -----------------------------------------
+         * 9️⃣ Response
          * ----------------------------------------*/
         return response()->json([
             'message' => 'Sale created successfully',
@@ -310,6 +325,19 @@ class SaleController extends Controller
 
         SaleTransaction::createStatusChange($sale, $fromStatus, $data['status'], Auth::user());
 
+        $notifEvent = $data['status'] === 'closed' ? 'deal_won' : 'deal_lost';
+        $notifLead  = $sale->lead;
+        app(NotificationService::class)->dispatch($notifEvent, $sale->company_id, [
+            'deal_owner_id' => $sale->user_id,
+            'lead_owner_id' => $notifLead?->assigned_to,
+            'actor_name'    => Auth::user()->name,
+            'sale'          => ['id' => $sale->id, 'name' => $sale->name, 'total' => $sale->total],
+            'lead'          => $notifLead ? [
+                'id'   => $notifLead->id,
+                'name' => trim("{$notifLead->first_name} {$notifLead->last_name}"),
+            ] : [],
+        ]);
+
         return response()->json([
             'message' => 'Sale status updated successfully.',
             'data' => $sale->fresh(),
@@ -358,6 +386,24 @@ class SaleController extends Controller
         $sale->save();
 
         SaleTransaction::createStageChange($sale, $fromStage, $stage, Auth::user());
+
+        $stageNotifEvent = match (true) {
+            $stage->type === 'won'  => 'deal_won',
+            $stage->type === 'lost' => 'deal_lost',
+            default                 => 'deal_stage_changed',
+        };
+        $stageLead = $sale->fresh()->lead;
+        app(NotificationService::class)->dispatch($stageNotifEvent, $sale->company_id, [
+            'deal_owner_id' => $sale->user_id,
+            'lead_owner_id' => $stageLead?->assigned_to,
+            'actor_name'    => Auth::user()->name,
+            'stage_name'    => $stage->name,
+            'sale'          => ['id' => $sale->id, 'name' => $sale->name, 'total' => $sale->total],
+            'lead'          => $stageLead ? [
+                'id'   => $stageLead->id,
+                'name' => trim("{$stageLead->first_name} {$stageLead->last_name}"),
+            ] : [],
+        ]);
 
         return response()->json([
             'message' => 'Sale moved successfully.',

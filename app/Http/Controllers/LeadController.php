@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Events\LeadCreatedNotification;
 use App\Models\EntryRequirement;
+use App\Services\NotificationService;
 use App\Models\Lead;
 use App\Models\LeadCompany;
 use App\Models\LeadTransaction;
@@ -59,8 +59,18 @@ class LeadController extends Controller
             []
         );
 
-        // Broadcast notification to all company members (except the creator)
-        broadcast(new LeadCreatedNotification($lead, Auth::user()))->toOthers();
+        // Dispatch notification through the centralized service.
+        // Checks: event enabled, quiet hours, channels, recipients.
+        app(NotificationService::class)->dispatch('lead_created', $lead->company_id, [
+            'lead_owner_id' => $lead->assigned_to,
+            'actor_name'    => Auth::user()->name,
+            'lead'          => [
+                'id'   => $lead->id,
+                'name' => trim("{$lead->first_name} {$lead->last_name}"),
+            ],
+            '_lead_model'  => $lead,
+            '_actor_model' => Auth::user(),
+        ]);
 
         return response()->json([
             'message' => 'Lead created successfully',
@@ -314,6 +324,15 @@ class LeadController extends Controller
 
         $lead->assigned_to = $validated['user_id'];
         $lead->save();
+
+        app(NotificationService::class)->dispatch('lead_assigned', $lead->company_id, [
+            'lead_owner_id' => $validated['user_id'],
+            'actor_name'    => Auth::user()->name,
+            'lead'          => [
+                'id'   => $lead->id,
+                'name' => trim("{$lead->first_name} {$lead->last_name}"),
+            ],
+        ]);
 
         return response()->json([
             'message' => 'User successfully assigned to lead',
