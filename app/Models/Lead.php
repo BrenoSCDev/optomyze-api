@@ -426,6 +426,14 @@ class Lead extends Model
     }
 
     /**
+     * Custom fields relationship
+     */
+    public function fields()
+    {
+        return $this->hasMany(LeadCustomField::class);
+    }
+
+    /**
      * Document relationship
      */
     public function docs()

@@ -6,6 +6,7 @@ use App\Events\LeadCreatedNotification;
 use App\Models\EntryRequirement;
 use App\Models\Lead;
 use App\Models\LeadCompany;
+use App\Models\LeadCustomField;
 use App\Models\LeadTransaction;
 use App\Models\LostReason;
 use App\Models\Product;
@@ -47,6 +48,22 @@ class LeadController extends Controller
 
         // Create the lead
         $lead = Lead::create($validated);
+
+        // Replicate model-level lead custom fields to this lead
+        $modelFields = LeadCustomField::where('company_id', $lead->company_id)
+            ->where('type', 'model')
+            ->get();
+
+        foreach ($modelFields as $field) {
+            LeadCustomField::create([
+                'company_id'  => $lead->company_id,
+                'lead_id'     => $lead->id,
+                'type'        => 'lead',
+                'field_key'   => $field->field_key,
+                'field_type'  => $field->field_type,
+                'field_value' => $field->field_value,
+            ]);
+        }
 
         // Auto-assign via funnel manager queue (round-robin)
         $this->applyQueueAssignment($lead);
