@@ -171,4 +171,44 @@ class TaskController extends Controller
 
         return response()->json($tasks);
     }
+
+    ////////////////// V1 API METHODS //////////////////
+
+    public function apiIndex(Request $request)
+    {
+        $company = $request->get('company');
+        if (!$company) return response()->json(['message' => 'Unauthorized'], 401);
+
+        $query = Task::whereHas('lead', fn($q) => $q->where('company_id', $company->id))
+            ->with(['lead:id,first_name,last_name', 'assignee:id,name,email', 'creator:id,name,email']);
+
+        if ($request->has('lead_id')) $query->where('lead_id', $request->lead_id);
+        if ($request->has('status'))  $query->where('status', $request->status);
+        if ($request->has('priority')) $query->where('priority', $request->priority);
+
+        $tasks = $query->orderBy('due_date')->paginate($request->input('per_page', 20));
+        return response()->json($tasks);
+    }
+
+    public function apiStore(Request $request)
+    {
+        $company = $request->get('company');
+        if (!$company) return response()->json(['message' => 'Unauthorized'], 401);
+
+        $lead = \App\Models\Lead::where('company_id', $company->id)->find($request->lead_id);
+        if (!$lead) return response()->json(['message' => 'Lead not found'], 404);
+
+        $validated = $request->validate([
+            'lead_id'     => 'required|exists:leads,id',
+            'title'       => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'priority'    => 'nullable|in:low,medium,high,urgent',
+            'status'      => 'nullable|in:pending,in_progress,completed,cancelled',
+            'due_date'    => 'nullable|date',
+            'assigned_to' => 'nullable|exists:users,id',
+        ]);
+
+        $task = Task::create([...$validated, 'reminder' => false]);
+        return response()->json(['message' => 'Task created successfully', 'data' => $task], 201);
+    }
 }

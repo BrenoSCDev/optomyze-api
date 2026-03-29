@@ -177,7 +177,14 @@ class Lead extends Model
     {
         return $this->hasMany(Observation::class)->orderBy('created_at', 'desc');
     }
-    
+
+    /**
+     * Get lead appointments.
+     */
+    public function appointments(): HasMany
+    {
+        return $this->hasMany(Appointment::class)->orderBy('scheduled_at');
+    }
 
     /**
      * Get the user who qualified this lead.

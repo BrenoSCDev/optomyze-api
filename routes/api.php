@@ -43,6 +43,8 @@ use App\Http\Controllers\WhatsAppEvoIntegrationController;
 use App\Http\Controllers\WhatsAppInstanceController;
 use App\Http\Controllers\NotificationSettingController;
 use App\Http\Controllers\OptomyzeErpIntegrationController;
+use App\Http\Controllers\AppointmentController;
+use App\Http\Controllers\AppointmentTypeController;
 use App\Http\Controllers\TeamController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -225,6 +227,27 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/observations', [ObservationController::class, 'store']);
     Route::put('/observations/{observation}', [ObservationController::class, 'update']);
     Route::delete('/observations/{observation}', [ObservationController::class, 'destroy']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Appointment Types Routes
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/appointment-types', [AppointmentTypeController::class, 'index']);
+    Route::post('/appointment-types', [AppointmentTypeController::class, 'store']);
+    Route::put('/appointment-types/{appointmentType}', [AppointmentTypeController::class, 'update']);
+    Route::delete('/appointment-types/{appointmentType}', [AppointmentTypeController::class, 'destroy']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Appointments Routes
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/leads/{lead}/appointments', [AppointmentController::class, 'index']);
+    Route::get('/appointments', [AppointmentController::class, 'companyIndex']);
+    Route::post('/appointments', [AppointmentController::class, 'store']);
+    Route::put('/appointments/{appointment}', [AppointmentController::class, 'update']);
+    Route::delete('/appointments/{appointment}', [AppointmentController::class, 'destroy']);
 
     /*
     |--------------------------------------------------------------------------
@@ -552,6 +575,40 @@ Route::middleware('verify.api.token')->prefix('v1')->group(function () {
     Route::delete('/funnels/{funnelId}/stages/{stageId}', [StageController::class, 'apiDestroy']);
 
     Route::post('/conversation-reports', [ConversationReportController::class, 'store']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Appointments
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/appointments', [AppointmentController::class, 'apiIndex']);
+    Route::post('/appointments', [AppointmentController::class, 'apiStore']);
+    Route::get('/appointments/{id}', [AppointmentController::class, 'apiShow']);
+    Route::put('/appointments/{id}', [AppointmentController::class, 'apiUpdate']);
+    Route::delete('/appointments/{id}', [AppointmentController::class, 'apiDestroy']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Lead Observations
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/leads/{leadId}/observations', [ObservationController::class, 'apiIndex']);
+    Route::post('/leads/{leadId}/observations', [ObservationController::class, 'apiStore']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Lead Tasks
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/tasks', [TaskController::class, 'apiIndex']);
+    Route::post('/tasks', [TaskController::class, 'apiStore']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Lead Move Stage
+    |--------------------------------------------------------------------------
+    */
+    Route::post('/leads/{id}/move-stage', [LeadController::class, 'apiMoveStage']);
 });
 
 // WhatsApp Evolution API Chat

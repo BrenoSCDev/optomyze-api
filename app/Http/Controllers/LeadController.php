@@ -671,4 +671,23 @@ class LeadController extends Controller
         LeadQueueAssignmentService::assign($lead);
     }
 
+    public function apiMoveStage(Request $request, int $id)
+    {
+        $company = $request->get('company');
+        if (!$company) return response()->json(['message' => 'Unauthorized'], 401);
+
+        $lead = \App\Models\Lead::where('company_id', $company->id)->find($id);
+        if (!$lead) return response()->json(['message' => 'Lead not found'], 404);
+
+        $validated = $request->validate([
+            'stage_id' => 'required|exists:stages,id',
+        ]);
+
+        $stage = \App\Models\Stage::find($validated['stage_id']);
+        $lead->stage_id = $stage->id;
+        $lead->save();
+
+        return response()->json(['message' => 'Lead moved to stage successfully', 'data' => $lead->fresh('stage')]);
+    }
+
 }

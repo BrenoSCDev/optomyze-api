@@ -69,4 +69,39 @@ class ObservationController extends Controller
             'message' => 'Observation deleted successfully.',
         ]);
     }
+
+    ////////////////// V1 API METHODS //////////////////
+
+    public function apiIndex(Request $request, int $leadId)
+    {
+        $company = $request->get('company');
+        if (!$company) return response()->json(['message' => 'Unauthorized'], 401);
+
+        $lead = \App\Models\Lead::where('company_id', $company->id)->find($leadId);
+        if (!$lead) return response()->json(['message' => 'Lead not found'], 404);
+
+        $observations = Observation::where('lead_id', $leadId)
+            ->with('user:id,name,email')
+            ->orderBy('created_at', 'desc')
+            ->paginate($request->input('per_page', 20));
+
+        return response()->json($observations);
+    }
+
+    public function apiStore(Request $request)
+    {
+        $company = $request->get('company');
+        if (!$company) return response()->json(['message' => 'Unauthorized'], 401);
+
+        $lead = \App\Models\Lead::where('company_id', $company->id)->find($request->lead_id);
+        if (!$lead) return response()->json(['message' => 'Lead not found'], 404);
+
+        $validated = $request->validate([
+            'lead_id' => 'required|exists:leads,id',
+            'note'    => 'required|string',
+        ]);
+
+        $observation = Observation::create([...$validated, 'user_id' => null]);
+        return response()->json(['message' => 'Observation created successfully', 'data' => $observation], 201);
+    }
 }

@@ -3,6 +3,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Appointment;
 use App\Models\Event;
 use App\Models\Task;
 use Illuminate\Http\Request;
@@ -29,10 +30,16 @@ class EventController extends Controller
         $events = Event::where('company_id', $companyId)
             ->orderBy('start_at')
             ->get();
-        
+
+        $appointments = Appointment::where('company_id', $companyId)
+            ->with(['appointmentType', 'lead:id,first_name,last_name,funnel_id', 'user:id,name,email'])
+            ->orderBy('scheduled_at')
+            ->get();
+
         return response()->json([
-            'tasks' => $tasks,
-            'events' => $events
+            'tasks'        => $tasks,
+            'events'       => $events,
+            'appointments' => $appointments,
         ]);
     }
 
