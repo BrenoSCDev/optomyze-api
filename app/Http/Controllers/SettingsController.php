@@ -58,7 +58,7 @@ class SettingsController extends Controller
 
         $validated = $request->validate([
             'product_settings'                                            => 'sometimes|array',
-            'product_settings.default_type'                               => 'sometimes|string|in:service,physical',
+            'product_settings.default_type'                               => 'sometimes|string|in:service,physical,digital',
             'product_settings.lock_type'                                  => 'sometimes|boolean',
             'product_settings.default_pricing_model'                      => 'sometimes|string',
             'product_settings.default_currency'                           => 'sometimes|string|size:3',
