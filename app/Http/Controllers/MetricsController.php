@@ -223,6 +223,7 @@ class MetricsController extends Controller
             'total_leads_lost' => $leadsByType['lost'] ?? 0,
             'converted_leads' => $leadsByType['conversion'] ?? 0,
             'qualified_leads' => $leadsByType['qualified'] ?? 0,
+            'in_service'      => $leadsByType['service'] ?? 0,
             'breakdown'       => $leadsByType,
         ];
     }
