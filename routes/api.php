@@ -45,6 +45,7 @@ use App\Http\Controllers\NotificationSettingController;
 use App\Http\Controllers\OptomyzeErpIntegrationController;
 use App\Http\Controllers\AppointmentController;
 use App\Http\Controllers\AppointmentTypeController;
+use App\Http\Controllers\FileController;
 use App\Http\Controllers\TeamController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -464,6 +465,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('messages', [InternalMessageController::class, 'store']);
         Route::delete('messages', [InternalMessageController::class, 'deleteMultiple']);
     });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Private File Serving
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/files/{path}', [FileController::class, 'serve'])->where('path', '.*');
 });
 
 

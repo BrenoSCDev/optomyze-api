@@ -173,24 +173,22 @@ class AuthController extends Controller
 
         // Handle profile_pic upload
         if ($request->hasFile('profile_pic')) {
-            // Delete old profile pic if exists
-            if ($user->profile_pic && Storage::disk('public')->exists($user->profile_pic)) {
-                Storage::disk('public')->delete($user->profile_pic);
+            if ($user->profile_pic && Storage::disk('local')->exists($user->profile_pic)) {
+                Storage::disk('local')->delete($user->profile_pic);
             }
 
-            $path = $request->file('profile_pic')->store('profile_pics', 'public');
-            
+            $path = $request->file('profile_pic')->store('profile_pics/' . $user->company_id, 'local');
+
             $user->profile_pic = $path;
         }
 
         // Handle bg_pic upload
         if ($request->hasFile('bg_pic')) {
-            // Delete old background pic if exists
-            if ($user->bg_pic && Storage::disk('public')->exists($user->bg_pic)) {
-                Storage::disk('public')->delete($user->bg_pic);
+            if ($user->bg_pic && Storage::disk('local')->exists($user->bg_pic)) {
+                Storage::disk('local')->delete($user->bg_pic);
             }
 
-            $bg_path = $request->file('bg_pic')->store('bg_pics', 'public');
+            $bg_path = $request->file('bg_pic')->store('bg_pics/' . $user->company_id, 'local');
 
             $user->bg_pic = $bg_path;
         }

@@ -58,19 +58,14 @@ class ProductImage extends Model
     // Accessors
     public function getUrlAttribute()
     {
-        return Storage::url($this->storage_path);
-    }
-
-    public function getFullUrlAttribute()
-    {
-        return url(Storage::url($this->storage_path));
+        return $this->storage_path;
     }
 
     // Methods
     public function deleteFile()
     {
-        if (Storage::exists($this->storage_path)) {
-            Storage::delete($this->storage_path);
+        if (Storage::disk('local')->exists($this->storage_path)) {
+            Storage::disk('local')->delete($this->storage_path);
         }
     }
 

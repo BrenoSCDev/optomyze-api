@@ -13,7 +13,6 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Storage;
 
 class User extends Authenticatable
 {
@@ -83,7 +82,7 @@ class User extends Authenticatable
 
     public function getProfilePicUrlAttribute(): ?string
     {
-        return $this->profile_pic ? Storage::url($this->profile_pic) : null;
+        return $this->profile_pic ?? null;
     }
 
     // /**

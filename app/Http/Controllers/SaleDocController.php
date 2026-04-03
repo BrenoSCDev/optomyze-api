@@ -16,7 +16,7 @@ class SaleDocController extends Controller
         ]);
 
         $file = $request->file('file');
-        $path = $file->store("sales/{$sale->id}", 'public');
+        $path = $file->store('sales/' . $request->user()->company_id . '/' . $sale->id, 'local');
 
         $doc = $sale->docs()->create([
             'filename' => $file->getClientOriginalName(),
@@ -30,7 +30,7 @@ class SaleDocController extends Controller
 
     public function destroy(SaleDoc $doc)
     {
-        Storage::disk('public')->delete($doc->storage_path);
+        Storage::disk('local')->delete($doc->storage_path);
         $doc->delete();
 
         return response()->json(['message' => 'Document deleted']);

@@ -22,7 +22,7 @@ class LeadDocumentController extends Controller
         ]);
 
         $file = $request->file('file');
-        $path = $file->store('lead-documents', 'public');
+        $path = $file->store('lead-documents/' . $request->user()->company_id, 'local');
 
         $document = LeadDocument::create([
             'lead_id' => $validated['lead_id'],
@@ -43,7 +43,7 @@ class LeadDocumentController extends Controller
     public function destroy(LeadDocument $leadDocument)
     {
         if ($leadDocument->path) {
-            Storage::disk('public')->delete($leadDocument->path);
+            Storage::disk('local')->delete($leadDocument->path);
         }
 
         $leadDocument->delete();

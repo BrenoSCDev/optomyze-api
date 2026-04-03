@@ -39,8 +39,8 @@ class ProductImageController extends Controller
         $file = $validated['image'];
 
         $path = $file->store(
-            'products/' . $product->id,
-            'public'
+            'products/' . $request->user()->company_id . '/' . $product->id,
+            'local'
         );
 
         // If marked as primary, unset previous primary image
