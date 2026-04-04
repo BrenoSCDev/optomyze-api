@@ -441,36 +441,77 @@ class WhatsappEvoChatController extends Controller
         }
 
         $companyId = $user->company_id;
+        $page      = max(1, (int) $request->query('page', 1));
+        $perPage   = 20;
 
-        $chats = WhatsappEvoChat::query()
+        $paginator = WhatsappEvoChat::query()
             ->where('company_id', $companyId)
             ->with([
-                // 🔹 Company (needed for timezone resolution on messages)
                 'company:id,timezone',
-
-                // 🔹 Instance info
                 'instance:id,instance_name,company_id',
-
-                // 🔹 Lead + Funnel + Stage
                 'lead:id,company_id,first_name,last_name,phone,funnel_id,stage_id',
                 'lead.funnel:id,name',
                 'lead.stage:id,name',
-
-                // 🔹 Load only last 20 messages per chat
-                'messages' => function ($query) {
-                    $query->orderBy('sent_at')->with('user:id,name');
-                }
+                // Only the latest message per chat (for list preview)
+                'latestMessage' => fn($q) => $q->with('user:id,name'),
             ])
             ->orderByDesc('last_message_at')
-            ->get();
+            ->paginate($perPage, ['*'], 'page', $page);
 
-        // Stamp each message with its parent chat so timezone resolves correctly
-        $chats->each(function ($chat) {
-            $chat->messages->each(fn($msg) => $msg->setRelation('chat', $chat));
+        // Map: expose latestMessage as messages array for frontend compatibility
+        $chats = $paginator->getCollection()->map(function ($chat) {
+            $latest = $chat->latestMessage;
+            if ($latest) {
+                $latest->setRelation('chat', $chat);
+            }
+            $chat->setRelation('messages', $latest ? collect([$latest]) : collect([]));
+            unset($chat->latest_message);
+            return $chat;
         });
 
         return response()->json([
-            'data' => $chats
+            'data' => $chats,
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page'    => $paginator->lastPage(),
+                'per_page'     => $paginator->perPage(),
+                'total'        => $paginator->total(),
+            ],
+        ], 200);
+    }
+
+    public function getChatMessages(Request $request, $chatId)
+    {
+        $user = Auth::user();
+
+        if (!$user || !$user->company_id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $chat = WhatsappEvoChat::where('id', $chatId)
+            ->where('company_id', $user->company_id)
+            ->with('company:id,timezone')
+            ->firstOrFail();
+
+        $page    = max(1, (int) $request->query('page', 1));
+        $perPage = 50;
+
+        $paginator = $chat->messages()
+            ->with('user:id,name')
+            ->orderBy('sent_at', 'desc') // newest first
+            ->paginate($perPage, ['*'], 'page', $page);
+
+        $messages = $paginator->getCollection();
+        $messages->each(fn($msg) => $msg->setRelation('chat', $chat));
+
+        return response()->json([
+            'data' => $messages, // newest first — frontend reverses for display
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page'    => $paginator->lastPage(),
+                'per_page'     => $paginator->perPage(),
+                'total'        => $paginator->total(),
+            ],
         ], 200);
     }
 
@@ -585,6 +626,26 @@ class WhatsappEvoChatController extends Controller
                 'error'   => $e->getMessage(),
             ], 500);
         }
+    }
+
+    public function searchLeads(Request $request)
+    {
+        $companyId = Auth::user()->company_id;
+        $q = trim($request->query('q', ''));
+
+        $leads = Lead::where('company_id', $companyId)
+            ->when($q !== '', function ($query) use ($q) {
+                $query->where(function ($sub) use ($q) {
+                    $sub->where('first_name', 'like', "%{$q}%")
+                        ->orWhere('last_name', 'like', "%{$q}%")
+                        ->orWhere('phone', 'like', "%{$q}%");
+                });
+            })
+            ->select('id', 'first_name', 'last_name', 'phone', 'funnel_id', 'stage_id')
+            ->limit(20)
+            ->get();
+
+        return response()->json($leads);
     }
 
     public function clearMessages(WhatsappEvoChat $chat)

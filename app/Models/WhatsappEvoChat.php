@@ -36,6 +36,11 @@ class WhatsappEvoChat extends Model
         return $this->hasMany(WhatsappEvoMessage::class);
     }
 
+    public function latestMessage()
+    {
+        return $this->hasOne(WhatsappEvoMessage::class)->latestOfMany('sent_at');
+    }
+
     public function instance()
     {
         return $this->belongsTo(WhatsAppInstance::class, 'whatsapp_instance_id');

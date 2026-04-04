@@ -11,6 +11,17 @@ use Illuminate\Support\Facades\Http;
 
 class WhatsAppInstanceController extends Controller
 {
+    public function index()
+    {
+        $companyId = Auth::user()->company_id;
+
+        $instances = WhatsAppInstance::where('company_id', $companyId)
+            ->select('id', 'instance_name', 'status')
+            ->get();
+
+        return response()->json($instances);
+    }
+
     public function createInstance(Request $request)
     {
         $user = Auth::user();

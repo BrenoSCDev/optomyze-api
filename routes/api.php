@@ -322,6 +322,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/whatsapp-evo-integrations/configure', [WhatsAppEvoIntegrationController::class, 'configure']);
 
         // WhatsApp Evolution API Instances
+        Route::get('/whatsapp-evo-instances', [WhatsAppInstanceController::class, 'index']);
         Route::post('/whatsapp-evo-instances', [WhatsAppInstanceController::class, 'createInstance']);
         Route::delete('/whatsapp-evo-instances/{instanceId}', [WhatsAppInstanceController::class, 'deleteInstance']);
         Route::delete('/whatsapp-evo-instances/{instanceId}', [WhatsAppInstanceController::class, 'deleteInstance']);
@@ -332,8 +333,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // WhatsApp Evolution API Chat
         Route::get('/whatsapp-evo-chat', [WhatsappEvoChatController::class, 'getCompanyChats']);
+        Route::get('/whatsapp-evo-chat/{chatId}/messages', [WhatsappEvoChatController::class, 'getChatMessages']);
         Route::post('/whatsapp-evo-chat/message/{instanceId}', [WhatsappEvoChatController::class, 'sendMessageToLead']);
         Route::delete('/whatsapp-evo-chats/{chat}/clear-messages', [WhatsappEvoChatController::class, 'clearMessages']);
+        Route::get('/whatsapp-leads/search', [WhatsappEvoChatController::class, 'searchLeads']);
         
     });
 
