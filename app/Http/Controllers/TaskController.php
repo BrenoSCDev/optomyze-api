@@ -20,8 +20,12 @@ class TaskController extends Controller
         $companyId = Auth::user()->company_id;
 
         $tasks = Task::query()
-            ->whereHas('lead', function ($query) use ($companyId) {
-                $query->where('company_id', $companyId);
+            ->where(function ($query) use ($companyId) {
+                $query->whereHas('lead', fn ($q) => $q->where('company_id', $companyId))
+                      ->orWhere(function ($q) use ($companyId) {
+                          $q->whereNull('lead_id')
+                            ->whereHas('creator', fn ($sub) => $sub->where('company_id', $companyId));
+                      });
             })
             ->with([
                 'lead',
@@ -42,7 +46,7 @@ class TaskController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'lead_id' => 'required|exists:leads,id',
+            'lead_id' => 'nullable|exists:leads,id',
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
             'priority' => 'nullable|in:low,medium,high,urgent',
@@ -54,10 +58,9 @@ class TaskController extends Controller
 
         return DB::transaction(function () use ($validated) {
 
-            $lead = Lead::findOrFail($validated['lead_id']);
-
             $task = Task::create([
                 ...$validated,
+                'lead_id'    => $validated['lead_id'] ?? null,
                 'created_by' => Auth::id(),
             ]);
 
@@ -65,36 +68,43 @@ class TaskController extends Controller
                 $task->markAsCompleted();
             }
 
-            $task->load(['creator', 'assignee']);
+            $task->load(['creator', 'assignee', 'lead']);
 
-            // Build professional CRM-style description
-            $description = "Task \"{$task->title}\" created by {$task->creator->name}";
+            $transaction = null;
 
-            if ($task->assignee) {
-                $description .= " assigned to {$task->assignee->name}";
+            if (!empty($validated['lead_id'])) {
+                $lead = Lead::find($validated['lead_id']);
+
+                if ($lead) {
+                    $description = "Task \"{$task->title}\" created by {$task->creator->name}";
+
+                    if ($task->assignee) {
+                        $description .= " assigned to {$task->assignee->name}";
+                    }
+
+                    if ($task->priority) {
+                        $description .= " (" . ucfirst($task->priority) . " priority)";
+                    }
+
+                    if ($task->due_date) {
+                        $description .= " – Due: " . Carbon::parse($task->due_date)->format('d/m/Y');
+                    }
+
+                    if ($task->status === 'completed') {
+                        $description .= " and marked as completed";
+                    }
+
+                    $transaction = $lead->transactions()->create([
+                        'company_id' => $lead->company_id,
+                        'user_id' => Auth::id(),
+                        'type' => 'task',
+                        'action' => 'created',
+                        'description' => $description,
+                    ]);
+
+                    $transaction->load('user');
+                }
             }
-
-            if ($task->priority) {
-                $description .= " (" . ucfirst($task->priority) . " priority)";
-            }
-
-            if ($task->due_date) {
-                $description .= " – Due: " . Carbon::parse($task->due_date)->format('d/m/Y');
-            }
-
-            if ($task->status === 'completed') {
-                $description .= " and marked as completed";
-            }
-
-            $transaction = $lead->transactions()->create([
-                'company_id' => $lead->company_id,
-                'user_id' => Auth::id(),
-                'type' => 'task',
-                'action' => 'created',
-                'description' => $description,
-            ]);
-
-            $transaction->load('user');
 
             return response()->json([
                 'message' => 'Tarefa criada com sucesso',
@@ -120,12 +130,13 @@ class TaskController extends Controller
         public function update(Request $request, Task $task)
         {
             $validated = $request->validate([
-                'title' => 'sometimes|required|string|max:255',
+                'lead_id'     => 'sometimes|nullable|exists:leads,id',
+                'title'       => 'sometimes|required|string|max:255',
                 'description' => 'sometimes|string',
-                'priority' => 'sometimes|in:low,medium,high,urgent',
-                'reminder' => 'sometimes',
-                'status' => 'sometimes',
-                'due_date' => 'sometimes|date',
+                'priority'    => 'sometimes|in:low,medium,high,urgent',
+                'reminder'    => 'sometimes',
+                'status'      => 'sometimes',
+                'due_date'    => 'sometimes|date',
                 'assigned_to' => 'sometimes|exists:users,id',
             ]);
 

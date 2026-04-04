@@ -12,7 +12,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
-use Illuminate\Support\Facades\Hash;
 
 class User extends Authenticatable
 {
@@ -165,15 +164,7 @@ class User extends Authenticatable
         $this->update(['last_login_at' => now()]);
     }
 
-    /**
-     * Set the user's password.
-     */
-    public function setPasswordAttribute($value): void
-    {
-        $this->attributes['password'] = Hash::make($value);
-    }
-
-    /**
+/**
      * Validation rules for user creation.
      */
     public static function validationRules(): array

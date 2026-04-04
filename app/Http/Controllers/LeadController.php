@@ -417,8 +417,12 @@ class LeadController extends Controller
                 'creator:id,name,email',
                 'assignee:id,name,email'
             ])
-            ->whereHas('lead', function ($query) use ($companyId) {
-                $query->where('company_id', $companyId);
+            ->where(function ($query) use ($companyId) {
+                $query->whereHas('lead', fn ($q) => $q->where('company_id', $companyId))
+                      ->orWhere(function ($q) use ($companyId) {
+                          $q->whereNull('lead_id')
+                            ->whereHas('creator', fn ($sub) => $sub->where('company_id', $companyId));
+                      });
             })
             ->latest()
             ->get();
