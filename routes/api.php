@@ -215,6 +215,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/sales/{sale}/docs', [SaleDocController::class, 'store']);
     Route::delete('/sales/docs/{doc}', [SaleDocController::class, 'destroy']);
     Route::get('/sales/{sale}', [SaleController::class, 'show']);
+    Route::put('/sales/{sale}', [SaleController::class, 'update']);
     Route::put('/sales/{sale}/status', [SaleController::class, 'updateStatus']);
     Route::patch('/sales/{sale}/move-stage', [SaleController::class, 'moveToStage']);
     Route::get('/deals-activity/transactions', [SaleController::class, 'dealTransactions']);

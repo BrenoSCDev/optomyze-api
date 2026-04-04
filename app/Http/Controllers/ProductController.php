@@ -306,7 +306,16 @@ class ProductController extends Controller
             return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
         }
 
-        $query = Product::fromCompany($company->id)->with(['primaryImage']);
+        $relations = ['primaryImage'];
+
+        if ($request->boolean('with_images')) {
+            $relations[] = 'images';
+        }
+        if ($request->boolean('with_custom_fields')) {
+            $relations[] = 'fields';
+        }
+
+        $query = Product::fromCompany($company->id)->with($relations);
 
         if ($request->has('is_active')) {
             $query->where('is_active', $request->boolean('is_active'));
@@ -337,7 +346,13 @@ class ProductController extends Controller
             return response()->json(['message' => 'Unauthorized: no company found for token'], 401);
         }
 
-        $product = Product::fromCompany($company->id)->with(['images', 'primaryImage'])->find($id);
+        $relations = ['primaryImage', 'images'];
+
+        if ($request->boolean('with_custom_fields')) {
+            $relations[] = 'fields';
+        }
+
+        $product = Product::fromCompany($company->id)->with($relations)->find($id);
 
         if (!$product) {
             return response()->json(['message' => 'Product not found'], 404);

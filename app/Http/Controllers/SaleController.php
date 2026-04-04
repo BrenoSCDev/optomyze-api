@@ -220,6 +220,114 @@ class SaleController extends Controller
         ], 201);
     }
 
+    public function update(Request $request, Sale $sale): JsonResponse
+    {
+        $user = Auth::user();
+
+        if ($sale->company_id !== $user->company_id) {
+            return response()->json(['message' => 'Unauthorized.'], 403);
+        }
+
+        $validated = $request->validate([
+            'name'             => 'sometimes|required|string|max:255',
+            'notes'            => 'nullable|string',
+            'stage_id'         => 'sometimes|exists:stages,id',
+            'pricing_model'    => 'sometimes|in:product,commission,hybrid',
+            'commission_type'  => 'nullable|in:percentage,fixed',
+            'commission_value' => 'nullable|numeric|min:0',
+            'reference_value'  => 'nullable|numeric|min:0',
+            'charges'          => 'nullable|array',
+            'charges.*.name'   => 'required|string',
+            'charges.*.type'   => 'required|in:percentage,fixed',
+            'charges.*.value'  => 'required|numeric|min:0',
+            'discounts'          => 'nullable|array',
+            'discounts.*.name'   => 'required|string',
+            'discounts.*.type'   => 'required|in:percentage,fixed',
+            'discounts.*.value'  => 'required|numeric|min:0',
+        ]);
+
+        return DB::transaction(function () use ($sale, $validated, $user) {
+
+            // Update basic scalar fields
+            $scalarUpdate = array_filter([
+                'name'             => $validated['name'] ?? null,
+                'stage_id'         => $validated['stage_id'] ?? null,
+                'pricing_model'    => $validated['pricing_model'] ?? null,
+                'commission_type'  => $validated['commission_type'] ?? null,
+                'commission_value' => $validated['commission_value'] ?? null,
+                'reference_value'  => $validated['reference_value'] ?? null,
+            ], fn ($v) => $v !== null);
+
+            // notes can explicitly be null
+            if (array_key_exists('notes', $validated)) {
+                $scalarUpdate['notes'] = $validated['notes'];
+            }
+
+            if (!empty($scalarUpdate)) {
+                $sale->update($scalarUpdate);
+            }
+
+            // Re-sync charges if provided
+            if (array_key_exists('charges', $validated)) {
+                $sale->charges()->delete();
+                foreach ($validated['charges'] ?? [] as $c) {
+                    $calculated = $c['type'] === 'percentage'
+                        ? $sale->subtotal * ($c['value'] / 100)
+                        : $c['value'];
+                    $sale->charges()->create([
+                        'name'              => $c['name'],
+                        'type'              => $c['type'],
+                        'value'             => $c['value'],
+                        'calculated_amount' => $calculated,
+                    ]);
+                }
+            }
+
+            // Re-sync discounts if provided
+            if (array_key_exists('discounts', $validated)) {
+                $sale->discounts()->delete();
+                foreach ($validated['discounts'] ?? [] as $d) {
+                    $calculated = $d['type'] === 'percentage'
+                        ? $sale->subtotal * ($d['value'] / 100)
+                        : $d['value'];
+                    $sale->discounts()->create([
+                        'name'              => $d['name'],
+                        'type'              => $d['type'],
+                        'value'             => $d['value'],
+                        'calculated_amount' => $calculated,
+                    ]);
+                }
+            }
+
+            // Recalculate totals
+            $sale->load('charges', 'discounts');
+            $chargesTotal   = $sale->charges->sum('calculated_amount');
+            $discountsTotal = $sale->discounts->sum('calculated_amount');
+            $finalTotal     = max(0, $sale->subtotal + $chargesTotal - $discountsTotal);
+
+            $sale->update([
+                'discount_total' => $discountsTotal,
+                'total'          => $finalTotal,
+            ]);
+
+            // Log update transaction
+            SaleTransaction::create([
+                'sale_id'     => $sale->id,
+                'company_id'  => $sale->company_id,
+                'user_id'     => $user->id,
+                'type'        => SaleTransaction::TYPE_UPDATE,
+                'action'      => SaleTransaction::ACTION_UPDATED,
+                'description' => "Deal \"{$sale->name}\" updated by {$user->name}",
+                'source'      => SaleTransaction::SOURCE_MANUAL,
+            ]);
+
+            return response()->json([
+                'message' => 'Sale updated successfully.',
+                'sale'    => $sale->fresh(['items', 'charges', 'discounts', 'lead:id,first_name,last_name', 'user:id,name,email', 'funnel:id,name', 'stage:id,name,color']),
+            ]);
+        });
+    }
+
     public function destroy(Sale $sale): JsonResponse
     {
         $user = Auth::user();
@@ -324,6 +432,17 @@ class SaleController extends Controller
             $updateData['closed_at'] = null; // ensure consistency
         }
 
+        // Move to the matching won/lost stage in the funnel
+        if ($sale->funnel_id) {
+            $targetStageType = $data['status'] === 'closed' ? 'won' : 'lost';
+            $targetStage = Stage::where('funnel_id', $sale->funnel_id)
+                ->where('type', $targetStageType)
+                ->first();
+            if ($targetStage) {
+                $updateData['stage_id'] = $targetStage->id;
+            }
+        }
+
         $fromStatus = $sale->status;
         $sale->update($updateData);
 
@@ -344,7 +463,7 @@ class SaleController extends Controller
 
         return response()->json([
             'message' => 'Sale status updated successfully.',
-            'data' => $sale->fresh(),
+            'data' => $sale->fresh(['stage']),
         ]);
     }
 
