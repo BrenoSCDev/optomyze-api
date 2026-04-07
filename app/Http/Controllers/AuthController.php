@@ -221,7 +221,7 @@ class AuthController extends Controller
         );
 
         // 4. Prepare the reset link/token for the webhook
-        $resetUrl = 'http://localhost:8080' . '/reset-password?token=' . $token . '&email=' . urlencode($email);    
+        $resetUrl = 'https://crm.optomyze.io' . '/reset-password?token=' . $token . '&email=' . urlencode($email);    
         
         $url = "https://optomyze-n8n.kmfrpu.easypanel.host/webhook/7f48b411-f289-4d5e-b05c-8a012a48e2db";
 
