@@ -61,6 +61,11 @@ use Illuminate\Support\Facades\Broadcast;
 |
 */
 
+// Handle CORS preflight for all API routes
+Route::options('{any}', function () {
+    return response()->json([], 200);
+})->where('any', '.*');
+
 
 Route::post('/auth/login', [AuthController::class, 'login']);
 Route::post('/auth/forgot-pwd', [AuthController::class, 'forgotPassword']);
