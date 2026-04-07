@@ -16,7 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function ($middleware) {
-        $middleware->prepend(\Illuminate\Http\Middleware\HandleCors::class);
+        // $middleware->prepend(\Illuminate\Http\Middleware\HandleCors::class);
 
         $middleware->alias([
             'verify.api.token' => VerifyApiToken::class,
