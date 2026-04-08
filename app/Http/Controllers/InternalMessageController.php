@@ -63,7 +63,7 @@ class InternalMessageController extends Controller
 
         if ($request->hasFile('file') && in_array($validated['type'], ['image', 'audio'])) {
             $folder   = $validated['type'] === 'image' ? 'chat/images' : 'chat/audio';
-            $filePath = $request->file('file')->store("{$folder}/{$user->company_id}", 'public');
+            $filePath = $request->file('file')->store("{$folder}/{$user->company_id}", 'local');
         }
 
         $message = InternalMessage::create([
@@ -140,13 +140,11 @@ class InternalMessageController extends Controller
             'conversation_id' => $message->conversation_id,
             'type'            => $message->type,
             'body'            => $message->body,
-            'file_url'        => $message->file_path ? Storage::url($message->file_path) : null,
+            'file_url'        => $message->file_path,
             'sender'          => [
                 'id'              => $sender->id,
                 'name'            => $sender->name,
-                'profile_pic_url' => $sender->profile_pic
-                    ? Storage::url($sender->profile_pic)
-                    : null,
+                'profile_pic_url' => $sender->profile_pic,
             ],
             'created_at' => $message->created_at->toIso8601String(),
         ];

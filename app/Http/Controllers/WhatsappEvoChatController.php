@@ -200,7 +200,7 @@ class WhatsappEvoChatController extends Controller
                                         $storagePath = 'whatsapp/images/' . $companyId;
                                         $imageData = base64_decode($base64Image);
                                         
-                                        Storage::disk('public')->put($storagePath . '/' . $filename, $imageData);
+                                        Storage::disk('local')->put($storagePath . '/' . $filename, $imageData);
                                         $mediaPath = $storagePath . '/' . $filename;
                                         
                                         break; // Success - exit retry loop
@@ -260,7 +260,7 @@ class WhatsappEvoChatController extends Controller
                         $audioData = base64_decode($base64Audio);
                         
                         // Store in Laravel storage
-                        Storage::disk('public')->put($storagePath . '/' . $filename, $audioData);
+                        Storage::disk('local')->put($storagePath . '/' . $filename, $audioData);
                         
                         // Get the full path
                         $mediaPath = $storagePath . '/' . $filename;
@@ -330,7 +330,7 @@ class WhatsappEvoChatController extends Controller
                                         $storedName  = 'whatsapp_' . time() . '_' . uniqid() . '.' . $extension;
                                         $storagePath = 'whatsapp/documents/' . $companyId;
 
-                                        Storage::disk('public')->put(
+                                        Storage::disk('local')->put(
                                             $storagePath . '/' . $storedName,
                                             base64_decode($base64Document)
                                         );

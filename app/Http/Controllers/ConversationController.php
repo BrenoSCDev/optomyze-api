@@ -114,7 +114,7 @@ class ConversationController extends Controller
 
         if ($request->hasFile('cover_image')) {
             $coverImagePath = $request->file('cover_image')
-                ->store('chat/groups/' . $user->company_id, 'public');
+                ->store('chat/groups/' . $user->company_id, 'local');
         }
 
         $conversation = Conversation::create([
@@ -162,11 +162,16 @@ class ConversationController extends Controller
         $conversation->delete();
 
         if ($coverImage) {
-            Storage::disk('public')->delete($coverImage);
+            Storage::disk('local')->exists($coverImage)
+                ? Storage::disk('local')->delete($coverImage)
+                : Storage::disk('public')->delete($coverImage);
         }
 
         if (!empty($messagePaths)) {
-            Storage::disk('public')->delete($messagePaths);
+            $localPaths  = array_filter($messagePaths, fn($p) => Storage::disk('local')->exists($p));
+            $publicPaths = array_values(array_diff($messagePaths, $localPaths));
+            if (!empty($localPaths))  Storage::disk('local')->delete(array_values($localPaths));
+            if (!empty($publicPaths)) Storage::disk('public')->delete($publicPaths);
         }
 
         broadcast(new GroupDeleted($groupId, $groupName, $companyId));
@@ -257,9 +262,7 @@ class ConversationController extends Controller
             'name'            => $conversation->type === 'private'
                 ? $conversation->participants->firstWhere('id', '!=', $authUser->id)?->name
                 : $conversation->name,
-            'cover_image_url' => $conversation->cover_image
-                ? Storage::url($conversation->cover_image)
-                : null,
+            'cover_image_url' => $conversation->cover_image,
             'participants'    => $conversation->participants->map(fn($p) => array_merge(
                 $this->formatUser($p),
                 ['conversation_role' => $p->pivot->role ?? 'member']
@@ -272,9 +275,7 @@ class ConversationController extends Controller
                 'sender'     => $lastMessage->sender ? [
                     'id'              => $lastMessage->sender->id,
                     'name'            => $lastMessage->sender->name,
-                    'profile_pic_url' => $lastMessage->sender->profile_pic
-                        ? Storage::url($lastMessage->sender->profile_pic)
-                        : null,
+                    'profile_pic_url' => $lastMessage->sender->profile_pic,
                 ] : null,
                 'created_at' => $lastMessage->created_at?->toISOString(),
             ] : null,
@@ -290,9 +291,7 @@ class ConversationController extends Controller
             'name'            => $user->name,
             'email'           => $user->email,
             'role'            => $user->role,
-            'profile_pic_url' => $user->profile_pic
-                ? Storage::url($user->profile_pic)
-                : null,
+            'profile_pic_url' => $user->profile_pic,
         ];
     }
 }

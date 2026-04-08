@@ -21,18 +21,31 @@ class FileController extends Controller
     {
         $user = $request->user();
 
-        $segments = explode('/', $path);
-        $companyId = (int) ($segments[1] ?? 0);
+        // Company ID is the first numeric segment in the path.
+        // Handles both shallow (profile_pics/{company_id}/file) and
+        // nested paths (chat/images/{company_id}/file, whatsapp/audio/{company_id}/file).
+        $companyId = 0;
+        foreach (explode('/', $path) as $segment) {
+            $n = (int) $segment;
+            if ($n > 0) {
+                $companyId = $n;
+                break;
+            }
+        }
 
         if (!$companyId || $user->company_id !== $companyId) {
             abort(403, 'Forbidden');
         }
 
-        if (!Storage::disk('local')->exists($path)) {
+        // Try local disk first (preferred), then public disk (legacy files).
+        if (Storage::disk('local')->exists($path)) {
+            $absolutePath = Storage::disk('local')->path($path);
+        } elseif (Storage::disk('public')->exists($path)) {
+            $absolutePath = Storage::disk('public')->path($path);
+        } else {
             abort(404, 'File not found');
         }
 
-        $absolutePath = Storage::disk('local')->path($path);
         $download = $request->boolean('download', false);
         $filename = basename($path);
 
