@@ -53,4 +53,45 @@ class FileController extends Controller
             'Content-Disposition' => ($download ? 'attachment' : 'inline') . '; filename="' . $filename . '"',
         ]);
     }
+
+    /**
+     * Serve a private file authenticated via API token (external v1 API).
+     * Company scope comes from the token, not the session user.
+     */
+    public function serveExternal(Request $request, string $path)
+    {
+        $company = $request->company;
+
+        if (!$company) {
+            abort(403, 'Forbidden');
+        }
+
+        $companyId = 0;
+        foreach (explode('/', $path) as $segment) {
+            $n = (int) $segment;
+            if ($n > 0) {
+                $companyId = $n;
+                break;
+            }
+        }
+
+        if (!$companyId || $company->id !== $companyId) {
+            abort(403, 'Forbidden');
+        }
+
+        if (Storage::disk('local')->exists($path)) {
+            $absolutePath = Storage::disk('local')->path($path);
+        } elseif (Storage::disk('public')->exists($path)) {
+            $absolutePath = Storage::disk('public')->path($path);
+        } else {
+            abort(404, 'File not found');
+        }
+
+        $download = $request->boolean('download', false);
+        $filename = basename($path);
+
+        return response()->file($absolutePath, [
+            'Content-Disposition' => ($download ? 'attachment' : 'inline') . '; filename="' . $filename . '"',
+        ]);
+    }
 }

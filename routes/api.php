@@ -627,6 +627,13 @@ Route::middleware('verify.api.token')->prefix('v1')->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::post('/leads/{id}/move-stage', [LeadController::class, 'apiMoveStage']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Files
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/files/{path}', [FileController::class, 'serveExternal'])->where('path', '.*');
 });
 
 // WhatsApp Evolution API Chat
