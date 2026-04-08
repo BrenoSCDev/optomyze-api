@@ -227,50 +227,77 @@ class WhatsappEvoChatController extends Controller
                     $messageValues['text'] = $imageMessage['caption'] ?? null;
                 }
             } elseif ($messageType === 'audioMessage') {
-                
-                // Extract audio data
+
                 $audioMessage = $messageData['audioMessage'] ?? null;
-                
+
                 if ($audioMessage) {
-                    // Store the base64 audio
-                    $base64Audio = $payload['data']['message']['base64'] ?? null;
-                    $mediaPath = null;
-                    
-                    if ($base64Audio) {
-                        // Determine file extension based on mimetype
-                        $mimeType = $audioMessage['mimetype'] ?? 'audio/ogg';
-                        $extension = 'ogg'; // Default for WhatsApp voice notes
-                        
-                        // If it's opus codec, use .ogg extension
-                        if (str_contains($mimeType, 'opus')) {
-                            $extension = 'ogg';
-                        } elseif (str_contains($mimeType, 'mp4')) {
-                            $extension = 'm4a';
-                        } elseif (str_contains($mimeType, 'mpeg')) {
-                            $extension = 'mp3';
+                    $mediaPath   = null;
+                    $integration = WhatsAppEvoIntegration::where('company_id', $companyId)->first();
+
+                    if ($integration) {
+                        $evolutionApiUrl = rtrim($integration->base_url, '/');
+                        $evolutionApiKey = $integration->api_key;
+                        $instanceName    = $payload['instance'] ?? null;
+                        $messageKey      = $payload['data']['key'] ?? null;
+
+                        $maxRetries = 3;
+                        $retryDelay = 2;
+
+                        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+                            try {
+                                $response = Http::timeout(45)
+                                    ->retry(2, 1000)
+                                    ->withHeaders([
+                                        'apikey'       => $evolutionApiKey,
+                                        'Content-Type' => 'application/json',
+                                    ])
+                                    ->post("{$evolutionApiUrl}/chat/getBase64FromMediaMessage/{$instanceName}", [
+                                        'message'      => ['key' => $messageKey],
+                                        'convertToMp4' => false,
+                                    ]);
+
+                                if ($response->successful()) {
+                                    $mediaData   = $response->json();
+                                    $base64Audio = $mediaData['base64'] ?? null;
+
+                                    if ($base64Audio) {
+                                        $mimeType  = $mediaData['mimetype'] ?? $audioMessage['mimetype'] ?? 'audio/ogg';
+                                        $fileName  = $mediaData['fileName'] ?? null;
+                                        $extension = $fileName
+                                            ? pathinfo($fileName, PATHINFO_EXTENSION)
+                                            : $this->extensionFromMime($mimeType);
+
+                                        $storedName  = 'whatsapp_' . time() . '_' . uniqid() . '.' . $extension;
+                                        $storagePath = 'whatsapp/audio/' . $companyId;
+
+                                        Storage::disk('local')->put(
+                                            $storagePath . '/' . $storedName,
+                                            base64_decode($base64Audio)
+                                        );
+
+                                        $mediaPath = $storagePath . '/' . $storedName;
+                                        break;
+                                    }
+                                }
+                            } catch (\Exception $e) {
+                                Log::warning("Audio download attempt {$attempt} failed", [
+                                    'error'      => $e->getMessage(),
+                                    'message_id' => $messageKey['id'] ?? 'unknown',
+                                ]);
+
+                                if ($attempt < $maxRetries) {
+                                    sleep($retryDelay);
+                                    $retryDelay *= 2;
+                                }
+                            }
                         }
-                        
-                        // Generate unique filename
-                        $filename = 'whatsapp_' . time() . '_' . uniqid() . '.' . $extension;
-                        
-                        // Define storage path
-                        $storagePath = 'whatsapp/audio/' . $companyId;
-                        
-                        // Decode and store the audio
-                        $audioData = base64_decode($base64Audio);
-                        
-                        // Store in Laravel storage
-                        Storage::disk('local')->put($storagePath . '/' . $filename, $audioData);
-                        
-                        // Get the full path
-                        $mediaPath = $storagePath . '/' . $filename;
                     }
-                        
-                    $messageValues['type'] = 'audio';
-                    $messageValues['media_url'] = $mediaPath;
+
+                    $messageValues['type']       = 'audio';
+                    $messageValues['media_url']  = $mediaPath;
                     $messageValues['media_mime'] = $audioMessage['mimetype'] ?? 'audio/ogg';
                     $messageValues['media_size'] = $audioMessage['fileLength'] ?? null;
-                    $messageValues['text'] = null;
+                    $messageValues['text']       = null;
                 }
 
             } elseif ($messageType === 'locationMessage') {
