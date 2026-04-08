@@ -341,6 +341,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/whatsapp-evo-chat', [WhatsappEvoChatController::class, 'getCompanyChats']);
         Route::get('/whatsapp-evo-chat/{chatId}/messages', [WhatsappEvoChatController::class, 'getChatMessages']);
         Route::post('/whatsapp-evo-chat/message/{instanceId}', [WhatsappEvoChatController::class, 'sendMessageToLead']);
+        Route::post('/whatsapp-evo-chat/media/{instanceId}', [WhatsappEvoChatController::class, 'sendMediaToLead']);
         Route::delete('/whatsapp-evo-chats/{chat}/clear-messages', [WhatsappEvoChatController::class, 'clearMessages']);
         Route::get('/whatsapp-leads/search', [WhatsappEvoChatController::class, 'searchLeads']);
         

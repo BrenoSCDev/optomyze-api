@@ -628,6 +628,138 @@ class WhatsappEvoChatController extends Controller
         }
     }
 
+    public function sendMediaToLead(Request $request, $instanceId)
+    {
+        $user = Auth::user();
+
+        if (!$user || !$user->company_id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $companyId = $user->company_id;
+
+        $request->validate([
+            'lead_id'      => 'required|integer',
+            'type'         => 'required|in:image,audio',
+            'file'         => 'required|file|max:20480',
+            'message_mode' => 'sometimes|in:external,internal',
+        ]);
+
+        $messageMode = $request->input('message_mode', 'external');
+        $type        = $request->input('type');
+
+        // 1️⃣ Fetch instance (company-safe)
+        $instance = WhatsAppInstance::where('id', $instanceId)
+            ->where('company_id', $companyId)
+            ->firstOrFail();
+
+        // 2️⃣ Fetch lead
+        $lead = Lead::where('id', $request->lead_id)
+            ->where('company_id', $companyId)
+            ->firstOrFail();
+
+        $phoneNumber = $lead->phone;
+        $remoteJid   = $phoneNumber . '@s.whatsapp.net';
+
+        // 3️⃣ Find or create chat
+        $chat = WhatsappEvoChat::firstOrCreate(
+            [
+                'company_id'           => $companyId,
+                'whatsapp_instance_id' => $instance->id,
+                'remote_jid'           => $remoteJid,
+            ],
+            [
+                'lead_id'      => $lead->id,
+                'phone_number' => $phoneNumber,
+                'is_group'     => false,
+            ]
+        );
+
+        // 4️⃣ Store file locally
+        $uploadedFile = $request->file('file');
+        $folder       = $type === 'image' ? "whatsapp/images/{$companyId}" : "whatsapp/audio/{$companyId}";
+        $filePath     = $uploadedFile->store($folder, 'local');
+        $mime         = $uploadedFile->getMimeType();
+        $size         = $uploadedFile->getSize();
+
+        try {
+            $waMessageId = Str::uuid();
+
+            // 5️⃣ External: send to Evolution API as base64
+            if ($messageMode === 'external') {
+                $integration = WhatsAppEvoIntegration::where('id', $instance->whats_app_evo_integration_id)
+                    ->where('company_id', $companyId)
+                    ->firstOrFail();
+
+                $base64   = base64_encode(Storage::disk('local')->get($filePath));
+                $apiBase  = rtrim($integration->base_url, '/');
+                $apiKey   = $integration->api_key;
+
+                if ($type === 'image') {
+                    $response = Http::withHeaders(['apikey' => $apiKey])
+                        ->post("{$apiBase}/message/sendMedia/{$instance->instance_name}", [
+                            'number'    => $phoneNumber,
+                            'mediatype' => 'image',
+                            'media'     => $base64,
+                            'fileName'  => $uploadedFile->getClientOriginalName(),
+                        ]);
+                } else {
+                    $response = Http::withHeaders(['apikey' => $apiKey])
+                        ->post("{$apiBase}/message/sendWhatsAppAudio/{$instance->instance_name}", [
+                            'number' => $phoneNumber,
+                            'audio'  => $base64,
+                        ]);
+                }
+
+                if (!$response->successful()) {
+                    Storage::disk('local')->delete($filePath);
+                    return response()->json([
+                        'message' => 'Failed to send media via Evolution API',
+                        'error'   => $response->json() ?? $response->body(),
+                    ], 422);
+                }
+
+                $waMessageId = $response->json()['key']['id'] ?? $waMessageId;
+            }
+
+            // 6️⃣ Store outgoing message
+            $message = WhatsappEvoMessage::create([
+                'whatsapp_evo_chat_id' => $chat->id,
+                'user_id'              => $user->id,
+                'wa_message_id'        => $waMessageId,
+                'direction'            => 'outgoing',
+                'message_mode'         => $messageMode,
+                'type'                 => $type,
+                'media_url'            => $filePath,
+                'media_mime'           => $mime,
+                'media_size'           => $size,
+                'status'               => 'sent',
+                'sent_at'              => now(),
+            ]);
+
+            // 7️⃣ Update chat activity
+            $chat->update(['last_message_at' => now()]);
+
+            // 8️⃣ Broadcast real-time update to other participants
+            broadcast(new WhatsAppMessageReceived($message))->toOthers();
+
+            $chat->load('company:id,timezone');
+            $message->setRelation('chat', $chat);
+
+            return response()->json([
+                'status'  => 'sent',
+                'message' => $message->load('user:id,name'),
+            ], 200);
+
+        } catch (\Throwable $e) {
+            Storage::disk('local')->delete($filePath);
+            return response()->json([
+                'message' => 'Failed to send WhatsApp media',
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
+    }
+
     public function searchLeads(Request $request)
     {
         $companyId = Auth::user()->company_id;
