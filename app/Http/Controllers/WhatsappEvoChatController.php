@@ -153,242 +153,59 @@ class WhatsappEvoChatController extends Controller
                 'sent_at'      => now(),
             ];
 
-            // Handle different message types
+            // Handle different message types.
+            // Media types set media_url = null immediately so the message is
+            // stored without delay. The actual file download happens AFTER
+            // firstOrCreate so a PHP/webhook timeout can never prevent the
+            // message record from being created.
+            $mediaDownloadType = null; // 'image' | 'audio' | 'document' | null
+
             if ($messageType === 'imageMessage') {
                 $imageMessage = $messageData['imageMessage'] ?? null;
-                
                 if ($imageMessage) {
-                    $mediaPath = null;
-                    $integration = WhatsAppEvoIntegration::where('company_id', $companyId)->first();
-                    
-                    if ($integration) {
-                        $evolutionApiUrl = rtrim($integration->base_url, '/');
-                        $evolutionApiKey = $integration->api_key;
-                        $instanceName = $payload['instance'] ?? null;
-                        $messageKey = $payload['data']['key'] ?? null;
-                        
-                        // Retry up to 3 times with exponential backoff
-                        $maxRetries = 3;
-                        $retryDelay = 2; // Initial delay in seconds
-                        
-                        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
-                            try {
-                                $response = Http::timeout(45)
-                                    ->retry(2, 1000)
-                                    ->withHeaders([
-                                        'apikey' => $evolutionApiKey,
-                                        'Content-Type' => 'application/json',
-                                    ])
-                                    ->post("{$evolutionApiUrl}/chat/getBase64FromMediaMessage/{$instanceName}", [
-                                        'message' => ['key' => $messageKey]
-                                    ]);
-                                
-                                if ($response->successful()) {
-                                    $mediaData = $response->json();
-                                    $base64Image = $mediaData['base64'] ?? null;
-                                    
-                                    if ($base64Image) {
-                                        $mimeType = $mediaData['mimetype'] ?? 'image/jpeg';
-                                        $extension = match(true) {
-                                            str_contains($mimeType, 'png') => 'png',
-                                            str_contains($mimeType, 'webp') => 'webp',
-                                            str_contains($mimeType, 'gif') => 'gif',
-                                            default => 'jpg',
-                                        };
-                                        
-                                        $filename = 'whatsapp_' . time() . '_' . uniqid() . '.' . $extension;
-                                        $storagePath = 'whatsapp/images/' . $companyId;
-                                        $imageData = base64_decode($base64Image);
-                                        
-                                        Storage::disk('local')->put($storagePath . '/' . $filename, $imageData);
-                                        $mediaPath = $storagePath . '/' . $filename;
-                                        
-                                        break; // Success - exit retry loop
-                                    }
-                                }
-                            } catch (\Exception $e) {
-                                Log::warning("Image download attempt {$attempt} failed", [
-                                    'error' => $e->getMessage(),
-                                    'message_id' => $messageKey['id'] ?? 'unknown',
-                                ]);
-                                
-                                if ($attempt < $maxRetries) {
-                                    sleep($retryDelay);
-                                    $retryDelay *= 2; // 2s, 4s, 8s
-                                }
-                            }
-                        }
-                    }
-                    
-                    $messageValues['type'] = 'image';
-                    $messageValues['media_url'] = $mediaPath;
+                    $messageValues['type']       = 'image';
+                    $messageValues['media_url']  = null;
                     $messageValues['media_mime'] = $imageMessage['mimetype'] ?? 'image/jpeg';
                     $messageValues['media_size'] = $imageMessage['fileLength'] ?? null;
-                    $messageValues['text'] = $imageMessage['caption'] ?? null;
+                    $messageValues['text']       = $imageMessage['caption'] ?? null;
+                    $mediaDownloadType           = 'image';
                 }
             } elseif ($messageType === 'audioMessage') {
-
                 $audioMessage = $messageData['audioMessage'] ?? null;
-
                 if ($audioMessage) {
-                    $mediaPath   = null;
-                    $integration = WhatsAppEvoIntegration::where('company_id', $companyId)->first();
-
-                    if ($integration) {
-                        $evolutionApiUrl = rtrim($integration->base_url, '/');
-                        $evolutionApiKey = $integration->api_key;
-                        $instanceName    = $payload['instance'] ?? null;
-                        $messageKey      = $payload['data']['key'] ?? null;
-
-                        $maxRetries = 3;
-                        $retryDelay = 2;
-
-                        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
-                            try {
-                                $response = Http::timeout(45)
-                                    ->retry(2, 1000)
-                                    ->withHeaders([
-                                        'apikey'       => $evolutionApiKey,
-                                        'Content-Type' => 'application/json',
-                                    ])
-                                    ->post("{$evolutionApiUrl}/chat/getBase64FromMediaMessage/{$instanceName}", [
-                                        'message'      => ['key' => $messageKey],
-                                        'convertToMp4' => false,
-                                    ]);
-
-                                if ($response->successful()) {
-                                    $mediaData   = $response->json();
-                                    $base64Audio = $mediaData['base64'] ?? null;
-
-                                    if ($base64Audio) {
-                                        $mimeType  = $mediaData['mimetype'] ?? $audioMessage['mimetype'] ?? 'audio/ogg';
-                                        $fileName  = $mediaData['fileName'] ?? null;
-                                        $extension = $fileName
-                                            ? pathinfo($fileName, PATHINFO_EXTENSION)
-                                            : $this->extensionFromMime($mimeType);
-
-                                        $storedName  = 'whatsapp_' . time() . '_' . uniqid() . '.' . $extension;
-                                        $storagePath = 'whatsapp/audio/' . $companyId;
-
-                                        Storage::disk('local')->put(
-                                            $storagePath . '/' . $storedName,
-                                            base64_decode($base64Audio)
-                                        );
-
-                                        $mediaPath = $storagePath . '/' . $storedName;
-                                        break;
-                                    }
-                                }
-                            } catch (\Exception $e) {
-                                Log::warning("Audio download attempt {$attempt} failed", [
-                                    'error'      => $e->getMessage(),
-                                    'message_id' => $messageKey['id'] ?? 'unknown',
-                                ]);
-
-                                if ($attempt < $maxRetries) {
-                                    sleep($retryDelay);
-                                    $retryDelay *= 2;
-                                }
-                            }
-                        }
-                    }
-
                     $messageValues['type']       = 'audio';
-                    $messageValues['media_url']  = $mediaPath;
+                    $messageValues['media_url']  = null;
                     $messageValues['media_mime'] = $audioMessage['mimetype'] ?? 'audio/ogg';
                     $messageValues['media_size'] = $audioMessage['fileLength'] ?? null;
                     $messageValues['text']       = null;
+                    $mediaDownloadType           = 'audio';
                 }
-
             } elseif ($messageType === 'locationMessage') {
 
                 $locationMessage = $messageData['locationMessage'] ?? null;
 
                 if ($locationMessage) {
-                    $messageValues['type']      = 'location';
-                    $messageValues['latitude']  = $locationMessage['degreesLatitude'] ?? null;
-                    $messageValues['longitude'] = $locationMessage['degreesLongitude'] ?? null;
-                    $messageValues['text']      = null;
-                    $messageValues['media_url'] = null;
+                    $messageValues['type']       = 'location';
+                    $messageValues['latitude']   = $locationMessage['degreesLatitude'] ?? null;
+                    $messageValues['longitude']  = $locationMessage['degreesLongitude'] ?? null;
+                    $messageValues['text']       = null;
+                    $messageValues['media_url']  = null;
                     $messageValues['media_mime'] = null;
                     $messageValues['media_size'] = null;
                 }
 
             } elseif ($messageType === 'documentMessage') {
-
                 $documentMessage = $messageData['documentMessage'] ?? null;
-
                 if ($documentMessage) {
-                    $mediaPath   = null;
-                    $integration = WhatsAppEvoIntegration::where('company_id', $companyId)->first();
-
-                    if ($integration) {
-                        $evolutionApiUrl = rtrim($integration->base_url, '/');
-                        $evolutionApiKey = $integration->api_key;
-                        $instanceName    = $payload['instance'] ?? null;
-                        $messageKey      = $payload['data']['key'] ?? null;
-
-                        $maxRetries = 3;
-                        $retryDelay = 2;
-
-                        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
-                            try {
-                                $response = Http::timeout(45)
-                                    ->retry(2, 1000)
-                                    ->withHeaders([
-                                        'apikey'       => $evolutionApiKey,
-                                        'Content-Type' => 'application/json',
-                                    ])
-                                    ->post("{$evolutionApiUrl}/chat/getBase64FromMediaMessage/{$instanceName}", [
-                                        'message' => ['key' => $messageKey],
-                                    ]);
-
-                                if ($response->successful()) {
-                                    $mediaData      = $response->json();
-                                    $base64Document = $mediaData['base64'] ?? null;
-
-                                    if ($base64Document) {
-                                        $mimeType  = $mediaData['mimetype'] ?? $documentMessage['mimetype'] ?? 'application/octet-stream';
-                                        $fileName  = $documentMessage['fileName'] ?? null;
-                                        $extension = $fileName
-                                            ? pathinfo($fileName, PATHINFO_EXTENSION)
-                                            : $this->extensionFromMime($mimeType);
-
-                                        $storedName  = 'whatsapp_' . time() . '_' . uniqid() . '.' . $extension;
-                                        $storagePath = 'whatsapp/documents/' . $companyId;
-
-                                        Storage::disk('local')->put(
-                                            $storagePath . '/' . $storedName,
-                                            base64_decode($base64Document)
-                                        );
-
-                                        $mediaPath = $storagePath . '/' . $storedName;
-                                        break;
-                                    }
-                                }
-                            } catch (\Exception $e) {
-                                Log::warning("Document download attempt {$attempt} failed", [
-                                    'error'      => $e->getMessage(),
-                                    'message_id' => $messageKey['id'] ?? 'unknown',
-                                ]);
-
-                                if ($attempt < $maxRetries) {
-                                    sleep($retryDelay);
-                                    $retryDelay *= 2;
-                                }
-                            }
-                        }
-                    }
-
                     $messageValues['type']       = 'document';
-                    $messageValues['media_url']  = $mediaPath;
+                    $messageValues['media_url']  = null;
                     $messageValues['media_mime'] = $documentMessage['mimetype'] ?? 'application/octet-stream';
                     $messageValues['media_size'] = $documentMessage['fileLength'] ?? null;
                     $messageValues['text']       = $documentMessage['fileName'] ?? $documentMessage['title'] ?? null;
                     $messageValues['latitude']   = null;
                     $messageValues['longitude']  = null;
+                    $mediaDownloadType           = 'document';
                 }
-
             } elseif ($messageType === 'contactMessage') {
 
                 $contactMessage = $messageData['contactMessage'] ?? null;
@@ -436,20 +253,41 @@ class WhatsappEvoChatController extends Controller
                 $messageValues['media_size'] = null;
             }
 
-            // Create the message
+            // Create the message record immediately (media_url may be null for media types)
             $message = WhatsappEvoMessage::firstOrCreate(
                 $messageAttributes,
                 $messageValues
             );
+
+            // Download media and update the record (only for newly created media messages)
+            if ($message->wasRecentlyCreated && $mediaDownloadType) {
+                $integration = WhatsAppEvoIntegration::where('company_id', $companyId)->first();
+                if ($integration) {
+                    $originalFileName = null;
+                    if ($mediaDownloadType === 'document') {
+                        $originalFileName = $messageData['documentMessage']['fileName'] ?? null;
+                    }
+                    $mediaPath = $this->fetchMediaFromEvolution(
+                        $integration,
+                        $payload['instance'] ?? null,
+                        $payload['data']['key'] ?? null,
+                        $mediaDownloadType,
+                        $companyId,
+                        $originalFileName
+                    );
+                    if ($mediaPath) {
+                        $message->update(['media_url' => $mediaPath]);
+                        $message->media_url = $mediaPath;
+                    }
+                }
+            }
 
             // Update chat's last message timestamp
             $chat->update([
                 'last_message_at' => now(),
             ]);
 
-            // 🔥 7️⃣ BROADCAST REAL-TIME UPDATE (OPTIMIZED)
-            // Only broadcast the new message, not the entire chat
-            // The event will load necessary relationships efficiently
+            // Broadcast real-time update
             broadcast(new WhatsAppMessageReceived($message))->toOthers();
         }
 
@@ -824,6 +662,73 @@ class WhatsappEvoChatController extends Controller
         return response()->json([
             'message' => 'Chat messages cleared successfully.',
         ]);
+    }
+
+    /**
+     * Call Evolution API to fetch a media file as base64, decode it and store
+     * it in local storage. Returns the stored file path or null on failure.
+     * Uses a single attempt with a 30s timeout — no sleeps, no retries —
+     * so this never blocks the webhook response for long.
+     */
+    private function fetchMediaFromEvolution(
+        WhatsAppEvoIntegration $integration,
+        ?string $instanceName,
+        ?array $messageKey,
+        string $mediaType,
+        int $companyId,
+        ?string $originalFileName = null
+    ): ?string {
+        try {
+            $response = Http::timeout(30)
+                ->withHeaders([
+                    'apikey'       => $integration->api_key,
+                    'Content-Type' => 'application/json',
+                ])
+                ->post(
+                    rtrim($integration->base_url, '/') . '/chat/getBase64FromMediaMessage/' . $instanceName,
+                    [
+                        'message'      => ['key' => $messageKey],
+                        'convertToMp4' => false,
+                    ]
+                );
+
+            if (!$response->successful()) {
+                Log::warning("fetchMediaFromEvolution: bad response [{$mediaType}]", [
+                    'status'     => $response->status(),
+                    'message_id' => $messageKey['id'] ?? 'unknown',
+                ]);
+                return null;
+            }
+
+            $mediaData = $response->json();
+            $base64    = $mediaData['base64'] ?? null;
+            if (!$base64) return null;
+
+            $mimeType  = $mediaData['mimetype'] ?? 'application/octet-stream';
+            $fileName  = $mediaData['fileName'] ?? $originalFileName ?? null;
+            $extension = $fileName
+                ? pathinfo($fileName, PATHINFO_EXTENSION)
+                : $this->extensionFromMime($mimeType);
+
+            $folder     = match($mediaType) {
+                'image'    => 'whatsapp/images/' . $companyId,
+                'audio'    => 'whatsapp/audio/' . $companyId,
+                'document' => 'whatsapp/documents/' . $companyId,
+                default    => 'whatsapp/files/' . $companyId,
+            };
+            $storedName = 'whatsapp_' . time() . '_' . uniqid() . '.' . $extension;
+
+            Storage::disk('local')->put($folder . '/' . $storedName, base64_decode($base64));
+
+            return $folder . '/' . $storedName;
+
+        } catch (\Exception $e) {
+            Log::warning("fetchMediaFromEvolution: exception [{$mediaType}]", [
+                'error'      => $e->getMessage(),
+                'message_id' => $messageKey['id'] ?? 'unknown',
+            ]);
+            return null;
+        }
     }
 
     private function extensionFromMime(string $mimeType): string
