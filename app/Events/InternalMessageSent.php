@@ -8,7 +8,6 @@ use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Storage;
 
 class InternalMessageSent implements ShouldBroadcastNow
 {
@@ -40,15 +39,11 @@ class InternalMessageSent implements ShouldBroadcastNow
             'conversation_id' => $this->message->conversation_id,
             'type'            => $this->message->type,
             'body'            => $this->message->body,
-            'file_url'        => $this->message->file_path
-                ? Storage::url($this->message->file_path)
-                : null,
+            'file_url'        => $this->message->file_path,
             'sender' => [
                 'id'              => $sender->id,
                 'name'            => $sender->name,
-                'profile_pic_url' => $sender->profile_pic
-                    ? Storage::url($sender->profile_pic)
-                    : null,
+                'profile_pic_url' => $sender->profile_pic,
             ],
             'created_at' => $this->message->created_at->toISOString(),
         ];
