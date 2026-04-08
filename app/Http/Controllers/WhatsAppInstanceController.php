@@ -42,6 +42,11 @@ class WhatsAppInstanceController extends Controller
                 [
                     'instanceName' => $instanceName,
                     'integration'  => 'WHATSAPP-BAILEYS',
+                    'webhook' => [
+                        'url'    => rtrim(config('app.url'), '/') . '/api/whatsapp-evo-chat',
+                        'base64' => true,
+                        'events' => ['MESSAGES_UPSERT'],
+                    ],
                 ]
             );
 
