@@ -123,6 +123,20 @@ class WhatsappEvoChatController extends Controller
 
         if ($chat->wasRecentlyCreated) {
             \App\Models\LeadTransaction::createWhatsAppChatStarted($lead, $chat, $instance);
+
+            // Fetch and store WhatsApp profile picture for the new chat
+            $integration = WhatsAppEvoIntegration::where('company_id', $companyId)->first();
+            if ($integration) {
+                $picPath = $this->fetchAndStoreProfilePicture(
+                    $integration,
+                    $payload['instance'] ?? null,
+                    $phoneNumber,
+                    $companyId
+                );
+                if ($picPath) {
+                    $chat->update(['profile_pic_url' => $picPath]);
+                }
+            }
         }
 
         // 7️⃣ Store message
@@ -726,6 +740,61 @@ class WhatsappEvoChatController extends Controller
             Log::warning("fetchMediaFromEvolution: exception [{$mediaType}]", [
                 'error'      => $e->getMessage(),
                 'message_id' => $messageKey['id'] ?? 'unknown',
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Fetch the WhatsApp profile picture for a phone number via Evolution API,
+     * download the image from the returned URL, and store it locally.
+     * Returns the stored file path or null if unavailable.
+     */
+    private function fetchAndStoreProfilePicture(
+        WhatsAppEvoIntegration $integration,
+        ?string $instanceName,
+        string $phoneNumber,
+        int $companyId
+    ): ?string {
+        try {
+            $response = Http::timeout(15)
+                ->withHeaders([
+                    'apikey'       => $integration->api_key,
+                    'Content-Type' => 'application/json',
+                ])
+                ->post(
+                    rtrim($integration->base_url, '/') . '/chat/fetchProfilePictureUrl/' . $instanceName,
+                    ['number' => $phoneNumber]
+                );
+
+            if (!$response->successful()) {
+                return null;
+            }
+
+            $pictureUrl = $response->json()['profilePictureUrl'] ?? null;
+            if (!$pictureUrl) {
+                return null;
+            }
+
+            // Download the image from the public URL
+            $imageResponse = Http::timeout(15)->get($pictureUrl);
+            if (!$imageResponse->successful()) {
+                return null;
+            }
+
+            $contentType = $imageResponse->header('Content-Type') ?? 'image/jpeg';
+            $extension   = str_contains($contentType, 'png') ? 'png' : 'jpg';
+            $folder      = 'whatsapp/profile_pics/' . $companyId;
+            $fileName    = 'profile_' . $phoneNumber . '_' . time() . '.' . $extension;
+
+            Storage::disk('local')->put($folder . '/' . $fileName, $imageResponse->body());
+
+            return $folder . '/' . $fileName;
+
+        } catch (\Exception $e) {
+            Log::warning('fetchAndStoreProfilePicture: failed', [
+                'phone' => $phoneNumber,
+                'error' => $e->getMessage(),
             ]);
             return null;
         }

@@ -21,7 +21,7 @@ class WhatsAppMessageReceived implements ShouldBroadcastNow
     {
         // Load only necessary relationships - no N+1 queries
         $this->message = $message->load([
-            'chat:id,company_id,whatsapp_instance_id,remote_jid,lead_id,phone_number,last_message_at',
+            'chat:id,company_id,whatsapp_instance_id,remote_jid,lead_id,phone_number,last_message_at,profile_pic_url',
             'chat.instance:id,instance_name,company_id',
             'chat.lead:id,company_id,first_name,last_name,phone,funnel_id,stage_id',
             'chat.lead.funnel:id,name',
@@ -87,6 +87,7 @@ class WhatsAppMessageReceived implements ShouldBroadcastNow
                 'lead_id' => $this->message->chat->lead_id,
                 'phone_number' => $this->message->chat->phone_number,
                 'last_message_at' => $this->message->chat->last_message_at,
+                'profile_pic_url' => $this->message->chat->profile_pic_url,
                 'instance' => [
                     'id' => $this->message->chat->instance->id,
                     'instance_name' => $this->message->chat->instance->instance_name,

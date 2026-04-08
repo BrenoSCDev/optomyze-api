@@ -19,6 +19,7 @@ class WhatsappEvoChat extends Model
         'is_group',
         'is_archived',
         'last_message_at',
+        'profile_pic_url',
     ];
 
     public function company(): BelongsTo
