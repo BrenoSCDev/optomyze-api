@@ -87,8 +87,12 @@ trait HasCompanyTimezone
      * We always normalise to the app timezone before formatting so that
      * storage is consistent regardless of how the caller expressed the date.
      */
-    public function fromDateTime($value): string
+    public function fromDateTime($value): ?string
     {
+        if (is_null($value) || $value === '') {
+            return $value;
+        }
+
         return parent::asDateTime($value)
             ->setTimezone(config('app.timezone'))
             ->format($this->getDateFormat());

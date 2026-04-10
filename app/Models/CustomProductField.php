@@ -13,9 +13,17 @@ class CustomProductField extends Model
     protected $fillable = [
         'company_id',
         'product_id',
+        'group_id',
         'type',
         'field_type',
         'field_key',
         'field_value',
+        'icon',
+        'display_order',
     ];
+
+    public function group()
+    {
+        return $this->belongsTo(CustomProductFieldGroup::class, 'group_id');
+    }
 }

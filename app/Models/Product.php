@@ -21,13 +21,19 @@ class Product extends Model
         'type',
         'category',
         'is_active',
+        'is_favorite',
+        'archived_at',
         'metadata',
     ];
 
     protected $casts = [
-        'is_active' => 'boolean',
-        'metadata' => 'array',
+        'is_active'   => 'boolean',
+        'is_favorite' => 'boolean',
+        'archived_at' => 'datetime',
+        'metadata'    => 'array',
     ];
+
+    protected $appends = ['is_archived'];
 
     // Relationships
     public function company()
@@ -35,9 +41,19 @@ class Product extends Model
         return $this->belongsTo(Company::class);
     }
 
+    public function categories()
+    {
+        return $this->belongsToMany(ProductCategory::class, 'product_category_product');
+    }
+
     public function fields()
     {
-        return $this->hasMany(CustomProductField::class);
+        return $this->hasMany(CustomProductField::class)->orderBy('display_order');
+    }
+
+    public function fieldGroups()
+    {
+        return $this->hasMany(CustomProductFieldGroup::class)->orderBy('display_order');
     }
 
     public function images()
@@ -76,6 +92,23 @@ class Product extends Model
     public function scopeByType($query, $type)
     {
         return $query->where('type', $type);
+    }
+
+    /** Exclude archived products (default for all listings). */
+    public function scopeNotArchived($query)
+    {
+        return $query->whereNull('archived_at');
+    }
+
+    /** Only archived products. */
+    public function scopeArchived($query)
+    {
+        return $query->whereNotNull('archived_at');
+    }
+
+    public function getIsArchivedAttribute(): bool
+    {
+        return $this->archived_at !== null;
     }
 
     // Accessors & Mutators

@@ -26,20 +26,26 @@ class CustomProductFieldController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'field_key'   => 'required|string|max:255',
-            'field_type'  => 'required|string|in:text,title,number,boolean,json,date',
-            'field_value' => 'nullable',
-            'product_id'  => 'nullable|exists:products,id',
-            'type'        => 'nullable|in:model,product',
+            'field_key'     => 'required|string|max:255',
+            'field_type'    => 'required|string|in:text,title,number,boolean,json,date',
+            'field_value'   => 'nullable',
+            'product_id'    => 'nullable|exists:products,id',
+            'group_id'      => 'nullable|exists:custom_product_field_groups,id',
+            'type'          => 'nullable|in:model,product',
+            'icon'          => 'nullable|string|max:100',
+            'display_order' => 'integer',
         ]);
 
         $field = CustomProductField::create([
-            'company_id' => $request->user()->company_id,
-            'type'       => $validated['type'] ?? 'product',
-            'product_id' => $validated['product_id'] ?? null,
-            'field_key'  => $validated['field_key'],
-            'field_type' => $validated['field_type'],
-            'field_value'=> $validated['field_value'] ?? null,
+            'company_id'    => $request->user()->company_id,
+            'type'          => $validated['type'] ?? 'product',
+            'product_id'    => $validated['product_id'] ?? null,
+            'group_id'      => $validated['group_id'] ?? null,
+            'field_key'     => $validated['field_key'],
+            'field_type'    => $validated['field_type'],
+            'field_value'   => $validated['field_value'] ?? null,
+            'icon'          => $validated['icon'] ?? null,
+            'display_order' => $validated['display_order'] ?? 0,
         ]);
 
         return response()->json($field, 201);
@@ -60,19 +66,25 @@ class CustomProductFieldController extends Controller
     public function update(Request $request, CustomProductField $customProductField)
     {
         $validated = $request->validate([
-            'field_key'   => 'required|string|max:255',
-            'field_type'  => 'required|string|in:text,title,number,boolean,json,date',
-            'field_value' => 'nullable',
-            'product_id'  => 'nullable|exists:products,id',
-            'type'        => 'nullable|in:model,product',
+            'field_key'     => 'required|string|max:255',
+            'field_type'    => 'required|string|in:text,title,number,boolean,json,date',
+            'field_value'   => 'nullable',
+            'product_id'    => 'nullable|exists:products,id',
+            'group_id'      => 'nullable|exists:custom_product_field_groups,id',
+            'type'          => 'nullable|in:model,product',
+            'icon'          => 'nullable|string|max:100',
+            'display_order' => 'integer',
         ]);
 
         $customProductField->update([
-            'type'        => $validated['type'] ?? $customProductField->type,
-            'product_id'  => $validated['product_id'] ?? $customProductField->product_id,
-            'field_key'   => $validated['field_key'],
-            'field_type'  => $validated['field_type'],
-            'field_value' => $validated['field_value'] ?? null,
+            'type'          => $validated['type'] ?? $customProductField->type,
+            'product_id'    => $validated['product_id'] ?? $customProductField->product_id,
+            'group_id'      => array_key_exists('group_id', $validated) ? $validated['group_id'] : $customProductField->group_id,
+            'field_key'     => $validated['field_key'],
+            'field_type'    => $validated['field_type'],
+            'field_value'   => $validated['field_value'] ?? null,
+            'icon'          => array_key_exists('icon', $validated) ? $validated['icon'] : $customProductField->icon,
+            'display_order' => $validated['display_order'] ?? $customProductField->display_order,
         ]);
 
         return response()->json($customProductField);

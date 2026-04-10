@@ -13,6 +13,8 @@ use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\ManagerUserController;
 use App\Http\Controllers\ConversationReportController;
 use App\Http\Controllers\CustomProductFieldController;
+use App\Http\Controllers\CustomProductFieldGroupController;
+use App\Http\Controllers\ProductCategoryController;
 use App\Http\Controllers\LeadCustomFieldController;
 use App\Http\Controllers\EntryRequirementController;
 use App\Http\Controllers\EventController;
@@ -404,6 +406,24 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/products/{id}', [ProductController::class, 'update']);
     Route::delete('/products/{id}', [ProductController::class, 'destroy']);
     Route::post('/products/{id}/toggle-active', [ProductController::class, 'toggleActive']);
+    Route::post('/products/{id}/toggle-favorite', [ProductController::class, 'toggleFavorite']);
+    Route::post('/products/{id}/archive', [ProductController::class, 'archive']);
+    Route::post('/products/{id}/unarchive', [ProductController::class, 'unarchive']);
+
+    // Product Categories
+    Route::get('/product-categories', [ProductCategoryController::class, 'index']);
+    Route::post('/product-categories', [ProductCategoryController::class, 'store']);
+    Route::get('/product-categories/{id}', [ProductCategoryController::class, 'show']);
+    Route::put('/product-categories/{id}', [ProductCategoryController::class, 'update']);
+    Route::delete('/product-categories/{id}', [ProductCategoryController::class, 'destroy']);
+    Route::post('/products/{productId}/categories/sync', [ProductCategoryController::class, 'syncProductCategories']);
+
+    // Custom Product Field Groups
+    Route::get('/custom-product-field-groups', [CustomProductFieldGroupController::class, 'index']);
+    Route::post('/custom-product-field-groups', [CustomProductFieldGroupController::class, 'store']);
+    Route::get('/custom-product-field-groups/{id}', [CustomProductFieldGroupController::class, 'show']);
+    Route::put('/custom-product-field-groups/{id}', [CustomProductFieldGroupController::class, 'update']);
+    Route::delete('/custom-product-field-groups/{id}', [CustomProductFieldGroupController::class, 'destroy']);
 
     Route::prefix('products/{product}')->group(function () {
         Route::get('images', [ProductImageController::class, 'index']);
@@ -525,6 +545,7 @@ Route::middleware('verify.api.token')->prefix('v1')->group(function () {
     Route::get('/products/{id}', [ProductController::class, 'apiShow']);
     Route::put('/products/{id}', [ProductController::class, 'apiUpdate']);
     Route::delete('/products/{id}', [ProductController::class, 'apiDestroy']);
+    Route::get('/product-categories', [ProductCategoryController::class, 'apiIndex']);
 
     /*
     |--------------------------------------------------------------------------
