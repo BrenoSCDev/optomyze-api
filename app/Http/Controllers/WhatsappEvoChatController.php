@@ -228,10 +228,12 @@ class WhatsappEvoChatController extends Controller
                     $vcard       = $contactMessage['vcard'] ?? '';
                     $displayName = $contactMessage['displayName'] ?? null;
 
-                    // Extract phone from vcard TEL line
+                    // Extract phone from waid= field which always has clean digits
                     $contactPhone = null;
-                    if (preg_match('/TEL[^:]*:([+\d]+)/', $vcard, $matches)) {
-                        $contactPhone = $matches[1];
+                    if (preg_match('/waid=(\d+)/', $vcard, $matches)) {
+                        $contactPhone = '+' . $matches[1];
+                    } elseif (preg_match('/TEL[^:]*:([+\d\s\-\(\)]+)/', $vcard, $matches)) {
+                        $contactPhone = trim($matches[1]);
                     }
 
                     $messageValues['type']      = 'contact';
@@ -240,6 +242,44 @@ class WhatsappEvoChatController extends Controller
                         'contact_name'  => $displayName,
                         'contact_phone' => $contactPhone,
                         'vcard'         => $vcard,
+                    ];
+                    $messageValues['media_url']  = null;
+                    $messageValues['media_mime'] = null;
+                    $messageValues['media_size'] = null;
+                    $messageValues['latitude']   = null;
+                    $messageValues['longitude']  = null;
+                }
+
+            } elseif ($messageType === 'contactsArrayMessage') {
+
+                $contactsArray = $messageData['contactsArrayMessage'] ?? null;
+
+                if ($contactsArray) {
+                    $contacts = [];
+                    foreach ($contactsArray['contacts'] ?? [] as $c) {
+                        $vcard       = $c['vcard'] ?? '';
+                        $displayName = $c['displayName'] ?? null;
+
+                        $contactPhone = null;
+                        if (preg_match('/waid=(\d+)/', $vcard, $matches)) {
+                            $contactPhone = '+' . $matches[1];
+                        } elseif (preg_match('/TEL[^:]*:([+\d\s\-\(\)]+)/', $vcard, $matches)) {
+                            $contactPhone = trim($matches[1]);
+                        }
+
+                        $contacts[] = [
+                            'contact_name'  => $displayName,
+                            'contact_phone' => $contactPhone,
+                            'vcard'         => $vcard,
+                        ];
+                    }
+
+                    $displayName = $contactsArray['displayName'] ?? (count($contacts) . ' contacts');
+
+                    $messageValues['type']      = 'contact';
+                    $messageValues['text']      = $displayName;
+                    $messageValues['metadata']  = [
+                        'contacts' => $contacts,
                     ];
                     $messageValues['media_url']  = null;
                     $messageValues['media_mime'] = null;
