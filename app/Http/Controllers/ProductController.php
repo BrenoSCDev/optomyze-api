@@ -431,8 +431,9 @@ class ProductController extends Controller
             $relations[] = 'images';
         }
         if ($request->boolean('with_custom_fields')) {
-            $relations[] = 'fields';
-            $relations[] = 'fieldGroups';
+            // Only ungrouped fields at the top level; grouped fields nest inside their group
+            $relations['fields']      = fn ($q) => $q->whereNull('group_id')->orderBy('display_order');
+            $relations['fieldGroups'] = fn ($q) => $q->with(['fields' => fn ($q2) => $q2->orderBy('display_order')])->orderBy('display_order');
         }
 
         $query = Product::fromCompany($company->id)->with($relations);
@@ -482,8 +483,9 @@ class ProductController extends Controller
         $relations = ['primaryImage', 'images', 'categories'];
 
         if ($request->boolean('with_custom_fields')) {
-            $relations[] = 'fields';
-            $relations[] = 'fieldGroups';
+            // Only ungrouped fields at the top level; grouped fields nest inside their group
+            $relations['fields']      = fn ($q) => $q->whereNull('group_id')->orderBy('display_order');
+            $relations['fieldGroups'] = fn ($q) => $q->with(['fields' => fn ($q2) => $q2->orderBy('display_order')])->orderBy('display_order');
         }
 
         $product = Product::fromCompany($company->id)->with($relations)->find($id);
