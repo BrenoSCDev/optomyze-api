@@ -3,6 +3,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Appointment;
 use App\Models\Lead;
+use App\Models\Product;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -12,7 +13,7 @@ class AppointmentController extends Controller
     public function index(Request $request, $leadId)
     {
         $appointments = Appointment::where('lead_id', $leadId)
-            ->with(['appointmentType', 'user:id,name,email'])
+            ->with(['appointmentType', 'user:id,name,email', 'products:id,name,sku,base_price,type'])
             ->orderBy('scheduled_at')
             ->get();
         return response()->json($appointments);
@@ -23,7 +24,7 @@ class AppointmentController extends Controller
     {
         $companyId = Auth::user()->company_id;
         $appointments = Appointment::where('company_id', $companyId)
-            ->with(['appointmentType', 'user:id,name,email', 'lead:id,first_name,last_name'])
+            ->with(['appointmentType', 'user:id,name,email', 'lead:id,first_name,last_name', 'products:id,name,sku,base_price,type'])
             ->orderBy('scheduled_at')
             ->get();
         return response()->json($appointments);
@@ -41,19 +42,25 @@ class AppointmentController extends Controller
             'timezone'             => 'sometimes|string|max:100',
             'notes'                => 'nullable|string',
             'status'               => 'sometimes|in:scheduled,completed,cancelled,no_show',
+            'product_ids'          => 'sometimes|array',
+            'product_ids.*'        => 'integer|exists:products,id',
         ]);
 
         $data['company_id'] = Auth::user()->company_id;
         $data['user_id']    = Auth::id();
 
-        // Update lead timezone if provided
         if ($request->has('lead_timezone')) {
             Lead::where('id', $data['lead_id'])->update(['timezone' => $request->lead_timezone]);
         }
 
-        $appointment = Appointment::create($data);
-        $appointment->load(['appointmentType', 'user:id,name,email']);
+        $productIds = $data['product_ids'] ?? [];
+        $appointment = Appointment::create(collect($data)->except('product_ids')->toArray());
 
+        if (!empty($productIds)) {
+            $appointment->products()->sync($productIds);
+        }
+
+        $appointment->load(['appointmentType', 'user:id,name,email', 'products:id,name,sku,base_price,type']);
         return response()->json($appointment, 201);
     }
 
@@ -68,9 +75,31 @@ class AppointmentController extends Controller
             'timezone'            => 'sometimes|string|max:100',
             'notes'               => 'nullable|string',
             'status'              => 'sometimes|in:scheduled,completed,cancelled,no_show',
+            'product_ids'         => 'sometimes|array',
+            'product_ids.*'       => 'integer|exists:products,id',
         ]);
-        $appointment->update($data);
-        return response()->json($appointment->fresh(['appointmentType', 'user:id,name,email']));
+
+        if (array_key_exists('product_ids', $data)) {
+            $appointment->products()->sync($data['product_ids']);
+        }
+
+        $appointment->update(collect($data)->except('product_ids')->toArray());
+        return response()->json($appointment->fresh(['appointmentType', 'user:id,name,email', 'products:id,name,sku,base_price,type']));
+    }
+
+    // Internal: sync products on an appointment
+    public function syncProducts(Request $request, Appointment $appointment)
+    {
+        $request->validate([
+            'product_ids'   => 'required|array',
+            'product_ids.*' => 'integer|exists:products,id',
+        ]);
+
+        $appointment->products()->sync($request->product_ids);
+        return response()->json([
+            'message'  => 'Products updated.',
+            'products' => $appointment->products()->get(['products.id', 'name', 'sku', 'base_price', 'type']),
+        ]);
     }
 
     // Internal: delete
@@ -88,7 +117,7 @@ class AppointmentController extends Controller
         if (!$company) return response()->json(['message' => 'Unauthorized'], 401);
 
         $query = Appointment::where('company_id', $company->id)
-            ->with(['appointmentType', 'user:id,name,email', 'lead:id,first_name,last_name']);
+            ->with(['appointmentType', 'user:id,name,email', 'lead:id,first_name,last_name', 'products:id,name,sku,base_price,type']);
 
         if ($request->has('lead_id'))    $query->where('lead_id', $request->lead_id);
         if ($request->has('status'))     $query->where('status', $request->status);
@@ -105,7 +134,7 @@ class AppointmentController extends Controller
         if (!$company) return response()->json(['message' => 'Unauthorized'], 401);
 
         $appointment = Appointment::where('company_id', $company->id)
-            ->with(['appointmentType', 'user:id,name,email', 'lead:id,first_name,last_name'])
+            ->with(['appointmentType', 'user:id,name,email', 'lead:id,first_name,last_name', 'products:id,name,sku,base_price,type'])
             ->find($id);
 
         if (!$appointment) return response()->json(['message' => 'Appointment not found'], 404);
@@ -117,7 +146,6 @@ class AppointmentController extends Controller
         $company = $request->get('company');
         if (!$company) return response()->json(['message' => 'Unauthorized'], 401);
 
-        // Validate lead belongs to company
         $lead = Lead::where('company_id', $company->id)->find($request->lead_id);
         if (!$lead) return response()->json(['message' => 'Lead not found'], 404);
 
@@ -130,10 +158,24 @@ class AppointmentController extends Controller
             'timezone'             => 'sometimes|string|max:100',
             'notes'                => 'nullable|string',
             'status'               => 'sometimes|in:scheduled,completed,cancelled,no_show',
+            'product_ids'          => 'sometimes|array',
+            'product_ids.*'        => 'integer|exists:products,id',
         ]);
 
-        $appointment = Appointment::create([...$validated, 'company_id' => $company->id]);
-        return response()->json(['message' => 'Appointment created successfully', 'data' => $appointment->load(['appointmentType', 'lead:id,first_name,last_name'])], 201);
+        $productIds  = $validated['product_ids'] ?? [];
+        $appointment = Appointment::create([
+            ...collect($validated)->except('product_ids')->toArray(),
+            'company_id' => $company->id,
+        ]);
+
+        if (!empty($productIds)) {
+            $appointment->products()->sync($productIds);
+        }
+
+        return response()->json([
+            'message' => 'Appointment created successfully',
+            'data'    => $appointment->load(['appointmentType', 'lead:id,first_name,last_name', 'products:id,name,sku,base_price,type']),
+        ], 201);
     }
 
     public function apiUpdate(Request $request, int $id)
@@ -152,10 +194,41 @@ class AppointmentController extends Controller
             'timezone'            => 'sometimes|string|max:100',
             'notes'               => 'nullable|string',
             'status'              => 'sometimes|in:scheduled,completed,cancelled,no_show',
+            'product_ids'         => 'sometimes|array',
+            'product_ids.*'       => 'integer|exists:products,id',
         ]);
 
-        $appointment->update($validated);
-        return response()->json(['message' => 'Appointment updated successfully', 'data' => $appointment->fresh(['appointmentType', 'lead:id,first_name,last_name'])]);
+        if (array_key_exists('product_ids', $validated)) {
+            $appointment->products()->sync($validated['product_ids']);
+        }
+
+        $appointment->update(collect($validated)->except('product_ids')->toArray());
+
+        return response()->json([
+            'message' => 'Appointment updated successfully',
+            'data'    => $appointment->fresh(['appointmentType', 'lead:id,first_name,last_name', 'products:id,name,sku,base_price,type']),
+        ]);
+    }
+
+    public function apiSyncProducts(Request $request, int $id)
+    {
+        $company = $request->get('company');
+        if (!$company) return response()->json(['message' => 'Unauthorized'], 401);
+
+        $appointment = Appointment::where('company_id', $company->id)->find($id);
+        if (!$appointment) return response()->json(['message' => 'Appointment not found'], 404);
+
+        $request->validate([
+            'product_ids'   => 'required|array',
+            'product_ids.*' => 'integer|exists:products,id',
+        ]);
+
+        $appointment->products()->sync($request->product_ids);
+
+        return response()->json([
+            'message'  => 'Products updated.',
+            'products' => $appointment->products()->get(['products.id', 'name', 'sku', 'base_price', 'type']),
+        ]);
     }
 
     public function apiDestroy(Request $request, int $id)

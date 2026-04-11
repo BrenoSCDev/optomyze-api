@@ -257,6 +257,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/appointments', [AppointmentController::class, 'store']);
     Route::put('/appointments/{appointment}', [AppointmentController::class, 'update']);
     Route::delete('/appointments/{appointment}', [AppointmentController::class, 'destroy']);
+    Route::post('/appointments/{appointment}/products/sync', [AppointmentController::class, 'syncProducts']);
 
     /*
     |--------------------------------------------------------------------------
@@ -625,6 +626,7 @@ Route::middleware('verify.api.token')->prefix('v1')->group(function () {
     Route::get('/appointments/{id}', [AppointmentController::class, 'apiShow']);
     Route::put('/appointments/{id}', [AppointmentController::class, 'apiUpdate']);
     Route::delete('/appointments/{id}', [AppointmentController::class, 'apiDestroy']);
+    Route::post('/appointments/{id}/products/sync', [AppointmentController::class, 'apiSyncProducts']);
 
     /*
     |--------------------------------------------------------------------------

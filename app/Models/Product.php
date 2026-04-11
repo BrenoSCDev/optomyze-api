@@ -73,6 +73,11 @@ class Product extends Model
             ->withTimestamps();
     }
 
+    public function appointments()
+    {
+        return $this->belongsToMany(Appointment::class, 'appointment_product');
+    }
+
     public function saleItems()
     {
         return $this->hasMany(SaleItem::class);
