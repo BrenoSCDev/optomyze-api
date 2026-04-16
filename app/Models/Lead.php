@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Builder;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use App\Models\User;
 
 class Lead extends Model
 {
@@ -216,6 +217,25 @@ class Lead extends Model
     public function scopeFromCompany(Builder $query, int $companyId): Builder
     {
         return $query->where('company_id', $companyId);
+    }
+
+    /**
+     * Scope a query to only include leads visible to the given user based on their role.
+     * Admin: no filter. Manager: own + team + unassigned. Agent: own only.
+     */
+    public function scopeVisibleToUser(Builder $query, User $user): Builder
+    {
+        $ids = $user->visibleUserIds();
+        if ($ids === null) {
+            return $query;
+        }
+
+        return $query->where(function ($q) use ($ids, $user) {
+            $q->whereIn('assigned_to', $ids);
+            if ($user->isManager()) {
+                $q->orWhereNull('assigned_to');
+            }
+        });
     }
 
     /**

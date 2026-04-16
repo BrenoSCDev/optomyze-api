@@ -24,12 +24,10 @@ class LeadController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Lead::query();
+        $user = Auth::user();
 
-        // Optional: filter by company, funnel, stage, etc.
-        if ($request->has('company_id')) {
-            $query->where('company_id', $request->company_id);
-        }
+        $query = Lead::fromCompany($user->company_id)->visibleToUser($user);
+
         if ($request->has('assigned_to')) {
             $query->where('assigned_to', $request->assigned_to);
         }
@@ -100,6 +98,7 @@ class LeadController extends Controller
      */
     public function show(Lead $lead)
     {
+        $this->assertLeadAccess($lead, Auth::user());
         $lead->load([
             'assignedUser:id,name,email',
             'transactions' => function ($query) {
@@ -183,6 +182,8 @@ class LeadController extends Controller
      */
     public function update(Request $request, Lead $lead)
     {
+        $this->assertLeadAccess($lead, Auth::user());
+
         $validated = $request->validate(Lead::updateValidationRules());
 
         $lead->update($validated);
@@ -198,6 +199,8 @@ class LeadController extends Controller
      */
     public function destroy(Lead $lead)
     {
+        $this->assertLeadAccess($lead, Auth::user());
+
         $lead->delete();
 
         return response()->json([
@@ -210,6 +213,8 @@ class LeadController extends Controller
      */
     public function moveToStage(Request $request, Lead $lead)
     {
+        $this->assertLeadAccess($lead, Auth::user());
+
         $validated = $request->validate([
             'stage_id' => 'required|exists:stages,id',
         ]);
@@ -296,6 +301,8 @@ class LeadController extends Controller
 
     public function recordLostReason(Request $request, Lead $lead)
     {
+        $this->assertLeadAccess($lead, Auth::user());
+
         $validated = $request->validate([
             'lost_reason_id' => 'required|exists:lost_reasons,id',
         ]);
@@ -321,7 +328,7 @@ class LeadController extends Controller
 
         $user = Auth::user();
 
-        $lead = Lead::fromCompany($user->company_id)->findOrFail($id);
+        $lead = Lead::fromCompany($user->company_id)->visibleToUser($user)->findOrFail($id);
 
         // Save tags as JSON (Laravel casts arrays automatically if $casts is set in model)
         $lead->tags = $request->input('tags');
@@ -335,6 +342,8 @@ class LeadController extends Controller
 
     public function assignUser(Request $request, Lead $lead)
     {
+        $this->assertLeadAccess($lead, Auth::user());
+
         $validated = $request->validate([
             'user_id' => 'required|exists:users,id',
         ]);
@@ -392,7 +401,8 @@ class LeadController extends Controller
 
     public function leadTransactions()
     {
-        $companyId = Auth::user()->company_id;
+        $user      = Auth::user();
+        $companyId = $user->company_id;
 
         $transactions = LeadTransaction::with([
                 'lead:id,first_name,last_name,email,company_id',
@@ -400,6 +410,7 @@ class LeadController extends Controller
             ])
             ->select('id', 'lead_id', 'user_id', 'type', 'source', 'action', 'description', 'created_at')
             ->where('company_id', $companyId)
+            ->whereHas('lead', fn($q) => $q->visibleToUser($user))
             ->latest()
             ->get();
 
@@ -410,18 +421,24 @@ class LeadController extends Controller
 
     public function leadTasks()
     {
-        $companyId = Auth::user()->company_id;
+        $user      = Auth::user();
+        $companyId = $user->company_id;
 
         $tasks = Task::with([
                 'lead:id,first_name,last_name,email,company_id',
                 'creator:id,name,email',
                 'assignee:id,name,email'
             ])
-            ->where(function ($query) use ($companyId) {
-                $query->whereHas('lead', fn ($q) => $q->where('company_id', $companyId))
-                      ->orWhere(function ($q) use ($companyId) {
-                          $q->whereNull('lead_id')
-                            ->whereHas('creator', fn ($sub) => $sub->where('company_id', $companyId));
+            ->where(function ($query) use ($companyId, $user) {
+                $query->whereHas('lead', fn ($q) => $q->where('company_id', $companyId)->visibleToUser($user))
+                      ->orWhere(function ($q) use ($companyId, $user) {
+                          $q->whereNull('lead_id');
+                          if ($user->isAdmin()) {
+                              $q->whereHas('creator', fn ($sub) => $sub->where('company_id', $companyId));
+                          } else {
+                              $ids = $user->visibleUserIds();
+                              $q->whereHas('creator', fn ($sub) => $sub->where('company_id', $companyId)->whereIn('id', $ids));
+                          }
                       });
             })
             ->latest()
@@ -434,6 +451,8 @@ class LeadController extends Controller
 
     public function addErpBudget(Request $request, Lead $lead)
     {
+        $this->assertLeadAccess($lead, Auth::user());
+
         $request->validate([
             'erp_budget_id' => 'required|integer',
         ]);
@@ -673,6 +692,21 @@ class LeadController extends Controller
     private function applyQueueAssignment(Lead $lead): void
     {
         LeadQueueAssignmentService::assign($lead);
+    }
+
+    private function assertLeadAccess(Lead $lead, User $user): void
+    {
+        if ($user->isAdmin()) {
+            abort_if($lead->company_id !== $user->company_id, 403, 'Unauthorized.');
+            return;
+        }
+
+        $ids     = $user->visibleUserIds();
+        $allowed = $lead->company_id === $user->company_id
+            && (in_array($lead->assigned_to, $ids)
+                || ($user->isManager() && is_null($lead->assigned_to)));
+
+        abort_if(!$allowed, 403, 'Unauthorized access to this lead.');
     }
 
     public function apiMoveStage(Request $request, int $id)

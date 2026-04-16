@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\Company;
-use App\Models\RolePermission;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 
@@ -64,8 +63,6 @@ class CompanyController extends Controller
             'is_active'            => true,
             ...$limits,
         ]);
-
-        RolePermission::seedDefaultsForCompany($company->id);
 
         return response()->json($company, 201);
     }

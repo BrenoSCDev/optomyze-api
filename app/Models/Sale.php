@@ -4,10 +4,12 @@
 namespace App\Models;
 
 use App\Traits\HasCompanyTimezone;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use App\Models\SaleTransaction;
+use App\Models\User;
 
 class Sale extends Model
 {
@@ -125,6 +127,25 @@ class Sale extends Model
         }
 
         return 0;
+    }
+
+    /**
+     * Scope a query to only include deals visible to the given user based on their role.
+     * Admin: no filter. Manager: own + team + unassigned. Agent: own only.
+     */
+    public function scopeVisibleToUser(Builder $query, User $user): Builder
+    {
+        $ids = $user->visibleUserIds();
+        if ($ids === null) {
+            return $query;
+        }
+
+        return $query->where(function ($q) use ($ids, $user) {
+            $q->whereIn('user_id', $ids);
+            if ($user->isManager()) {
+                $q->orWhereNull('user_id');
+            }
+        });
     }
 
     // ✅ Charges total accessor

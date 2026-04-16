@@ -17,7 +17,9 @@ class UserController extends Controller
     {
         $companyId = Auth::user()->company_id;
 
-        $users = User::where('company_id', $companyId)->get();
+        $users = User::where('company_id', $companyId)
+            ->with(['teams:id,name', 'managedTeams:id,name,manager_user_id'])
+            ->get();
 
         return response()->json($users);
     }

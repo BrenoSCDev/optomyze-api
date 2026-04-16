@@ -5,10 +5,11 @@ namespace App\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Models\Funnel;
 use App\Models\Lead;
-use App\Models\Stage;
-use App\Models\LeadTransaction;
 use App\Models\Sale;
 use App\Models\SaleItem;
+use App\Models\Stage;
+use App\Models\LeadTransaction;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -33,12 +34,12 @@ class MetricsController extends Controller
             $this->resolvePeriod($request->input('period', '30_days'));
 
         // 1. Lead Statistics by Stage Type
-        $leadStats     = $this->getLeadStatistics($companyId, $startDate, $endDate);
-        $prevLeadStats = $this->getLeadStatistics($companyId, $prevStart, $prevEnd);
+        $leadStats     = $this->getLeadStatistics($companyId, $user, $startDate, $endDate);
+        $prevLeadStats = $this->getLeadStatistics($companyId, $user, $prevStart, $prevEnd);
 
         // 2. Conversion Rate
-        $conversionRate     = $this->getConversionRate($companyId, $startDate, $endDate);
-        $prevConversionRate = $this->getConversionRate($companyId, $prevStart, $prevEnd);
+        $conversionRate     = $this->getConversionRate($companyId, $user, $startDate, $endDate);
+        $prevConversionRate = $this->getConversionRate($companyId, $user, $prevStart, $prevEnd);
 
         // 3. Performance Comparison (skipped when full period — no previous window)
         $performance = ($prevStart !== null)
@@ -46,22 +47,22 @@ class MetricsController extends Controller
             : null;
 
         // 4. Leads by Funnel Stage (scoped to selected period)
-        $leadsByFunnelStage = $this->getLeadsByFunnelStage($companyId, $startDate, $endDate);
+        $leadsByFunnelStage = $this->getLeadsByFunnelStage($companyId, $user, $startDate, $endDate);
 
         // 5. Estimated vs Closed Value (closed_at scoped to selected period)
-        $estimatedVsClosedValue = $this->getEstimatedVsClosedValue($company, $startDate, $endDate);
+        $estimatedVsClosedValue = $this->getEstimatedVsClosedValue($company, $user, $startDate, $endDate);
 
         // 6. Deals by Funnel Stage (scoped to selected period)
-        $dealsByFunnelStage = $this->getSalesByFunnelStage($companyId, $startDate, $endDate);
+        $dealsByFunnelStage = $this->getSalesByFunnelStage($companyId, $user, $startDate, $endDate);
 
         // 7. Deal Statistics scoped to period (uses closed_at / lost_at)
-        $dealStats = $this->getDealStatistics($companyId, $startDate, $endDate);
+        $dealStats = $this->getDealStatistics($companyId, $user, $startDate, $endDate);
 
         // 8. Agent sales performance (closed deals) for the selected period
-        $agentSalesPerformance = $this->getAgentSalesPerformance($companyId, $startDate, $endDate);
+        $agentSalesPerformance = $this->getAgentSalesPerformance($companyId, $user, $startDate, $endDate);
 
         // 9. Product sales performance (closed deals) for the selected period
-        $productSalesPerformance = $this->getProductSalesPerformance($companyId, $startDate, $endDate);
+        $productSalesPerformance = $this->getProductSalesPerformance($companyId, $user, $startDate, $endDate);
 
         return response()->json([
             'data' => [
@@ -133,11 +134,11 @@ class MetricsController extends Controller
      * Get deal statistics for a period, using closed_at / lost_at timestamps.
      * Total deals and conversion rate are scoped by created_at.
      */
-    private function getDealStatistics(int $companyId, ?Carbon $startDate, ?Carbon $endDate): array
+    private function getDealStatistics(int $companyId, User $user, ?Carbon $startDate, ?Carbon $endDate): array
     {
-        $closedQuery = Sale::where('company_id', $companyId)->where('status', 'closed');
-        $lostQuery   = Sale::where('company_id', $companyId)->where('status', 'lost');
-        $totalQuery  = Sale::where('company_id', $companyId);
+        $closedQuery = Sale::where('company_id', $companyId)->visibleToUser($user)->where('status', 'closed');
+        $lostQuery   = Sale::where('company_id', $companyId)->visibleToUser($user)->where('status', 'lost');
+        $totalQuery  = Sale::where('company_id', $companyId)->visibleToUser($user);
 
         if ($startDate && $endDate) {
             $closedQuery->whereBetween('closed_at', [$startDate, $endDate]);
@@ -180,10 +181,10 @@ class MetricsController extends Controller
         $year = (int) $request->input('year', Carbon::now()->year);
 
         // 1. Revenue Metrics (Module-aware)
-        $revenueMetrics = $this->getRevenueMetricsByModule($company);
+        $revenueMetrics = $this->getRevenueMetricsByModule($company, $user);
 
         // 2. Monthly Leads vs Deals overview for the selected year
-        $monthlyOverview = $this->getMonthlyOverview($companyId, $year);
+        $monthlyOverview = $this->getMonthlyOverview($companyId, $year, $user);
 
         return response()->json([
             'data' => [
@@ -197,10 +198,11 @@ class MetricsController extends Controller
     /**
      * Get lead statistics by stage type.
      */
-    private function getLeadStatistics(int $companyId, ?Carbon $startDate = null, ?Carbon $endDate = null): array
+    private function getLeadStatistics(int $companyId, User $user, ?Carbon $startDate = null, ?Carbon $endDate = null): array
     {
         $query = Lead::query()
             ->fromCompany($companyId)
+            ->visibleToUser($user)
             ->join('stages', 'leads.stage_id', '=', 'stages.id');
 
         // Apply date filters if provided
@@ -231,10 +233,11 @@ class MetricsController extends Controller
     /**
      * Calculate conversion rate.
      */
-    private function getConversionRate(int $companyId, ?Carbon $startDate = null, ?Carbon $endDate = null): float
+    private function getConversionRate(int $companyId, User $user, ?Carbon $startDate = null, ?Carbon $endDate = null): float
     {
         $query = Lead::query()
             ->fromCompany($companyId)
+            ->visibleToUser($user)
             ->join('stages', 'leads.stage_id', '=', 'stages.id');
 
         // Apply date filters if provided
@@ -261,7 +264,7 @@ class MetricsController extends Controller
      *
      * This is the data source for the dual-series line chart on the frontend.
      */
-    private function getMonthlyOverview(int $companyId, int $year): array
+    private function getMonthlyOverview(int $companyId, int $year, User $user): array
     {
         $labels = [
             1 => 'Jan', 2 => 'Feb', 3 => 'Mar', 4 => 'Apr',
@@ -270,6 +273,7 @@ class MetricsController extends Controller
         ];
 
         $leadsByMonth = Lead::fromCompany($companyId)
+            ->visibleToUser($user)
             ->whereYear('created_at', $year)
             ->select(DB::raw('MONTH(created_at) as month'), DB::raw('COUNT(*) as total'))
             ->groupBy(DB::raw('MONTH(created_at)'))
@@ -277,6 +281,7 @@ class MetricsController extends Controller
             ->toArray();
 
         $dealsByMonth = Sale::where('company_id', $companyId)
+            ->visibleToUser($user)
             ->whereYear('created_at', $year)
             ->select(DB::raw('MONTH(created_at) as month'), DB::raw('COUNT(*) as total'))
             ->groupBy(DB::raw('MONTH(created_at)'))
@@ -514,7 +519,7 @@ class MetricsController extends Controller
      * Get revenue metrics based on company's active module.
      * Returns data only if the module supports revenue tracking.
      */
-    private function getRevenueMetricsByModule($company): array
+    private function getRevenueMetricsByModule($company, User $user): array
     {
         // Check if the company is using the product module
         if ($company->product_module !== 'product') {
@@ -526,7 +531,7 @@ class MetricsController extends Controller
         }
 
         // Fetch revenue metrics based on active module
-        $metrics = $this->getRevenueDataByModule($company->id, $company->product_module);
+        $metrics = $this->getRevenueDataByModule($company->id, $company->product_module, $user);
 
         return [
             'available' => true,
@@ -539,10 +544,10 @@ class MetricsController extends Controller
      * Get revenue data based on the active module.
      * This method routes to the appropriate data source.
      */
-    private function getRevenueDataByModule(int $companyId, string $module): array
+    private function getRevenueDataByModule(int $companyId, string $module, User $user): array
     {
         return match ($module) {
-            'product' => $this->getProductModuleRevenue($companyId),
+            'product' => $this->getProductModuleRevenue($companyId, $user),
             'ERP' => $this->getERPModuleRevenue($companyId),
             default => [
                 'error' => 'Unsupported module type',
@@ -555,19 +560,21 @@ class MetricsController extends Controller
      * Get revenue metrics for the Product module.
      * Revenue is calculated from Sales with status = 'closed'.
      */
-    private function getProductModuleRevenue(int $companyId): array
+    private function getProductModuleRevenue(int $companyId, User $user): array
     {
         $currentYear = Carbon::now()->year;
         $currentMonth = Carbon::now()->month;
 
         // 1. Total Annual Revenue (Current Year)
         $totalAnnualRevenue = Sale::where('company_id', $companyId)
+            ->visibleToUser($user)
             ->where('status', 'closed')
             ->whereYear('closed_at', $currentYear)
             ->sum(DB::raw('`total`'));
 
         // 2. Total Monthly Revenue (Current Month)
         $totalMonthlyRevenue = Sale::where('company_id', $companyId)
+            ->visibleToUser($user)
             ->where('status', 'closed')
             ->whereYear('closed_at', $currentYear)
             ->whereMonth('closed_at', $currentMonth)
@@ -575,6 +582,7 @@ class MetricsController extends Controller
 
         // 3. Average Deal Value (Closed Sales Only)
         $closedSalesCount = Sale::where('company_id', $companyId)
+            ->visibleToUser($user)
             ->where('status', 'closed')
             ->count();
 
@@ -583,10 +591,10 @@ class MetricsController extends Controller
             : 0;
 
         // 4. Monthly Closed vs Lost Deals Analysis (Current Year Only)
-        $monthlyDealsAnalysis = $this->getMonthlyClosedVsLostAnalysis($companyId);
+        $monthlyDealsAnalysis = $this->getMonthlyClosedVsLostAnalysis($companyId, $user);
 
         // 5. Deals Status Distribution
-        $dealsDistribution = $this->getDealsStatusDistribution($companyId);
+        $dealsDistribution = $this->getDealsStatusDistribution($companyId, $user);
 
         return [
             'total_annual_revenue' => round($totalAnnualRevenue, 2),
@@ -623,7 +631,7 @@ class MetricsController extends Controller
      * Get monthly closed vs lost deals analysis for current year.
      * Includes average monthly revenue and average lost revenue.
      */
-    private function getMonthlyClosedVsLostAnalysis(int $companyId): array
+    private function getMonthlyClosedVsLostAnalysis(int $companyId, User $user): array
     {
         $currentYear = Carbon::now()->year;
         $months = [
@@ -634,6 +642,7 @@ class MetricsController extends Controller
 
         // Get closed deals by month
         $closedDeals = Sale::where('company_id', $companyId)
+            ->visibleToUser($user)
             ->where('status', 'closed')
             ->whereYear('closed_at', $currentYear)
             ->select(
@@ -647,6 +656,7 @@ class MetricsController extends Controller
 
         // Get lost deals by month
         $lostDeals = Sale::where('company_id', $companyId)
+            ->visibleToUser($user)
             ->where('status', 'lost')
             ->whereYear('lost_at', $currentYear)
             ->select(
@@ -718,12 +728,12 @@ class MetricsController extends Controller
      * Get deals status distribution with counts and percentages.
      * Includes all sales regardless of status.
      */
-    private function getDealsStatusDistribution(int $companyId): array
+    private function getDealsStatusDistribution(int $companyId, User $user): array
     {
         $statuses = ['pending', 'sent', 'closed', 'lost'];
 
         // Get total sales count
-        $totalSales = Sale::where('company_id', $companyId)->count();
+        $totalSales = Sale::where('company_id', $companyId)->visibleToUser($user)->count();
 
         if ($totalSales === 0) {
             return [
@@ -737,6 +747,7 @@ class MetricsController extends Controller
 
         // Get counts by status
         $statusCounts = Sale::where('company_id', $companyId)
+            ->visibleToUser($user)
             ->select('status', DB::raw('COUNT(*) as count'))
             ->groupBy('status')
             ->pluck('count', 'status')
@@ -764,7 +775,7 @@ class MetricsController extends Controller
      * Get leads distribution by funnel stage, scoped to the selected period.
      * Shows lead count and percentage per stage in each funnel.
      */
-    private function getLeadsByFunnelStage(int $companyId, ?Carbon $startDate = null, ?Carbon $endDate = null): array
+    private function getLeadsByFunnelStage(int $companyId, User $user, ?Carbon $startDate = null, ?Carbon $endDate = null): array
     {
         $funnels = Funnel::where(['company_id' => $companyId, 'type' => 'sale'])
             ->with('stages')
@@ -775,6 +786,7 @@ class MetricsController extends Controller
         foreach ($funnels as $funnel) {
             $baseQuery = fn() => Lead::where('funnel_id', $funnel->id)
                 ->where('company_id', $companyId)
+                ->visibleToUser($user)
                 ->when($startDate && $endDate, fn($q) => $q->whereBetween('created_at', [$startDate, $endDate]));
 
             $totalLeadsInFunnel = $baseQuery()->count();
@@ -818,7 +830,7 @@ class MetricsController extends Controller
      * Get sales distribution by funnel stage, scoped to the selected period.
      * Shows sales count and percentage per stage in each deal funnel.
      */
-    private function getSalesByFunnelStage(int $companyId, ?Carbon $startDate = null, ?Carbon $endDate = null): array
+    private function getSalesByFunnelStage(int $companyId, User $user, ?Carbon $startDate = null, ?Carbon $endDate = null): array
     {
         $funnels = Funnel::where(['company_id' => $companyId, 'type' => 'deal'])
             ->with('stages')
@@ -829,6 +841,7 @@ class MetricsController extends Controller
         foreach ($funnels as $funnel) {
             $baseQuery = fn() => Sale::where('funnel_id', $funnel->id)
                 ->where('company_id', $companyId)
+                ->visibleToUser($user)
                 ->when($startDate && $endDate, fn($q) => $q->where(function ($q) use ($startDate, $endDate) {
                     $q->whereBetween('created_at', [$startDate, $endDate])
                       ->orWhereBetween('closed_at', [$startDate, $endDate])
@@ -876,7 +889,7 @@ class MetricsController extends Controller
      * Get estimated value vs closed value analysis per funnel.
      * Only available for product module.
      */
-    private function getEstimatedVsClosedValue($company, ?Carbon $startDate = null, ?Carbon $endDate = null): array
+    private function getEstimatedVsClosedValue($company, User $user, ?Carbon $startDate = null, ?Carbon $endDate = null): array
     {
         // Check if module supports this analysis
         if ($company->product_module !== 'product') {
@@ -891,7 +904,7 @@ class MetricsController extends Controller
 
         // Get all funnels with their stages and leads (with products)
         $funnels = Funnel::where(['company_id' => $companyId, 'type' => 'sale'])
-            ->with(['stages.leads.products'])
+            ->with(['stages' => fn($q) => $q->with(['leads' => fn($q) => $q->visibleToUser($user)->with('products')])])
             ->get();
 
         $funnelValueAnalysis = [];
@@ -959,9 +972,10 @@ class MetricsController extends Controller
      * Get agent (user) sales performance for closed deals in the selected period.
      * Returns sales count and revenue generated per agent, sorted by revenue desc.
      */
-    private function getAgentSalesPerformance(int $companyId, ?Carbon $startDate, ?Carbon $endDate): array
+    private function getAgentSalesPerformance(int $companyId, User $user, ?Carbon $startDate, ?Carbon $endDate): array
     {
         $query = Sale::where('sales.company_id', $companyId)
+            ->visibleToUser($user)
             ->where('sales.status', 'closed')
             ->join('users', 'sales.user_id', '=', 'users.id')
             ->select(
@@ -999,11 +1013,21 @@ class MetricsController extends Controller
      * This ensures discounts and charges at the sale level are correctly
      * reflected in per-product revenue figures.
      */
-    private function getProductSalesPerformance(int $companyId, ?Carbon $startDate, ?Carbon $endDate): array
+    private function getProductSalesPerformance(int $companyId, User $user, ?Carbon $startDate, ?Carbon $endDate): array
     {
+        $visibleIds = $user->visibleUserIds();
+
         $query = SaleItem::query()
             ->join('sales', 'sale_items.sale_id', '=', 'sales.id')
             ->where('sales.company_id', $companyId)
+            ->when($visibleIds !== null, function ($q) use ($visibleIds, $user) {
+                $q->where(function ($q) use ($visibleIds, $user) {
+                    $q->whereIn('sales.user_id', $visibleIds);
+                    if ($user->isManager()) {
+                        $q->orWhereNull('sales.user_id');
+                    }
+                });
+            })
             ->where('sales.status', 'closed')
             ->select(
                 'sale_items.product_id',
@@ -1054,7 +1078,7 @@ class MetricsController extends Controller
         | USERS
         |--------------------------------------------------------------------------
         */
-        $usersUsed = \App\Models\User::where('company_id', $company->id)->count();
+        $usersUsed = User::where('company_id', $company->id)->count();
 
         /*
         |--------------------------------------------------------------------------

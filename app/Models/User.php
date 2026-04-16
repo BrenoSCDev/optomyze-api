@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use App\Models\Sale;
+use App\Models\Team;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -60,13 +61,21 @@ class User extends Authenticatable
     }
 
     /**
-     * Get the teams that the user belongs to.
+     * Get the teams that the user belongs to (as a member).
      */
     public function teams()
     {
         return $this->belongsToMany(Team::class)
             ->withPivot('role')
             ->withTimestamps();
+    }
+
+    /**
+     * Get the teams that the user manages (via manager_user_id).
+     */
+    public function managedTeams(): HasMany
+    {
+        return $this->hasMany(Team::class, 'manager_user_id');
     }
 
     public function sales(): HasMany
@@ -164,7 +173,33 @@ class User extends Authenticatable
         $this->update(['last_login_at' => now()]);
     }
 
-/**
+    /**
+     * Return the IDs of users whose data this user is allowed to see.
+     * Returns null for admin (no filter — sees all company data).
+     * Manager: self + all users in teams they manage (via manager_user_id).
+     * Agent: only themselves.
+     */
+    public function visibleUserIds(): ?array
+    {
+        if ($this->isAdmin()) {
+            return null;
+        }
+
+        if ($this->isManager()) {
+            return Team::where('manager_user_id', $this->id)
+                ->with('users:id')
+                ->get()
+                ->flatMap(fn($team) => $team->users->pluck('id'))
+                ->push($this->id)
+                ->unique()
+                ->values()
+                ->toArray();
+        }
+
+        return [$this->id];
+    }
+
+    /**
      * Validation rules for user creation.
      */
     public static function validationRules(): array

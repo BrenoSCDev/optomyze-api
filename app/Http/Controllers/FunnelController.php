@@ -144,11 +144,12 @@ class FunnelController extends Controller
         $user = Auth::user();
 
         $funnel = Funnel::with([
-            'stages' => function ($query) {
+            'stages' => function ($query) use ($user) {
                 $query->where('is_active', true)
                     ->with([
-                        'activeLeads' => function ($query) {
+                        'activeLeads' => function ($query) use ($user) {
                             $query->orderBy('created_at', 'desc')
+                                ->visibleToUser($user)
                                 ->with([
                                     'assignedUser:id,name',
                                     'products:id,name,base_price',
@@ -208,11 +209,12 @@ class FunnelController extends Controller
         $user = Auth::user();
 
         $funnel = Funnel::with([
-            'stages' => function ($query) {
+            'stages' => function ($query) use ($user) {
                 $query->where('is_active', true)
                     ->with([
-                        'deals' => function ($query) {
+                        'deals' => function ($query) use ($user) {
                             $query->orderBy('created_at', 'desc')
+                                ->visibleToUser($user)
                                 ->with([
                                     'lead:id,first_name,last_name,email,phone,stage_id,funnel_id,assigned_to',
                                     'lead.assignedUser:id,name',

@@ -224,9 +224,7 @@ class SaleController extends Controller
     {
         $user = Auth::user();
 
-        if ($sale->company_id !== $user->company_id) {
-            return response()->json(['message' => 'Unauthorized.'], 403);
-        }
+        $this->assertSaleAccess($sale, $user);
 
         $validated = $request->validate([
             'name'             => 'sometimes|required|string|max:255',
@@ -332,12 +330,7 @@ class SaleController extends Controller
     {
         $user = Auth::user();
 
-        // Security check: sale must belong to user's company
-        if ($sale->company_id !== $user->company_id) {
-            return response()->json([
-                'message' => 'Unauthorized action.'
-            ], 403);
-        }
+        $this->assertSaleAccess($sale, $user);
 
         DB::transaction(function () use ($sale, $user) {
 
@@ -374,6 +367,8 @@ class SaleController extends Controller
      */
     public function show(Sale $sale)
     {
+        $this->assertSaleAccess($sale, Auth::user());
+
         $sale->load([
             'user:id,name,email',
             'lead:id,first_name,last_name,email,phone,job_title,company_id,funnel_id,stage_id',
@@ -406,6 +401,8 @@ class SaleController extends Controller
      */
     public function updateStatus(Request $request, Sale $sale)
     {
+        $this->assertSaleAccess($sale, Auth::user());
+
         $data = $request->validate([
             'status' => ['required', 'in:closed,lost'],
         ]);
@@ -483,6 +480,8 @@ class SaleController extends Controller
             ], 404);
         }
 
+        $this->assertSaleAccess($sale, Auth::user());
+
         // Optional: check if stage belongs to same funnel (recommended if applicable)
         $stage = Stage::find($request->stage_id);
 
@@ -536,7 +535,8 @@ class SaleController extends Controller
 
     public function dealTransactions()
     {
-        $companyId = Auth::user()->company_id;
+        $user      = Auth::user();
+        $companyId = $user->company_id;
 
         $transactions = SaleTransaction::with([
                 'sale:id,lead_id,user_id,name,total,created_at',
@@ -544,6 +544,7 @@ class SaleController extends Controller
                 'user:id,name,email'
             ])
             ->where('company_id', $companyId)
+            ->whereHas('sale', fn($q) => $q->visibleToUser($user))
             ->latest()
             ->get();
 
@@ -560,6 +561,7 @@ class SaleController extends Controller
         $query = $request->input('q');
 
         $sales = Sale::where('company_id', $user->company_id)
+            ->visibleToUser($user)
             ->where('name', 'like', "%{$query}%")
             ->select('id', 'name', 'total', 'status')
             ->orderBy('name')
@@ -793,5 +795,20 @@ class SaleController extends Controller
         });
 
         return response()->json(['message' => 'Sale deleted successfully']);
+    }
+
+    private function assertSaleAccess(Sale $sale, User $user): void
+    {
+        if ($user->isAdmin()) {
+            abort_if($sale->company_id !== $user->company_id, 403, 'Unauthorized.');
+            return;
+        }
+
+        $ids     = $user->visibleUserIds();
+        $allowed = $sale->company_id === $user->company_id
+            && (in_array($sale->user_id, $ids)
+                || ($user->isManager() && is_null($sale->user_id)));
+
+        abort_if(!$allowed, 403, 'Unauthorized access to this deal.');
     }
 }
