@@ -48,6 +48,8 @@ class CompanyController extends Controller
             'subscription_plan' => 'required|in:basic,premium,enterprise',
             'product_module'    => 'nullable|in:product,ERP',
             'settings'          => 'nullable|array',
+            'timezone'          => 'nullable|string|max:255',
+            'currency'          => 'nullable|string|max:10',
         ]);
 
         $limits = Company::planLimits($validated['subscription_plan']);
@@ -61,6 +63,8 @@ class CompanyController extends Controller
             'product_module'       => $validated['product_module'] ?? 'product',
             'settings'             => $validated['settings'] ?? null,
             'is_active'            => true,
+            'timezone'             => $validated['timezone'] ?? 'UTC',
+            'currency'             => $validated['currency'] ?? 'USD',
             ...$limits,
         ]);
 
@@ -83,6 +87,8 @@ class CompanyController extends Controller
             'product_module'    => 'nullable|in:product,ERP',
             'is_active'         => 'sometimes|boolean',
             'settings'          => 'nullable|array',
+            'timezone'          => 'nullable|string|max:255',
+            'currency'          => 'nullable|string|max:10',
         ]);
 
         // Re-apply plan limits when plan changes
