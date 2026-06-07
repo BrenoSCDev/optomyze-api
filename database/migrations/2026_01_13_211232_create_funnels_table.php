@@ -20,7 +20,7 @@ return new class extends Migration
             $table->boolean('is_active')->default(true);
             $table->foreignId('created_by')->constrained('users')->onDelete('cascade');
             $table->json('settings')->nullable();
-            $table->enum('type', ['sale', 'deal', 'sale_model', 'deal_model'])
+            $table->enum('type', ['sale', 'deal', 'model'])
                 ->default('sale');
 
             $table->timestamps();

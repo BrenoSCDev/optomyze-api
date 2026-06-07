@@ -21,7 +21,7 @@ class SettingsController extends Controller
         $customProductFields = CustomProductField::where(['type' => 'model', 'company_id' => $user->company_id])->get();
         $customLeadFields    = LeadCustomField::where(['type' => 'model', 'company_id' => $user->company_id])->get();
         $funnels = Funnel::fromCompany($user->company_id)
-            ->where('type', 'sale_model')
+            ->where('type', 'model')
             ->with('stages.entryRequirement')
             ->get();
         $notificationSettings = NotificationSetting::where('company_id', $user->company_id)->first();

@@ -164,6 +164,7 @@ Route::middleware('auth:sanctum')->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::get('/funnels', [FunnelController::class, 'index']);
+    Route::get('/funnels/templates', [FunnelController::class, 'templates']);
     Route::get('/funnels/deals', [FunnelController::class, 'deals']);
     Route::post('/funnels', [FunnelController::class, 'store']);
     Route::get('/funnels/{id}', [FunnelController::class, 'leadsByStages']);

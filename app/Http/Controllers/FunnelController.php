@@ -13,6 +13,21 @@ use Illuminate\Validation\ValidationException;
 class FunnelController extends Controller
 {
     /**
+     * List template funnels (type = model) with their stages.
+     */
+    public function templates()
+    {
+        $user = Auth::user();
+
+        $templates = Funnel::fromCompany($user->company_id)
+            ->where('type', 'model')
+            ->with(['stages' => fn ($q) => $q->orderBy('order')])
+            ->get();
+
+        return response()->json($templates);
+    }
+
+    /**
      * Display a listing of funnels for the authenticated user's company.
      */
     public function index()
@@ -43,14 +58,9 @@ class FunnelController extends Controller
             'is_active'       => 'boolean',
             'settings'        => 'nullable|array',
             'model_funnel_id' => 'nullable|exists:funnels,id',
-            'type'            => 'nullable',
+            'type'            => 'nullable|in:sale,deal,model',
         ]);
 
-        /*
-        |--------------------------------------------------------------------------
-        | Create the new funnel
-        |--------------------------------------------------------------------------
-        */
         $funnel = Funnel::create([
             'company_id'  => $user->company_id,
             'name'        => $validated['name'],
@@ -61,17 +71,11 @@ class FunnelController extends Controller
             'type'        => $validated['type'] ?? 'sale',
         ]);
 
-        /*
-        |--------------------------------------------------------------------------
-        | Replicate stages from model funnel (if provided)
-        |--------------------------------------------------------------------------
-        */
         if (!empty($validated['model_funnel_id'])) {
             $modelFunnel = Funnel::where('id', $validated['model_funnel_id'])
+                ->where('company_id', $user->company_id)
                 ->where('type', 'model')
-                ->with(['stages' => function ($q) {
-                    $q->where('type', 'model')->orderBy('order');
-                }])
+                ->with(['stages' => fn ($q) => $q->orderBy('order')])
                 ->firstOrFail();
 
             foreach ($modelFunnel->stages as $modelStage) {
@@ -80,7 +84,7 @@ class FunnelController extends Controller
                     'funnel_id'   => $funnel->id,
                     'name'        => $modelStage->name,
                     'description' => $modelStage->description,
-                    'type'        => 'stage',
+                    'type'        => $modelStage->type,
                     'order'       => $modelStage->order,
                     'color'       => $modelStage->color,
                     'settings'    => $modelStage->settings,
