@@ -84,21 +84,20 @@ class SaleTransaction extends Model
         ?User $user = null,
         array $metadata = []
     ): self {
+        $dealName = $sale->name;
         if ($toStage->type === 'won') {
             $action      = self::ACTION_WON;
-            $description = $fromStage
-                ? "deal closed as won — moved from '{$fromStage->name}' to '{$toStage->name}'"
-                : "deal closed as won in stage '{$toStage->name}'";
+            $description = self::buildNewSaleDescription($sale);
         } elseif ($toStage->type === 'lost') {
             $action      = self::ACTION_LOST;
             $description = $fromStage
-                ? "deal marked as lost — moved from '{$fromStage->name}' to '{$toStage->name}'"
-                : "deal marked as lost in stage '{$toStage->name}'";
+                ? "'{$dealName}' marked as lost — moved from '{$fromStage->name}' to '{$toStage->name}'"
+                : "'{$dealName}' marked as lost in stage '{$toStage->name}'";
         } else {
             $action      = self::ACTION_MOVED;
             $description = $fromStage
-                ? "moved deal from '{$fromStage->name}' to '{$toStage->name}'"
-                : "moved deal to '{$toStage->name}'";
+                ? "'{$dealName}' moved from '{$fromStage->name}' to '{$toStage->name}'"
+                : "'{$dealName}' moved to '{$toStage->name}'";
         }
 
         return self::create([
@@ -122,6 +121,9 @@ class SaleTransaction extends Model
         ?User $user = null
     ): self {
         $action = $toStatus === 'closed' ? self::ACTION_CLOSED : self::ACTION_LOST;
+        $description = $toStatus === 'closed'
+            ? self::buildNewSaleDescription($sale)
+            : "'{$sale->name}' marked as lost";
 
         return self::create([
             'sale_id'     => $sale->id,
@@ -129,9 +131,22 @@ class SaleTransaction extends Model
             'user_id'     => $user?->id,
             'type'        => self::TYPE_STATUS_CHANGE,
             'action'      => $action,
-            'description' => "deal status changed from '{$fromStatus}' to '{$toStatus}'",
+            'description' => $description,
             'source'      => $user ? self::SOURCE_MANUAL : self::SOURCE_SYSTEM,
         ]);
+    }
+
+    private static function buildNewSaleDescription(Sale $sale): string
+    {
+        $lead      = $sale->lead;
+        $leadName  = $lead ? trim(($lead->first_name ?? '') . ' ' . ($lead->last_name ?? '')) : null;
+        $ownerName = $sale->user?->name;
+
+        $description = "New sale! '{$sale->name}'";
+        if ($leadName)  $description .= " · {$leadName}";
+        if ($ownerName) $description .= " · {$ownerName}";
+
+        return $description;
     }
 
     /**
@@ -139,13 +154,19 @@ class SaleTransaction extends Model
      */
     public static function createSaleCreation(Sale $sale, ?User $user = null): self
     {
+        $lead = $sale->lead;
+        $leadName = $lead ? trim(($lead->first_name ?? '') . ' ' . ($lead->last_name ?? '')) : null;
+        $description = $leadName
+            ? "Deal '{$sale->name}' created for {$leadName}"
+            : "Deal '{$sale->name}' created";
+
         return self::create([
             'sale_id'     => $sale->id,
             'company_id'  => $sale->company_id,
             'user_id'     => $user?->id,
             'type'        => self::TYPE_CREATION,
             'action'      => self::ACTION_CREATED,
-            'description' => "deal '{$sale->name}' created",
+            'description' => $description,
             'source'      => $user ? self::SOURCE_MANUAL : self::SOURCE_SYSTEM,
         ]);
     }

@@ -9,8 +9,9 @@ return [
     ],
 
     'default_recipients' => [
-        'deal_owner' => true,
-        'lead_owner' => true,
+        'admin'        => true,
+        'deal_owner'   => true,
+        'lead_owner'   => true,
         'team_manager' => true,
     ],
 
@@ -42,6 +43,10 @@ return [
         'product_added' => [
             'enabled' => false,
             'priority' => 'low',
+        ],
+        'appointment_scheduled' => [
+            'enabled' => true,
+            'priority' => 'normal',
         ],
     ],
 

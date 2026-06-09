@@ -230,9 +230,10 @@ class LeadTransaction extends Model
         User $user = null,
         array $metadata = []
     ): self {
-        $description = $fromStage 
-            ? "moved lead from '{$fromStage->name}' to '{$toStage->name}'"
-            : "moved lead to '{$toStage->name}'";
+        $leadName = trim(($lead->first_name ?? '') . ' ' . ($lead->last_name ?? '')) ?: "Lead #{$lead->id}";
+        $description = $fromStage
+            ? "{$leadName} was moved from '{$fromStage->name}' to '{$toStage->name}'"
+            : "{$leadName} was moved to '{$toStage->name}'";
 
         return self::create([
             'lead_id' => $lead->id,

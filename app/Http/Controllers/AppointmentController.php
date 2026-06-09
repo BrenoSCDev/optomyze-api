@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 use App\Models\Appointment;
 use App\Models\Lead;
 use App\Models\Product;
+use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -61,6 +62,25 @@ class AppointmentController extends Controller
         }
 
         $appointment->load(['appointmentType', 'user:id,name,email', 'products:id,name,sku,base_price,type']);
+
+        $lead  = Lead::find($appointment->lead_id);
+        $actor = Auth::user();
+        app(NotificationService::class)->dispatch('appointment_scheduled', $appointment->company_id, [
+            'lead_owner_id'      => $lead?->assigned_to,
+            'actor_id'           => $actor->id,
+            'actor_name'         => $actor->name,
+            'lead'               => $lead ? ['id' => $lead->id, 'name' => trim("{$lead->first_name} {$lead->last_name}")] : null,
+            'appointment'        => [
+                'title'         => $appointment->title,
+                'scheduled_at'  => $appointment->scheduled_at
+                    ->setTimezone($appointment->timezone ?? 'UTC')
+                    ->format('d/m/Y \a\t H:i'),
+                'assigned_user' => $appointment->user?->name,
+            ],
+            '_appointment_model' => $appointment,
+            '_actor_model'       => $actor,
+        ]);
+
         return response()->json($appointment, 201);
     }
 
@@ -172,9 +192,24 @@ class AppointmentController extends Controller
             $appointment->products()->sync($productIds);
         }
 
+        $appointment->load(['appointmentType', 'lead:id,first_name,last_name', 'user:id,name', 'products:id,name,sku,base_price,type']);
+
+        app(NotificationService::class)->dispatch('appointment_scheduled', $appointment->company_id, [
+            'lead_owner_id'      => $appointment->lead?->assigned_to,
+            'actor_name'         => null,
+            'lead'               => $appointment->lead ? ['id' => $appointment->lead->id, 'name' => trim("{$appointment->lead->first_name} {$appointment->lead->last_name}")] : null,
+            'appointment'        => [
+                'title'         => $appointment->title,
+                'scheduled_at'  => $appointment->scheduled_at
+                    ->setTimezone($appointment->timezone ?? 'UTC')
+                    ->format('d/m/Y \a\t H:i'),
+                'assigned_user' => $appointment->user?->name,
+            ],
+        ]);
+
         return response()->json([
             'message' => 'Appointment created successfully',
-            'data'    => $appointment->load(['appointmentType', 'lead:id,first_name,last_name', 'products:id,name,sku,base_price,type']),
+            'data'    => $appointment,
         ], 201);
     }
 

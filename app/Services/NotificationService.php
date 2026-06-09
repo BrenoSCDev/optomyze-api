@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\AppointmentScheduledNotification;
 use App\Events\LeadCreatedNotification;
 use App\Jobs\SendExternalNotification;
 use App\Models\NotificationSetting;
@@ -37,9 +38,11 @@ class NotificationService
             return;
         }
 
-        // 1. Check if the event is enabled
-        $events = $settings->events ?? [];
-        if (!($events[$eventKey]['enabled'] ?? false)) {
+        // 1. Check if the event is enabled — fall back to config defaults for events
+        //    not yet present in stored settings (e.g. newly added events).
+        $events      = $settings->events ?? [];
+        $eventConfig = $events[$eventKey] ?? config("notification_defaults.events.{$eventKey}");
+        if (!($eventConfig['enabled'] ?? false)) {
             Log::debug("[Notification] Event '{$eventKey}' is disabled for company {$companyId}.");
             return;
         }
@@ -107,9 +110,23 @@ class NotificationService
         $defaults = $settings->default_recipients ?? [];
         $ids      = collect();
 
-        // lead_owner — the user assigned to the lead
-        if (($defaults['lead_owner'] ?? false) && !empty($context['lead_owner_id'])) {
-            $ids->push((int) $context['lead_owner_id']);
+        // admin — all active admin users of the company
+        if ($defaults['admin'] ?? false) {
+            $adminIds = User::where('company_id', $companyId)
+                ->where('role', 'admin')
+                ->pluck('id');
+            $ids = $ids->merge($adminIds);
+        }
+
+        // lead_owner — the user assigned to the lead, or the actor who created it if unassigned
+        if ($defaults['lead_owner'] ?? false) {
+            $leadOwnerId = !empty($context['lead_owner_id'])
+                ? (int) $context['lead_owner_id']
+                : (!empty($context['actor_id']) ? (int) $context['actor_id'] : null);
+
+            if ($leadOwnerId) {
+                $ids->push($leadOwnerId);
+            }
         }
 
         // deal_owner — the user who owns the sale/deal
@@ -122,8 +139,12 @@ class NotificationService
         // their manager_user_id. This avoids querying by role and instead follows the actual
         // team structure configured inside the company.
         if ($defaults['team_manager'] ?? false) {
+            $effectiveLeadOwner = !empty($context['lead_owner_id'])
+                ? $context['lead_owner_id']
+                : ($context['actor_id'] ?? null);
+
             $ownerIds = collect([
-                $context['lead_owner_id'] ?? null,
+                $effectiveLeadOwner,
                 $context['deal_owner_id'] ?? null,
             ])->filter()->unique()->values();
 
@@ -205,8 +226,19 @@ class NotificationService
                 broadcast(new LeadCreatedNotification(
                     $context['_lead_model'],
                     $context['_actor_model']
-                ))->toOthers();
+                ));
             }
+            if (
+                $eventKey === 'appointment_scheduled'
+                && isset($context['_appointment_model'])
+                && isset($context['_actor_model'])
+            ) {
+                broadcast(new AppointmentScheduledNotification(
+                    $context['_appointment_model'],
+                    $context['_actor_model']
+                ));
+            }
+
             // For deal_created, deal_won, deal_lost, deal_stage_changed, lead_assigned:
             // SaleTransactionNotification / LeadTransactionNotification model hooks already
             // broadcast these events to the company feed channel — they are the in-app signal.
@@ -339,6 +371,21 @@ class NotificationService
                 $actorName ? "Closed by: {$actorName}" : null,
                 '',
                 'Review the deal in the CRM to record a lost reason.',
+            ],
+
+            'appointment_scheduled' => [
+                '[Optomyze CRM] Appointment Scheduled',
+                '',
+                $leadName  ? "Lead: {$leadName}"                                           : null,
+                isset($context['appointment']['title'])
+                    ? "Title: {$context['appointment']['title']}"                           : null,
+                isset($context['appointment']['scheduled_at'])
+                    ? "Date: {$context['appointment']['scheduled_at']}"                     : null,
+                isset($context['appointment']['assigned_user'])
+                    ? "Assigned to: {$context['appointment']['assigned_user']}"             : null,
+                $actorName ? "Scheduled by: {$actorName}"                                  : null,
+                '',
+                'Log in to the CRM to view the appointment details.',
             ],
 
             'product_added' => [

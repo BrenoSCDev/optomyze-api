@@ -78,6 +78,7 @@ class LeadController extends Controller
         // Checks: event enabled, quiet hours, channels, recipients.
         app(NotificationService::class)->dispatch('lead_created', $lead->company_id, [
             'lead_owner_id' => $lead->assigned_to,
+            'actor_id'      => Auth::id(),
             'actor_name'    => Auth::user()->name,
             'lead'          => [
                 'id'   => $lead->id,

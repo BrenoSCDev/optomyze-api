@@ -62,14 +62,6 @@ class LeadCreatedNotification implements ShouldBroadcastNow
                 'id' => $this->creator->id,
                 'name' => $this->creator->name,
                 'profile_pic' => $this->creator->profile_pic,
-                'last_name' => $this->lead->last_name ?? '',
-                'email' => $this->lead->email ?? '',
-                'phone' => $this->lead->phone ?? '',
-            ],
-            'creator' => [
-                'id' => $this->creator->id,
-                'name' => $this->creator->name,
-                'profile_pic' => $this->creator->profile_pic,
             ],
             'timestamp' => now()->toISOString(),
         ];
