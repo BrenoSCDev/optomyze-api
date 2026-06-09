@@ -42,7 +42,7 @@ class VerifyApiToken
             $company->increment('api_requests_count');
         }
 
-        $request->merge(['company' => $company]);
+        $request->merge(['company' => $company, 'api_token' => $token]);
 
         return $next($request);
     }

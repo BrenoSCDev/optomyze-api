@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\DealLiveUpdate;
+use App\Jobs\FireIntegrationWebhook;
 use App\Models\Lead;
 use App\Models\Sale;
 use App\Models\SaleItem;
@@ -206,7 +208,27 @@ class SaleController extends Controller
         ]);
 
         /** -----------------------------------------
-         * 9️⃣ Response
+         * 9️⃣ Broadcast + Integration Webhooks
+         * ----------------------------------------*/
+        if ($sale->funnel_id) {
+            broadcast(new DealLiveUpdate('created', $sale));
+        }
+
+        FireIntegrationWebhook::dispatch('deal_created', [
+            'id'            => $sale->id,
+            'company_id'    => $sale->company_id,
+            'lead_id'       => $sale->lead_id,
+            'funnel_id'     => $sale->funnel_id,
+            'stage_id'      => $sale->stage_id,
+            'name'          => $sale->name,
+            'status'        => $sale->status,
+            'pricing_model' => $sale->pricing_model,
+            'total'         => $sale->total,
+            'created_at'    => $sale->created_at?->toISOString(),
+        ]);
+
+        /** -----------------------------------------
+         * 🔟 Response
          * ----------------------------------------*/
         return response()->json([
             'message' => 'Sale created successfully',
@@ -492,7 +514,8 @@ class SaleController extends Controller
         }
 
         // Capture current stage before moving
-        $fromStage = $sale->stage_id ? Stage::find($sale->stage_id) : null;
+        $fromStage  = $sale->stage_id ? Stage::find($sale->stage_id) : null;
+        $oldStageId = $sale->stage_id;
 
         // Update stage
         $sale->stage_id = $request->stage_id;
@@ -526,6 +549,16 @@ class SaleController extends Controller
                 'name' => trim("{$stageLead->first_name} {$stageLead->last_name}"),
             ] : [],
         ]);
+
+        // Broadcast stage change live to deal-funnel channel
+        if ($sale->funnel_id) {
+            broadcast(new DealLiveUpdate(
+                'stage_changed',
+                $sale,
+                $oldStageId,
+                $stage->type
+            ));
+        }
 
         return response()->json([
             'message' => 'Sale moved successfully.',
@@ -735,6 +768,23 @@ class SaleController extends Controller
             'total'          => max(0, $baseSubtotal + $chargesTotal - $discountsTotal),
         ]);
 
+        if ($sale->funnel_id) {
+            broadcast(new DealLiveUpdate('created', $sale));
+        }
+
+        FireIntegrationWebhook::dispatch('deal_created', [
+            'id'            => $sale->id,
+            'company_id'    => $sale->company_id,
+            'lead_id'       => $sale->lead_id,
+            'funnel_id'     => $sale->funnel_id,
+            'stage_id'      => $sale->stage_id,
+            'name'          => $sale->name,
+            'status'        => $sale->status,
+            'pricing_model' => $sale->pricing_model,
+            'total'         => $sale->total,
+            'created_at'    => $sale->created_at?->toISOString(),
+        ]);
+
         return response()->json([
             'message' => 'Sale created successfully',
             'data'    => $sale->load(['items', 'charges', 'discounts']),
@@ -782,6 +832,8 @@ class SaleController extends Controller
             return response()->json(['message' => 'Sale not found'], 404);
         }
 
+        $hadFunnel = (bool) $sale->funnel_id;
+
         DB::transaction(function () use ($sale) {
             $sale->items()->delete();
             $sale->charges()->delete();
@@ -793,6 +845,10 @@ class SaleController extends Controller
             }
             $sale->delete();
         });
+
+        if ($hadFunnel) {
+            broadcast(new DealLiveUpdate('deleted', $sale));
+        }
 
         return response()->json(['message' => 'Sale deleted successfully']);
     }

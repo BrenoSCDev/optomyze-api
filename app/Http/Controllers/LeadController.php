@@ -2,8 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\LeadLiveUpdate;
+use App\Jobs\FireIntegrationWebhook;
 use App\Models\EntryRequirement;
 use App\Services\NotificationService;
+use Illuminate\Support\Facades\Log;
 use App\Models\Lead;
 use App\Models\LeadCompany;
 use App\Models\LeadCustomField;
@@ -86,6 +89,35 @@ class LeadController extends Controller
             ],
             '_lead_model'  => $lead,
             '_actor_model' => Auth::user(),
+        ]);
+
+        // Broadcast new lead live to funnel channel
+        if ($lead->funnel_id) {
+            Log::info("[LeadLive] Broadcasting created for lead {$lead->id} to funnel.{$lead->funnel_id}");
+            broadcast(new LeadLiveUpdate('created', $lead));
+        }
+
+        // Fire integration webhooks (N8N / external automation)
+        FireIntegrationWebhook::dispatch('lead_created', [
+            'id'         => $lead->id,
+            'company_id' => $lead->company_id,
+            'funnel_id'  => $lead->funnel_id,
+            'stage_id'   => $lead->stage_id,
+            'first_name' => $lead->first_name,
+            'last_name'  => $lead->last_name,
+            'email'      => $lead->email,
+            'phone'      => $lead->phone,
+            'source'     => $lead->source,
+            'created_at' => $lead->created_at?->toISOString(),
+        ]);
+
+        FireIntegrationWebhook::dispatch('lead_whatsapp', [
+            'phone'      => $lead->phone,
+            'name'       => trim("{$lead->first_name} {$lead->last_name}"),
+            'email'      => $lead->email,
+            'company_id' => $lead->company_id,
+            'funnel_id'  => $lead->funnel_id,
+            'created_at' => $lead->created_at?->toISOString(),
         ]);
 
         return response()->json([
@@ -235,10 +267,21 @@ class LeadController extends Controller
             ], 422);
         }
 
+        $oldStageId = $lead->stage_id;
         $lead->moveToStage($targetStage->id, Auth::user());
 
         $freshLead = $lead->fresh(['stage']);
         $isLost    = $freshLead->stage && $freshLead->stage->type === 'lost';
+
+        // Broadcast stage change live to funnel channel
+        if ($lead->funnel_id) {
+            broadcast(new LeadLiveUpdate(
+                'stage_changed',
+                $freshLead,
+                $oldStageId,
+                $freshLead->stage?->type
+            ));
+        }
 
         return response()->json([
             'message'            => 'Lead moved successfully',
@@ -615,6 +658,10 @@ class LeadController extends Controller
 
         $lead->delete();
 
+        if ($lead->funnel_id) {
+            broadcast(new LeadLiveUpdate('deleted', $lead));
+        }
+
         return response()->json(['message' => 'Lead deleted successfully']);
     }
 
@@ -684,6 +731,50 @@ class LeadController extends Controller
 
         LeadQueueAssignmentService::assign($lead);
 
+        $apiToken = $request->get('api_token');
+        LeadTransaction::create([
+            'lead_id'      => $lead->id,
+            'company_id'   => $lead->company_id,
+            'user_id'      => null,
+            'type'         => LeadTransaction::TYPE_CREATION,
+            'action'       => LeadTransaction::ACTION_CREATED,
+            'description'  => $apiToken
+                ? "Lead created via external integration using API token '{$apiToken->name}'"
+                : 'Lead created via external integration',
+            'source'       => LeadTransaction::SOURCE_API,
+            'metadata'     => [
+                'api_token_id'   => $apiToken?->id,
+                'api_token_name' => $apiToken?->name,
+            ],
+            'is_important' => true,
+        ]);
+
+        if ($lead->funnel_id) {
+            broadcast(new LeadLiveUpdate('created', $lead));
+        }
+
+        FireIntegrationWebhook::dispatch('lead_created', [
+            'id'         => $lead->id,
+            'company_id' => $lead->company_id,
+            'funnel_id'  => $lead->funnel_id,
+            'stage_id'   => $lead->stage_id,
+            'first_name' => $lead->first_name,
+            'last_name'  => $lead->last_name,
+            'email'      => $lead->email,
+            'phone'      => $lead->phone,
+            'source'     => $lead->source,
+            'created_at' => $lead->created_at?->toISOString(),
+        ]);
+
+        FireIntegrationWebhook::dispatch('lead_whatsapp', [
+            'phone'      => $lead->phone,
+            'name'       => trim("{$lead->first_name} {$lead->last_name}"),
+            'email'      => $lead->email,
+            'company_id' => $lead->company_id,
+            'funnel_id'  => $lead->funnel_id,
+            'created_at' => $lead->created_at?->toISOString(),
+        ]);
+
         return response()->json([
             'message' => 'Lead created successfully',
             'data' => $lead
@@ -723,8 +814,13 @@ class LeadController extends Controller
         ]);
 
         $stage = \App\Models\Stage::find($validated['stage_id']);
+        $oldStageId = $lead->stage_id;
         $lead->stage_id = $stage->id;
         $lead->save();
+
+        if ($lead->funnel_id) {
+            broadcast(new LeadLiveUpdate('stage_changed', $lead->fresh(), $oldStageId, $stage->type));
+        }
 
         return response()->json(['message' => 'Lead moved to stage successfully', 'data' => $lead->fresh('stage')]);
     }

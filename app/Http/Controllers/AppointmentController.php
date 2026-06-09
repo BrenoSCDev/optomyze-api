@@ -1,6 +1,8 @@
 <?php
 namespace App\Http\Controllers;
 
+use App\Events\AppointmentLiveUpdate;
+use App\Jobs\FireIntegrationWebhook;
 use App\Models\Appointment;
 use App\Models\Lead;
 use App\Models\Product;
@@ -61,9 +63,9 @@ class AppointmentController extends Controller
             $appointment->products()->sync($productIds);
         }
 
-        $appointment->load(['appointmentType', 'user:id,name,email', 'products:id,name,sku,base_price,type']);
+        $appointment->load(['appointmentType', 'user:id,name,email', 'lead:id,first_name,last_name,funnel_id', 'products:id,name,sku,base_price,type']);
 
-        $lead  = Lead::find($appointment->lead_id);
+        $lead  = $appointment->lead;
         $actor = Auth::user();
         app(NotificationService::class)->dispatch('appointment_scheduled', $appointment->company_id, [
             'lead_owner_id'      => $lead?->assigned_to,
@@ -79,6 +81,22 @@ class AppointmentController extends Controller
             ],
             '_appointment_model' => $appointment,
             '_actor_model'       => $actor,
+        ]);
+
+        broadcast(new AppointmentLiveUpdate('created', $appointment));
+
+        FireIntegrationWebhook::dispatch('appointment_created', [
+            'id'                  => $appointment->id,
+            'company_id'          => $appointment->company_id,
+            'lead_id'             => $appointment->lead_id,
+            'appointment_type_id' => $appointment->appointment_type_id,
+            'user_id'             => $appointment->user_id,
+            'title'               => $appointment->title,
+            'scheduled_at'        => $appointment->scheduled_at?->toISOString(),
+            'end_at'              => $appointment->end_at?->toISOString(),
+            'timezone'            => $appointment->timezone,
+            'status'              => $appointment->status,
+            'created_at'          => $appointment->created_at?->toISOString(),
         ]);
 
         return response()->json($appointment, 201);
@@ -104,7 +122,9 @@ class AppointmentController extends Controller
         }
 
         $appointment->update(collect($data)->except('product_ids')->toArray());
-        return response()->json($appointment->fresh(['appointmentType', 'user:id,name,email', 'products:id,name,sku,base_price,type']));
+        $fresh = $appointment->fresh(['appointmentType', 'lead:id,first_name,last_name,funnel_id', 'user:id,name,email', 'products:id,name,sku,base_price,type']);
+        broadcast(new AppointmentLiveUpdate('updated', $fresh));
+        return response()->json($fresh);
     }
 
     // Internal: sync products on an appointment
@@ -126,6 +146,7 @@ class AppointmentController extends Controller
     public function destroy(Appointment $appointment)
     {
         $appointment->delete();
+        broadcast(new AppointmentLiveUpdate('deleted', $appointment));
         return response()->noContent();
     }
 
@@ -186,13 +207,16 @@ class AppointmentController extends Controller
         $appointment = Appointment::create([
             ...collect($validated)->except('product_ids')->toArray(),
             'company_id' => $company->id,
+            'status'     => $validated['status'] ?? 'scheduled',
         ]);
 
         if (!empty($productIds)) {
             $appointment->products()->sync($productIds);
         }
 
-        $appointment->load(['appointmentType', 'lead:id,first_name,last_name', 'user:id,name', 'products:id,name,sku,base_price,type']);
+        $appointment->load(['appointmentType', 'lead:id,first_name,last_name,funnel_id,assigned_to', 'user:id,name,email', 'products:id,name,sku,base_price,type']);
+
+        broadcast(new AppointmentLiveUpdate('created', $appointment));
 
         app(NotificationService::class)->dispatch('appointment_scheduled', $appointment->company_id, [
             'lead_owner_id'      => $appointment->lead?->assigned_to,
@@ -205,6 +229,7 @@ class AppointmentController extends Controller
                     ->format('d/m/Y \a\t H:i'),
                 'assigned_user' => $appointment->user?->name,
             ],
+            '_appointment_model' => $appointment,
         ]);
 
         return response()->json([

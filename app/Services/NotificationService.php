@@ -231,11 +231,10 @@ class NotificationService
             if (
                 $eventKey === 'appointment_scheduled'
                 && isset($context['_appointment_model'])
-                && isset($context['_actor_model'])
             ) {
                 broadcast(new AppointmentScheduledNotification(
                     $context['_appointment_model'],
-                    $context['_actor_model']
+                    $context['_actor_model'] ?? null
                 ));
             }
 

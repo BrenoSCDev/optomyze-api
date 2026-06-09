@@ -16,9 +16,9 @@ class AppointmentScheduledNotification implements ShouldBroadcastNow
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public Appointment $appointment;
-    public User $actor;
+    public ?User $actor;
 
-    public function __construct(Appointment $appointment, User $actor)
+    public function __construct(Appointment $appointment, ?User $actor = null)
     {
         $this->appointment = $appointment->loadMissing([
             'lead:id,first_name,last_name,funnel_id',
@@ -69,13 +69,13 @@ class AppointmentScheduledNotification implements ShouldBroadcastNow
                 'id'   => $assignedUser->id,
                 'name' => $assignedUser->name,
             ] : null,
-            'actor' => [
+            'actor' => $this->actor ? [
                 'id'              => $this->actor->id,
                 'name'            => $this->actor->name,
                 'profile_pic_url' => $this->actor->profile_pic
                     ? Storage::url($this->actor->profile_pic)
                     : null,
-            ],
+            ] : null,
             'timestamp' => now()->toISOString(),
         ];
     }
