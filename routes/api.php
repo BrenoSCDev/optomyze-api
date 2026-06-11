@@ -194,6 +194,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/leads/{lead}', [LeadController::class, 'update']);
     Route::delete('/leads/{lead}', [LeadController::class, 'destroy']);
     Route::post('/leads/{lead}/move-stage', [LeadController::class, 'moveToStage']);
+    Route::post('/leads/{lead}/move-funnel', [LeadController::class, 'moveToFunnel']);
     Route::put('/leads/{id}/tags', [LeadController::class, 'updateTags']);
     Route::post('/leads/{lead}/assign', [LeadController::class, 'assignUser']);
     Route::post('/leads/{lead}/lost-reason', [LeadController::class, 'recordLostReason']);

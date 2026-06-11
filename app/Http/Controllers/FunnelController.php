@@ -155,7 +155,7 @@ class FunnelController extends Controller
                             $query->orderBy('created_at', 'desc')
                                 ->visibleToUser($user)
                                 ->with([
-                                    'assignedUser:id,name',
+                                    'assignedUser:id,name,profile_pic',
                                     'products:id,name,base_price',
                                 ]);
                         }
@@ -221,10 +221,10 @@ class FunnelController extends Controller
                                 ->visibleToUser($user)
                                 ->with([
                                     'lead:id,first_name,last_name,email,phone,stage_id,funnel_id,assigned_to',
-                                    'lead.assignedUser:id,name',
+                                    'lead.assignedUser:id,name,profile_pic',
                                     'lead.stage:id,name,color',
                                     'lead.funnel:id,name',
-                                    'user:id,name',
+                                    'user:id,name,profile_pic',
                                     'items:id,sale_id,product_name,quantity,total_price',
                                     'charges',
                                     'discounts',
@@ -238,8 +238,11 @@ class FunnelController extends Controller
             throw ValidationException::withMessages(['funnel' => 'Funnel not found.']);
         }
 
+        $tags = Tag::fromCompany($user->company_id)->get();
+
         return response()->json([
-            'funnel' => $funnel
+            'funnel' => $funnel,
+            'tags'   => $tags,
         ]);
     }
 

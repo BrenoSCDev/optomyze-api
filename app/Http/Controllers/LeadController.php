@@ -343,6 +343,81 @@ class LeadController extends Controller
         return $errors;
     }
 
+    /**
+     * Move a lead to a different funnel (placing it in that funnel's entry stage).
+     */
+    public function moveToFunnel(Request $request, Lead $lead)
+    {
+        $user = Auth::user();
+        $this->assertLeadAccess($lead, $user);
+
+        $validated = $request->validate([
+            'funnel_id' => 'required|exists:funnels,id',
+        ]);
+
+        $funnel = \App\Models\Funnel::where('id', $validated['funnel_id'])
+            ->where('company_id', $lead->company_id)
+            ->firstOrFail();
+
+        if ($funnel->id === $lead->funnel_id) {
+            return response()->json([
+                'message' => 'Lead is already in this funnel.',
+            ], 422);
+        }
+
+        $targetStage = Stage::where('funnel_id', $funnel->id)
+            ->where('type', 'entry')
+            ->orderBy('order')
+            ->first();
+
+        if (!$targetStage) {
+            return response()->json([
+                'message' => 'The selected funnel has no entry stage configured.',
+            ], 422);
+        }
+
+        $previousStage = $lead->stage;
+        $previousFunnelId = $lead->funnel_id;
+
+        // Broadcast removal from the old funnel/stage before the lead moves
+        broadcast(new LeadLiveUpdate('deleted', $lead));
+
+        $lead->update([
+            'funnel_id' => $funnel->id,
+            'stage_id'  => $targetStage->id,
+        ]);
+
+        $leadName = trim(($lead->first_name ?? '') . ' ' . ($lead->last_name ?? '')) ?: "Lead #{$lead->id}";
+
+        LeadTransaction::create([
+            'lead_id'       => $lead->id,
+            'company_id'    => $lead->company_id,
+            'user_id'       => $user->id,
+            'type'          => LeadTransaction::TYPE_STAGE_CHANGE,
+            'action'        => LeadTransaction::ACTION_MOVED,
+            'description'   => "{$leadName} was moved to funnel '{$funnel->name}'",
+            'from_stage_id' => $previousStage?->id,
+            'to_stage_id'   => $targetStage->id,
+            'metadata'      => [
+                'from_funnel_id' => $previousFunnelId,
+                'to_funnel_id'   => $funnel->id,
+                'to_funnel_name' => $funnel->name,
+            ],
+            'is_important'  => true,
+            'source'        => LeadTransaction::SOURCE_MANUAL,
+        ]);
+
+        $freshLead = $lead->fresh(['assignedUser']);
+
+        // Broadcast creation into the new funnel/stage
+        broadcast(new LeadLiveUpdate('created', $freshLead));
+
+        return response()->json([
+            'message' => 'Lead moved to funnel successfully',
+            'data'    => $freshLead,
+        ]);
+    }
+
     public function recordLostReason(Request $request, Lead $lead)
     {
         $this->assertLeadAccess($lead, Auth::user());
