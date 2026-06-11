@@ -156,6 +156,7 @@ class FunnelController extends Controller
                                 ->visibleToUser($user)
                                 ->with([
                                     'assignedUser:id,name,profile_pic',
+                                    'whatsappInboxChat:id,lead_id,profile_pic_url',
                                     'products:id,name,base_price',
                                 ]);
                         }

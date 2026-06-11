@@ -29,13 +29,17 @@ class Lead extends Model
      * Source platform constants
      */
     const PLATFORM_WHATSAPP = 'whatsapp';
-    const PLATFORM_INSTAGRAM = 'instagram';
-    const PLATFORM_TELEGRAM = 'telegram';
     const PLATFORM_FACEBOOK = 'facebook';
-    const PLATFORM_WEBSITE = 'website';
-    const PLATFORM_EMAIL = 'email';
+    const PLATFORM_INSTAGRAM = 'instagram';
+    const PLATFORM_META_ADS = 'meta_ads';
+    const PLATFORM_GOOGLE_ADS = 'google_ads';
+    const PLATFORM_TELEGRAM = 'telegram';
     const PLATFORM_PHONE = 'phone';
+    const PLATFORM_SMS = 'sms';
+    const PLATFORM_EMAIL = 'email';
+    const PLATFORM_WEBSITE = 'website';
     const PLATFORM_API = 'api';
+    const PLATFORM_OTHER = 'other';
 
     /**
      * Source type constants
@@ -557,13 +561,17 @@ class Lead extends Model
     {
         return [
             self::PLATFORM_WHATSAPP => 'WhatsApp',
-            self::PLATFORM_INSTAGRAM => 'Instagram',
-            self::PLATFORM_TELEGRAM => 'Telegram',
             self::PLATFORM_FACEBOOK => 'Facebook',
-            self::PLATFORM_WEBSITE => 'Website',
-            self::PLATFORM_EMAIL => 'Email',
+            self::PLATFORM_INSTAGRAM => 'Instagram',
+            self::PLATFORM_META_ADS => 'Meta Ads',
+            self::PLATFORM_GOOGLE_ADS => 'Google Ads',
+            self::PLATFORM_TELEGRAM => 'Telegram',
             self::PLATFORM_PHONE => 'Phone',
+            self::PLATFORM_SMS => 'SMS',
+            self::PLATFORM_EMAIL => 'Email',
+            self::PLATFORM_WEBSITE => 'Website',
             self::PLATFORM_API => 'API',
+            self::PLATFORM_OTHER => 'Other',
         ];
     }
 
