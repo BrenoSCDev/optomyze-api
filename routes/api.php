@@ -18,6 +18,7 @@ use App\Http\Controllers\EntryRequirementController;
 use App\Http\Controllers\EventController;
 use App\Http\Controllers\GoogleAdsIntegrationController;
 use App\Http\Controllers\IntegrationController;
+use App\Http\Controllers\InstagramIntegrationController;
 use App\Http\Controllers\LeadCompanyController;
 use App\Http\Controllers\LeadController;
 use App\Http\Controllers\LeadTransactionController;
@@ -327,6 +328,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/whatsapp-evo-instances/send-message/{instanceId}', [WhatsAppInstanceController::class, 'sendMessage']);
         Route::post('/whatsapp-evo-instances/disconnect/{instanceId}', [WhatsAppInstanceController::class, 'disconnectInstance']);
         Route::put('/whatsapp-evo-integrations/{instance}/funnel', [WhatsAppInstanceController::class, 'updateFunnel']);
+
+        // Instagram Integration (Instagram Graph API)
+        Route::post('/instagram', [InstagramIntegrationController::class, 'createIntegration']);
+        Route::get('/instagram', [InstagramIntegrationController::class, 'show']);
+        Route::put('/instagram/configure', [InstagramIntegrationController::class, 'configure']);
+        Route::post('/instagram/test-connection', [InstagramIntegrationController::class, 'testConnection']);
+        Route::post('/instagram/disconnect', [InstagramIntegrationController::class, 'disconnectAccount']);
 
     });
 
@@ -662,5 +670,9 @@ Route::middleware('verify.api.token')->prefix('v1')->group(function () {
 
 // WhatsApp Evolution API Chat (webhook URL kept stable for Evolution API server config)
 Route::post('/whatsapp-evo-chat', [InboxController::class, 'handleEvolutionWebhook']);
+
+// Instagram Graph API webhook (called directly by Meta - no CRM session/JWT)
+Route::get('/integrations/instagram/webhook/{webhookCallbackId}', [InstagramIntegrationController::class, 'verifyWebhook']);
+Route::post('/integrations/instagram/webhook/{webhookCallbackId}', [InstagramIntegrationController::class, 'receiveWebhook']);
 
 Broadcast::routes(['middleware' => ['auth:sanctum']]);
