@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Carbon\Carbon;
 use App\Models\LostReason;
 use App\Models\User;
-use App\Models\WhatsappEvoChat;
+use App\Models\InboxChat;
 use App\Models\WhatsAppInstance;
 
 class LeadTransaction extends Model
@@ -178,7 +178,7 @@ class LeadTransaction extends Model
      */
     public static function createWhatsAppChatStarted(
         Lead $lead,
-        WhatsappEvoChat $chat,
+        InboxChat $chat,
         WhatsAppInstance $instance
     ): self {
         return self::create([
@@ -193,7 +193,7 @@ class LeadTransaction extends Model
                 'chat_id'       => $chat->id,
                 'instance_id'   => $instance->id,
                 'instance_name' => $instance->instance_name,
-                'phone_number'  => $chat->phone_number,
+                'phone_number'  => $chat->external_contact_id,
             ],
             'is_important' => true,
         ]);

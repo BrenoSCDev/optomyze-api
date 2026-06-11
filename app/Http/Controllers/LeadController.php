@@ -142,10 +142,10 @@ class LeadController extends Controller
             'stage:id,name,funnel_id,order',
             'stage.funnel:id,name',
             'stage.funnel.stages:id,funnel_id,name,order',
-            'whatsAppEvoChat.messages' => function ($query) {
+            'whatsappInboxChat.messages' => function ($query) {
                 $query->orderBy('sent_at');
             },
-            'whatsAppEvoChat.instance:id,instance_name',
+            'whatsappInboxChat.channelable',
             'products:id,name,base_price,type,description',
             'tasks.assignee:id,name,email',
             'tasks.creator:id,name,email',

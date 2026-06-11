@@ -38,7 +38,7 @@ use App\Http\Controllers\InternalMessageController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\SaleDocController;
 use App\Http\Controllers\SaleTransactionController;
-use App\Http\Controllers\WhatsappEvoChatController;
+use App\Http\Controllers\InboxController;
 use App\Http\Controllers\WhatsAppEvoIntegrationController;
 use App\Http\Controllers\WhatsAppInstanceController;
 use App\Http\Controllers\NotificationSettingController;
@@ -327,14 +327,20 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/whatsapp-evo-instances/disconnect/{instanceId}', [WhatsAppInstanceController::class, 'disconnectInstance']);
         Route::put('/whatsapp-evo-integrations/{instance}/funnel', [WhatsAppInstanceController::class, 'updateFunnel']);
 
-        // WhatsApp Evolution API Chat
-        Route::get('/whatsapp-evo-chat', [WhatsappEvoChatController::class, 'getCompanyChats']);
-        Route::get('/whatsapp-evo-chat/{chatId}/messages', [WhatsappEvoChatController::class, 'getChatMessages']);
-        Route::post('/whatsapp-evo-chat/message/{instanceId}', [WhatsappEvoChatController::class, 'sendMessageToLead']);
-        Route::post('/whatsapp-evo-chat/media/{instanceId}', [WhatsappEvoChatController::class, 'sendMediaToLead']);
-        Route::delete('/whatsapp-evo-chats/{chat}/clear-messages', [WhatsappEvoChatController::class, 'clearMessages']);
-        Route::get('/whatsapp-leads/search', [WhatsappEvoChatController::class, 'searchLeads']);
-        
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Global Inbox Routes
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('inbox')->group(function () {
+        Route::get('/chats', [InboxController::class, 'getCompanyChats']);
+        Route::get('/chats/{chat}/messages', [InboxController::class, 'getChatMessages']);
+        Route::delete('/chats/{chat}/messages', [InboxController::class, 'clearMessages']);
+        Route::post('/instances/{instanceId}/messages', [InboxController::class, 'sendTextMessage']);
+        Route::post('/instances/{instanceId}/media', [InboxController::class, 'sendMediaMessage']);
+        Route::get('/leads/search', [InboxController::class, 'searchLeads']);
     });
 
 
@@ -653,7 +659,7 @@ Route::middleware('verify.api.token')->prefix('v1')->group(function () {
     Route::get('/files/{path}', [FileController::class, 'serveExternal'])->where('path', '.*');
 });
 
-// WhatsApp Evolution API Chat
-Route::post('/whatsapp-evo-chat', [WhatsappEvoChatController::class, 'handleEvolutionWebhook']);
+// WhatsApp Evolution API Chat (webhook URL kept stable for Evolution API server config)
+Route::post('/whatsapp-evo-chat', [InboxController::class, 'handleEvolutionWebhook']);
 
 Broadcast::routes(['middleware' => ['auth:sanctum']]);

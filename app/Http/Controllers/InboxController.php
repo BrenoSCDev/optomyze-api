@@ -3,24 +3,22 @@
 namespace App\Http\Controllers;
 
 use App\Models\Lead;
-use App\Models\WhatsappEvoChat;
+use App\Models\InboxChat;
+use App\Models\InboxMessage;
 use App\Models\WhatsAppEvoIntegration;
-use App\Models\WhatsappEvoMessage;
 use App\Models\WhatsAppInstance;
-use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
-use App\Events\ChatMessagesCleared;
-use App\Events\WhatsAppChatUpdated;
-use App\Events\WhatsAppMessageReceived;
+use App\Events\InboxMessagesCleared;
+use App\Events\InboxMessageReceived;
 use App\Services\LeadQueueAssignmentService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
-class WhatsappEvoChatController extends Controller
+class InboxController extends Controller
 {
     public function handleEvolutionWebhook(Request $request)
     {
@@ -97,18 +95,20 @@ class WhatsappEvoChatController extends Controller
             $leadCreated = true;
         }
 
-        // 5️⃣ Find or create WhatsApp chat
-        $chat = WhatsappEvoChat::firstOrCreate(
+        // 5️⃣ Find or create inbox chat
+        $chat = InboxChat::firstOrCreate(
             [
-                'company_id'           => $companyId,
-                'whatsapp_instance_id' => $instance->id,
-                'remote_jid'           => $remoteJid,
+                'company_id'        => $companyId,
+                'channel'           => InboxChat::CHANNEL_WHATSAPP,
+                'channelable_type'  => WhatsAppInstance::class,
+                'channelable_id'    => $instance->id,
+                'external_chat_id'  => $remoteJid,
             ],
             [
-                'lead_id'        => $lead->id,
-                'phone_number'   => $phoneNumber,
-                'is_group'       => false,
-                'last_message_at'=> now(),
+                'lead_id'             => $lead->id,
+                'external_contact_id' => $phoneNumber,
+                'is_group'            => false,
+                'last_message_at'     => now(),
             ]
         );
 
@@ -153,8 +153,8 @@ class WhatsappEvoChatController extends Controller
 
             // Prepare common message attributes
             $messageAttributes = [
-                'whatsapp_evo_chat_id' => $chat->id,
-                'wa_message_id'        => $waMessageId,
+                'inbox_chat_id'       => $chat->id,
+                'external_message_id' => $waMessageId,
             ];
 
             $msgDirection = $payload['data']['key']['fromMe'] ?? false ? 'outgoing' : 'incoming';
@@ -298,7 +298,7 @@ class WhatsappEvoChatController extends Controller
                 $messageValues['media_size'] = null;
 
             } else {
-                
+
                 // Fallback for unhandled message types
                 $messageValues['type'] = 'text';
                 $messageValues['text'] = $messageData['conversation'] ?? null;
@@ -308,7 +308,7 @@ class WhatsappEvoChatController extends Controller
             }
 
             // Create the message record immediately (media_url may be null for media types)
-            $message = WhatsappEvoMessage::firstOrCreate(
+            $message = InboxMessage::firstOrCreate(
                 $messageAttributes,
                 $messageValues
             );
@@ -342,7 +342,7 @@ class WhatsappEvoChatController extends Controller
             ]);
 
             // Broadcast real-time update
-            broadcast(new WhatsAppMessageReceived($message))->toOthers();
+            broadcast(new InboxMessageReceived($message))->toOthers();
         }
 
         return response()->json(['status' => 'ok'], 200);
@@ -362,20 +362,26 @@ class WhatsappEvoChatController extends Controller
         $companyId = $user->company_id;
         $page      = max(1, (int) $request->query('page', 1));
         $perPage   = 20;
+        $channel   = $request->query('channel');
 
-        $paginator = WhatsappEvoChat::query()
+        $query = InboxChat::query()
             ->where('company_id', $companyId)
             ->with([
                 'company:id,timezone',
-                'instance:id,instance_name,company_id',
+                'channelable',
                 'lead:id,company_id,first_name,last_name,phone,funnel_id,stage_id',
                 'lead.funnel:id,name',
                 'lead.stage:id,name',
                 // Only the latest message per chat (for list preview)
-                'latestMessage' => fn($q) => $q->with('user:id,name'),
+                'latestMessage' => fn($q) => $q->with('user:id,name,profile_pic'),
             ])
-            ->orderByDesc('last_message_at')
-            ->paginate($perPage, ['*'], 'page', $page);
+            ->orderByDesc('last_message_at');
+
+        if ($channel) {
+            $query->channel($channel);
+        }
+
+        $paginator = $query->paginate($perPage, ['*'], 'page', $page);
 
         // Map: expose latestMessage as messages array for frontend compatibility
         $chats = $paginator->getCollection()->map(function ($chat) {
@@ -407,7 +413,7 @@ class WhatsappEvoChatController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        $chat = WhatsappEvoChat::where('id', $chatId)
+        $chat = InboxChat::where('id', $chatId)
             ->where('company_id', $user->company_id)
             ->with('company:id,timezone')
             ->firstOrFail();
@@ -416,7 +422,7 @@ class WhatsappEvoChatController extends Controller
         $perPage = 50;
 
         $paginator = $chat->messages()
-            ->with('user:id,name')
+            ->with('user:id,name,profile_pic')
             ->orderBy('sent_at', 'desc') // newest first
             ->paginate($perPage, ['*'], 'page', $page);
 
@@ -434,7 +440,7 @@ class WhatsappEvoChatController extends Controller
         ], 200);
     }
 
-    public function sendMessageToLead(Request $request, $instanceId)
+    public function sendTextMessage(Request $request, $instanceId)
     {
         $user = Auth::user();
 
@@ -468,16 +474,18 @@ class WhatsappEvoChatController extends Controller
         $remoteJid   = $phoneNumber . '@s.whatsapp.net';
 
         // 3️⃣ Find or create chat
-        $chat = WhatsappEvoChat::firstOrCreate(
+        $chat = InboxChat::firstOrCreate(
             [
-                'company_id'           => $companyId,
-                'whatsapp_instance_id' => $instance->id,
-                'remote_jid'           => $remoteJid,
+                'company_id'       => $companyId,
+                'channel'          => InboxChat::CHANNEL_WHATSAPP,
+                'channelable_type' => WhatsAppInstance::class,
+                'channelable_id'   => $instance->id,
+                'external_chat_id' => $remoteJid,
             ],
             [
-                'lead_id'      => $lead->id,
-                'phone_number' => $phoneNumber,
-                'is_group'     => false,
+                'lead_id'             => $lead->id,
+                'external_contact_id' => $phoneNumber,
+                'is_group'            => false,
             ]
         );
 
@@ -511,16 +519,16 @@ class WhatsappEvoChatController extends Controller
             }
 
             // 5️⃣ Store outgoing message
-            $message = WhatsappEvoMessage::create([
-                'whatsapp_evo_chat_id' => $chat->id,
-                'user_id'              => $user->id,
-                'wa_message_id'        => $waMessageId,
-                'direction'            => 'outgoing',
-                'message_mode'         => $messageMode,
-                'type'                 => 'text',
-                'text'                 => $request->text,
-                'status'               => 'sent',
-                'sent_at'              => now(),
+            $message = InboxMessage::create([
+                'inbox_chat_id'       => $chat->id,
+                'user_id'             => $user->id,
+                'external_message_id' => $waMessageId,
+                'direction'           => 'outgoing',
+                'message_mode'        => $messageMode,
+                'type'                => 'text',
+                'text'                => $request->text,
+                'status'              => 'sent',
+                'sent_at'             => now(),
             ]);
 
             // 6️⃣ Update chat activity
@@ -529,14 +537,14 @@ class WhatsappEvoChatController extends Controller
             ]);
 
             // 7️⃣ Broadcast real-time update
-            broadcast(new WhatsAppMessageReceived($message))->toOthers();
+            broadcast(new InboxMessageReceived($message))->toOthers();
 
             $chat->load('company:id,timezone');
             $message->setRelation('chat', $chat);
 
             return response()->json([
                 'status'  => 'sent',
-                'message' => $message->load('user:id,name'),
+                'message' => $message->load('user:id,name,profile_pic'),
             ], 200);
 
         } catch (\Throwable $e) {
@@ -547,7 +555,7 @@ class WhatsappEvoChatController extends Controller
         }
     }
 
-    public function sendMediaToLead(Request $request, $instanceId)
+    public function sendMediaMessage(Request $request, $instanceId)
     {
         $user = Auth::user();
 
@@ -581,16 +589,18 @@ class WhatsappEvoChatController extends Controller
         $remoteJid   = $phoneNumber . '@s.whatsapp.net';
 
         // 3️⃣ Find or create chat
-        $chat = WhatsappEvoChat::firstOrCreate(
+        $chat = InboxChat::firstOrCreate(
             [
-                'company_id'           => $companyId,
-                'whatsapp_instance_id' => $instance->id,
-                'remote_jid'           => $remoteJid,
+                'company_id'       => $companyId,
+                'channel'          => InboxChat::CHANNEL_WHATSAPP,
+                'channelable_type' => WhatsAppInstance::class,
+                'channelable_id'   => $instance->id,
+                'external_chat_id' => $remoteJid,
             ],
             [
-                'lead_id'      => $lead->id,
-                'phone_number' => $phoneNumber,
-                'is_group'     => false,
+                'lead_id'             => $lead->id,
+                'external_contact_id' => $phoneNumber,
+                'is_group'            => false,
             ]
         );
 
@@ -642,32 +652,32 @@ class WhatsappEvoChatController extends Controller
             }
 
             // 6️⃣ Store outgoing message
-            $message = WhatsappEvoMessage::create([
-                'whatsapp_evo_chat_id' => $chat->id,
-                'user_id'              => $user->id,
-                'wa_message_id'        => $waMessageId,
-                'direction'            => 'outgoing',
-                'message_mode'         => $messageMode,
-                'type'                 => $type,
-                'media_url'            => $filePath,
-                'media_mime'           => $mime,
-                'media_size'           => $size,
-                'status'               => 'sent',
-                'sent_at'              => now(),
+            $message = InboxMessage::create([
+                'inbox_chat_id'       => $chat->id,
+                'user_id'             => $user->id,
+                'external_message_id' => $waMessageId,
+                'direction'           => 'outgoing',
+                'message_mode'        => $messageMode,
+                'type'                => $type,
+                'media_url'           => $filePath,
+                'media_mime'          => $mime,
+                'media_size'          => $size,
+                'status'              => 'sent',
+                'sent_at'             => now(),
             ]);
 
             // 7️⃣ Update chat activity
             $chat->update(['last_message_at' => now()]);
 
             // 8️⃣ Broadcast real-time update to other participants
-            broadcast(new WhatsAppMessageReceived($message))->toOthers();
+            broadcast(new InboxMessageReceived($message))->toOthers();
 
             $chat->load('company:id,timezone');
             $message->setRelation('chat', $chat);
 
             return response()->json([
                 'status'  => 'sent',
-                'message' => $message->load('user:id,name'),
+                'message' => $message->load('user:id,name,profile_pic'),
             ], 200);
 
         } catch (\Throwable $e) {
@@ -699,7 +709,7 @@ class WhatsappEvoChatController extends Controller
         return response()->json($leads);
     }
 
-    public function clearMessages(WhatsappEvoChat $chat)
+    public function clearMessages(InboxChat $chat)
     {
         $user = Auth::user();
 
@@ -711,7 +721,7 @@ class WhatsappEvoChatController extends Controller
             $chat->messages()->delete();
         });
 
-        broadcast(new ChatMessagesCleared($chat))->toOthers();
+        broadcast(new InboxMessagesCleared($chat))->toOthers();
 
         return response()->json([
             'message' => 'Chat messages cleared successfully.',

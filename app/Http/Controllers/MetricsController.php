@@ -1171,7 +1171,8 @@ class MetricsController extends Controller
 
             // WhatsApp Evo
             function (int $companyId) {
-                return \App\Models\WhatsappEvoChat::where('company_id', $companyId)
+                return \App\Models\InboxChat::where('company_id', $companyId)
+                    ->where('channel', \App\Models\InboxChat::CHANNEL_WHATSAPP)
                     ->withCount('messages')
                     ->get()
                     ->sum('messages_count');

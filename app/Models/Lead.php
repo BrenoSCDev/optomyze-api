@@ -105,8 +105,7 @@ class Lead extends Model
     protected static function booted(): void
     {
         static::deleting(function (Lead $lead) {
-            $chat = $lead->whatsAppEvoChat;
-            if ($chat) {
+            foreach ($lead->inboxChats as $chat) {
                 $chat->messages()->delete();
                 $chat->delete();
             }
@@ -196,11 +195,19 @@ class Lead extends Model
     }
 
     /**
-     * Get the lead WhatsApp Evolution Chat
+     * Get all inbox chats (any channel) for this lead.
      */
-    public function whatsAppEvoChat(): HasOne
+    public function inboxChats(): HasMany
     {
-        return $this->hasOne(WhatsappEvoChat::class);
+        return $this->hasMany(InboxChat::class);
+    }
+
+    /**
+     * Get the lead's WhatsApp inbox chat.
+     */
+    public function whatsappInboxChat(): HasOne
+    {
+        return $this->hasOne(InboxChat::class)->where('channel', InboxChat::CHANNEL_WHATSAPP);
     }
 
     /**
