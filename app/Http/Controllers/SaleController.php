@@ -11,6 +11,7 @@ use App\Models\SaleTransaction;
 use App\Models\Stage;
 use App\Models\User;
 use App\Services\NotificationService;
+use App\Traits\ResolvesActivityDateRange;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
@@ -19,6 +20,8 @@ use Illuminate\Support\Facades\Storage;
 
 class SaleController extends Controller
 {
+    use ResolvesActivityDateRange;
+
     public function store(Request $request, Lead $lead): JsonResponse
     {
         $validated = $request->validate([
@@ -403,7 +406,10 @@ class SaleController extends Controller
             'docs',
             'funnel:id,name',
             'stage:id,name,color',
-            'transactions'
+            'transactions' => function ($query) {
+                $query->latest();
+            },
+            'transactions.user:id,name,email',
         ]);
 
         $user = Auth::user();
@@ -566,23 +572,38 @@ class SaleController extends Controller
         ]);
     }
 
-    public function dealTransactions()
+    public function dealTransactions(Request $request)
     {
+        $request->validate([
+            'date_range' => 'nullable|in:today,yesterday,7_days,30_days,custom',
+            'date_from'  => 'nullable|date',
+            'date_to'    => 'nullable|date',
+        ]);
+
         $user      = Auth::user();
         $companyId = $user->company_id;
+        [$start, $end] = $this->resolveActivityDateRange($request);
 
-        $transactions = SaleTransaction::with([
+        $query = SaleTransaction::with([
                 'sale:id,lead_id,user_id,name,total,created_at',
                 'sale.lead:id,first_name,last_name,email,phone',
                 'user:id,name,email'
             ])
             ->where('company_id', $companyId)
             ->whereHas('sale', fn($q) => $q->visibleToUser($user))
-            ->latest()
-            ->get();
+            ->whereBetween('created_at', [$start, $end])
+            ->latest();
+
+        $total        = $query->count();
+        $transactions = $query->limit(self::ACTIVITY_RESULT_CAP)->get();
 
         return response()->json([
             'transactions' => $transactions,
+            'meta' => [
+                'total'     => $total,
+                'returned'  => $transactions->count(),
+                'truncated' => $total > $transactions->count(),
+            ],
         ]);
     }
 

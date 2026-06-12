@@ -17,11 +17,15 @@ use App\Models\Stage;
 use App\Models\Task;
 use App\Models\User;
 use App\Services\LeadQueueAssignmentService;
+
+use App\Traits\ResolvesActivityDateRange;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class LeadController extends Controller
 {
+    use ResolvesActivityDateRange;
+
     /**
      * Display a listing of leads.
      */
@@ -133,10 +137,11 @@ class LeadController extends Controller
     {
         $this->assertLeadAccess($lead, Auth::user());
         $lead->load([
-            'assignedUser:id,name,email',
+            'assignedUser:id,name,email,profile_pic',
             'transactions' => function ($query) {
                 $query->latest();
             },
+            'transactions.user:id,name,email',
             'docs',
             'leadCompany:id,legal_name,industry,logo_path',
             'stage:id,name,funnel_id,order',
@@ -518,23 +523,38 @@ class LeadController extends Controller
         return response()->json($leads);
     }
 
-    public function leadTransactions()
+    public function leadTransactions(Request $request)
     {
+        $request->validate([
+            'date_range' => 'nullable|in:today,yesterday,7_days,30_days,custom',
+            'date_from'  => 'nullable|date',
+            'date_to'    => 'nullable|date',
+        ]);
+
         $user      = Auth::user();
         $companyId = $user->company_id;
+        [$start, $end] = $this->resolveActivityDateRange($request);
 
-        $transactions = LeadTransaction::with([
+        $query = LeadTransaction::with([
                 'lead:id,first_name,last_name,email,company_id',
                 'user:id,name,email'
             ])
             ->select('id', 'lead_id', 'user_id', 'type', 'source', 'action', 'description', 'created_at')
             ->where('company_id', $companyId)
             ->whereHas('lead', fn($q) => $q->visibleToUser($user))
-            ->latest()
-            ->get();
+            ->whereBetween('created_at', [$start, $end])
+            ->latest();
+
+        $total        = $query->count();
+        $transactions = $query->limit(self::ACTIVITY_RESULT_CAP)->get();
 
         return response()->json([
             'transactions' => $transactions,
+            'meta' => [
+                'total'     => $total,
+                'returned'  => $transactions->count(),
+                'truncated' => $total > $transactions->count(),
+            ],
         ]);
     }
 
