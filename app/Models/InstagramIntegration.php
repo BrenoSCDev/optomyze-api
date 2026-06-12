@@ -33,6 +33,12 @@ class InstagramIntegration extends Model
         'webhook_callback_id',
         'webhook_status',
         'is_active',
+        'funnel_id',
+    ];
+
+    protected $hidden = [
+        'access_token',
+        'webhook_verify_token',
     ];
 
     protected static function booted(): void
@@ -62,6 +68,14 @@ class InstagramIntegration extends Model
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
+    }
+
+    /**
+     * Get the funnel that new Instagram contacts are added to as leads.
+     */
+    public function funnel(): BelongsTo
+    {
+        return $this->belongsTo(Funnel::class);
     }
 
     /**

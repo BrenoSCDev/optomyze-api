@@ -66,7 +66,7 @@ class LeadLiveUpdate implements ShouldBroadcastNow
                 ...$lead->only([
                     'id', 'company_id', 'funnel_id', 'stage_id',
                     'first_name', 'last_name', 'email', 'phone',
-                    'status', 'source', 'assigned_to',
+                    'status', 'source', 'source_platform', 'assigned_to',
                     'created_at', 'updated_at',
                 ]),
                 'assigned_user'   => $lead->assignedUser

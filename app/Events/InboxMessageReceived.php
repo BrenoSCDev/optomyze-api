@@ -90,6 +90,7 @@ class InboxMessageReceived implements ShouldBroadcastNow
                 'id'                  => $chat->id,
                 'company_id'          => $chat->company_id,
                 'channel'             => $chat->channel,
+                'channelable_id'      => $chat->channelable_id,
                 'external_chat_id'    => $chat->external_chat_id,
                 'lead_id'             => $chat->lead_id,
                 'external_contact_id' => $chat->external_contact_id,

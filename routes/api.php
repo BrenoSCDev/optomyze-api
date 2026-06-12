@@ -335,6 +335,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/instagram/configure', [InstagramIntegrationController::class, 'configure']);
         Route::post('/instagram/test-connection', [InstagramIntegrationController::class, 'testConnection']);
         Route::post('/instagram/disconnect', [InstagramIntegrationController::class, 'disconnectAccount']);
+        Route::put('/instagram/funnel', [InstagramIntegrationController::class, 'updateFunnel']);
 
     });
 
@@ -349,6 +350,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/chats/{chat}/messages', [InboxController::class, 'clearMessages']);
         Route::post('/instances/{instanceId}/messages', [InboxController::class, 'sendTextMessage']);
         Route::post('/instances/{instanceId}/media', [InboxController::class, 'sendMediaMessage']);
+        Route::post('/instagram/{integrationId}/messages', [InboxController::class, 'sendInstagramTextMessage']);
+        Route::post('/instagram/{integrationId}/media', [InboxController::class, 'sendInstagramMediaMessage']);
         Route::get('/leads/search', [InboxController::class, 'searchLeads']);
     });
 

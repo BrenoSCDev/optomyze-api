@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Lead;
 use App\Models\InboxChat;
 use App\Models\InboxMessage;
+use App\Models\InstagramIntegration;
 use App\Models\WhatsAppEvoIntegration;
 use App\Models\WhatsAppInstance;
 use Illuminate\Http\Request;
@@ -14,12 +15,15 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
 use App\Events\InboxMessagesCleared;
 use App\Events\InboxMessageReceived;
+use App\Events\LeadLiveUpdate;
 use App\Services\LeadQueueAssignmentService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class InboxController extends Controller
 {
+    private const INSTAGRAM_GRAPH_API_BASE = 'https://graph.instagram.com/v23.0';
+
     public function handleEvolutionWebhook(Request $request)
     {
         $payload = $request->all();
@@ -93,6 +97,9 @@ class InboxController extends Controller
             ]);
             LeadQueueAssignmentService::assign($lead);
             $leadCreated = true;
+
+            Log::info("[LeadLive] Broadcasting created for lead {$lead->id} to funnel.{$lead->funnel_id}");
+            broadcast(new LeadLiveUpdate('created', $lead));
         }
 
         // 5️⃣ Find or create inbox chat
@@ -689,6 +696,214 @@ class InboxController extends Controller
         }
     }
 
+    public function sendInstagramTextMessage(Request $request, $integrationId)
+    {
+        $user = Auth::user();
+
+        if (!$user || !$user->company_id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $companyId = $user->company_id;
+
+        $request->validate([
+            'chat_id'      => 'required|integer',
+            'text'         => 'required|string',
+            'message_mode' => 'sometimes|in:external,internal',
+        ]);
+
+        $messageMode = $request->input('message_mode', 'external');
+
+        $integration = InstagramIntegration::where('id', $integrationId)
+            ->where('company_id', $companyId)
+            ->firstOrFail();
+
+        $chat = InboxChat::where('id', $request->chat_id)
+            ->where('company_id', $companyId)
+            ->where('channel', InboxChat::CHANNEL_INSTAGRAM)
+            ->where('channelable_type', InstagramIntegration::class)
+            ->where('channelable_id', $integration->id)
+            ->firstOrFail();
+
+        $igsid = $chat->external_contact_id;
+
+        try {
+            $externalMessageId = (string) Str::uuid();
+
+            if ($messageMode === 'external') {
+                $response = Http::withToken($integration->access_token)
+                    ->post(self::INSTAGRAM_GRAPH_API_BASE . "/{$integration->instagram_user_id}/messages", [
+                        'recipient' => ['id' => $igsid],
+                        'message'   => ['text' => $request->text],
+                    ]);
+
+                if (!$response->successful()) {
+                    if ($this->isInstagramWindowExpired($response)) {
+                        return response()->json(['message' => 'instagram_window_expired'], 422);
+                    }
+
+                    return response()->json([
+                        'message' => 'Failed to send message via Instagram API',
+                        'error'   => $response->json() ?? $response->body(),
+                    ], 422);
+                }
+
+                $externalMessageId = $response->json('message_id') ?? $externalMessageId;
+            }
+
+            $message = InboxMessage::create([
+                'inbox_chat_id'       => $chat->id,
+                'user_id'             => $user->id,
+                'external_message_id' => $externalMessageId,
+                'direction'           => 'outgoing',
+                'message_mode'        => $messageMode,
+                'type'                => 'text',
+                'text'                => $request->text,
+                'status'              => 'sent',
+                'sent_at'             => now(),
+            ]);
+
+            $chat->update(['last_message_at' => now()]);
+
+            broadcast(new InboxMessageReceived($message))->toOthers();
+
+            $chat->load('company:id,timezone');
+            $message->setRelation('chat', $chat);
+
+            return response()->json([
+                'status'  => 'sent',
+                'message' => $message->load('user:id,name,profile_pic'),
+            ], 200);
+
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => 'Failed to send Instagram message',
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function sendInstagramMediaMessage(Request $request, $integrationId)
+    {
+        $user = Auth::user();
+
+        if (!$user || !$user->company_id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $companyId = $user->company_id;
+
+        $request->validate([
+            'chat_id'      => 'required|integer',
+            'type'         => 'required|in:image,audio',
+            'file'         => 'required|file|max:20480',
+            'message_mode' => 'sometimes|in:external,internal',
+        ]);
+
+        $messageMode = $request->input('message_mode', 'external');
+        $type        = $request->input('type');
+
+        $integration = InstagramIntegration::where('id', $integrationId)
+            ->where('company_id', $companyId)
+            ->firstOrFail();
+
+        $chat = InboxChat::where('id', $request->chat_id)
+            ->where('company_id', $companyId)
+            ->where('channel', InboxChat::CHANNEL_INSTAGRAM)
+            ->where('channelable_type', InstagramIntegration::class)
+            ->where('channelable_id', $integration->id)
+            ->firstOrFail();
+
+        $igsid = $chat->external_contact_id;
+
+        $uploadedFile = $request->file('file');
+        $filePath     = $uploadedFile->store("instagram/outbound/{$companyId}", 'public');
+        $mime         = $uploadedFile->getMimeType();
+        $size         = $uploadedFile->getSize();
+
+        try {
+            $externalMessageId = (string) Str::uuid();
+
+            if ($messageMode === 'external') {
+                $publicUrl = rtrim(config('app.url'), '/') . '/storage/' . $filePath;
+
+                $response = Http::withToken($integration->access_token)
+                    ->post(self::INSTAGRAM_GRAPH_API_BASE . "/{$integration->instagram_user_id}/messages", [
+                        'recipient' => ['id' => $igsid],
+                        'message'   => [
+                            'attachment' => [
+                                'type'    => $type,
+                                'payload' => [
+                                    'url'         => $publicUrl,
+                                    'is_reusable' => true,
+                                ],
+                            ],
+                        ],
+                    ]);
+
+                if (!$response->successful()) {
+                    Storage::disk('public')->delete($filePath);
+
+                    if ($this->isInstagramWindowExpired($response)) {
+                        return response()->json(['message' => 'instagram_window_expired'], 422);
+                    }
+
+                    return response()->json([
+                        'message' => 'Failed to send media via Instagram API',
+                        'error'   => $response->json() ?? $response->body(),
+                    ], 422);
+                }
+
+                $externalMessageId = $response->json('message_id') ?? $externalMessageId;
+            }
+
+            $message = InboxMessage::create([
+                'inbox_chat_id'       => $chat->id,
+                'user_id'             => $user->id,
+                'external_message_id' => $externalMessageId,
+                'direction'           => 'outgoing',
+                'message_mode'        => $messageMode,
+                'type'                => $type,
+                'media_url'           => $filePath,
+                'media_mime'          => $mime,
+                'media_size'          => $size,
+                'status'              => 'sent',
+                'sent_at'             => now(),
+            ]);
+
+            $chat->update(['last_message_at' => now()]);
+
+            broadcast(new InboxMessageReceived($message))->toOthers();
+
+            $chat->load('company:id,timezone');
+            $message->setRelation('chat', $chat);
+
+            return response()->json([
+                'status'  => 'sent',
+                'message' => $message->load('user:id,name,profile_pic'),
+            ], 200);
+
+        } catch (\Throwable $e) {
+            Storage::disk('public')->delete($filePath);
+            return response()->json([
+                'message' => 'Failed to send Instagram media',
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Determine whether an Instagram API error indicates the 24-hour
+     * messaging window for this conversation has expired.
+     */
+    private function isInstagramWindowExpired($response): bool
+    {
+        $errorMessage = strtolower((string) ($response->json('error.message') ?? ''));
+
+        return str_contains($errorMessage, 'outside of allowed window')
+            || str_contains($errorMessage, 're-engage');
+    }
+
     public function searchLeads(Request $request)
     {
         $companyId = Auth::user()->company_id;
@@ -772,7 +987,7 @@ class InboxController extends Controller
             $fileName  = $mediaData['fileName'] ?? $originalFileName ?? null;
             $extension = $fileName
                 ? pathinfo($fileName, PATHINFO_EXTENSION)
-                : $this->extensionFromMime($mimeType);
+                : self::extensionFromMime($mimeType);
 
             $folder     = match($mediaType) {
                 'image'    => 'whatsapp/images/' . $companyId,
@@ -850,7 +1065,7 @@ class InboxController extends Controller
         }
     }
 
-    private function extensionFromMime(string $mimeType): string
+    public static function extensionFromMime(string $mimeType): string
     {
         return match(true) {
             str_contains($mimeType, 'pdf')        => 'pdf',
@@ -862,6 +1077,18 @@ class InboxController extends Controller
             str_contains($mimeType, 'zip')        => 'zip',
             str_contains($mimeType, 'text/plain') => 'txt',
             str_contains($mimeType, 'text/csv')   => 'csv',
+            str_contains($mimeType, 'image/jpeg') => 'jpg',
+            str_contains($mimeType, 'image/png')  => 'png',
+            str_contains($mimeType, 'image/gif')  => 'gif',
+            str_contains($mimeType, 'image/webp') => 'webp',
+            str_contains($mimeType, 'image/heic') => 'heic',
+            str_contains($mimeType, 'audio/mpeg') => 'mp3',
+            str_contains($mimeType, 'audio/mp4')  => 'm4a',
+            str_contains($mimeType, 'audio/aac')  => 'aac',
+            str_contains($mimeType, 'audio/ogg')  => 'ogg',
+            str_contains($mimeType, 'audio/wav')  => 'wav',
+            str_contains($mimeType, 'audio/x-wav') => 'wav',
+            str_contains($mimeType, 'video/mp4')  => 'mp4',
             default                               => 'bin',
         };
     }

@@ -44,6 +44,7 @@ class LeadTransaction extends Model
     const TYPE_TAG_CHANGE = 'tag_change';
     const TYPE_FIELD_CHANGE = 'field_change';
     const TYPE_WHATSAPP_CHAT = 'whatsapp_chat';
+    const TYPE_INSTAGRAM_CHAT = 'instagram_chat';
     const TYPE_LOST = 'lost';
 
     /**
@@ -194,6 +195,31 @@ class LeadTransaction extends Model
                 'instance_id'   => $instance->id,
                 'instance_name' => $instance->instance_name,
                 'phone_number'  => $chat->external_contact_id,
+            ],
+            'is_important' => true,
+        ]);
+    }
+
+    /**
+     * Create an Instagram chat started transaction.
+     */
+    public static function createInstagramChatStarted(
+        Lead $lead,
+        InboxChat $chat,
+        InstagramIntegration $integration
+    ): self {
+        return self::create([
+            'lead_id'     => $lead->id,
+            'company_id'  => $lead->company_id,
+            'user_id'     => null,
+            'type'        => self::TYPE_INSTAGRAM_CHAT,
+            'action'      => self::ACTION_CHAT_STARTED,
+            'description' => "New Instagram conversation started via @{$integration->username}",
+            'source'      => self::SOURCE_WEBHOOK,
+            'metadata'    => [
+                'chat_id'        => $chat->id,
+                'integration_id' => $integration->id,
+                'igsid'          => $chat->external_contact_id,
             ],
             'is_important' => true,
         ]);
