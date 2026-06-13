@@ -88,6 +88,11 @@ class Sale extends Model
         return $this->hasMany(SaleTransaction::class);
     }
 
+    public function tags()
+    {
+        return $this->belongsToMany(Tag::class, 'sale_tag');
+    }
+
     /**
      * Get the funnel this deal belongs to.
      */

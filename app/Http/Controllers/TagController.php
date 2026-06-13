@@ -2,11 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Lead;
 use App\Models\Tag;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 
 class TagController extends Controller
 {
@@ -48,6 +46,35 @@ class TagController extends Controller
     }
 
     /**
+     * Update an existing tag's name and/or color.
+     */
+    public function update(Request $request, $id)
+    {
+        $user = Auth::user();
+
+        $tag = Tag::fromCompany($user->company_id)->findOrFail($id);
+
+        $validated = $request->validate(Tag::updateValidationRules());
+
+        if (
+            isset($validated['name'])
+            && strcasecmp($validated['name'], $tag->name) !== 0
+            && Tag::existsForCompany($user->company_id, $validated['name'])
+        ) {
+            return response()->json([
+                'message' => 'This tag already exists.'
+            ], 422);
+        }
+
+        $tag->update($validated);
+
+        return response()->json([
+            'message' => 'Tag updated successfully.',
+            'data' => $tag
+        ]);
+    }
+
+    /**
      * Remove the specified tag.
      */
     public function destroy($id)
@@ -55,57 +82,8 @@ class TagController extends Controller
         $user = Auth::user();
 
         $tag = Tag::fromCompany($user->company_id)->findOrFail($id);
+        $tag->delete();
 
-        DB::beginTransaction();
-        try {
-            $leads = Lead::where('company_id', $user->company_id)
-                ->whereNotNull('tags')
-                ->get();
-
-            foreach ($leads as $lead) {
-                $tags = $lead->tags ?? [];
-
-                if (!is_array($tags) || count($tags) === 0) {
-                    continue;
-                }
-
-                $originalCount = count($tags);
-
-                $filtered = array_filter($tags, function ($t) use ($tag) {
-                    if (is_string($t)) {
-                        $tName = $t;
-                    } elseif (is_array($t)) {
-                        $tName = $t['name'] ?? null;
-                    } elseif (is_object($t)) {
-                        $tName = $t->name ?? null;
-                    } else {
-                        $tName = null;
-                    }
-
-                    if ($tName === null) {
-                        return true;
-                    }
-
-                    return strcasecmp($tName, $tag->name) !== 0;
-                });
-
-                if (count($filtered) !== $originalCount) {
-                    $lead->tags = array_values($filtered);
-                    $lead->save();
-                }
-            }
-
-            $tag->delete();
-            DB::commit();
-
-            return response()->json(['message' => 'Tag deleted successfully']);
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            return response()->json([
-                'message' => 'Erro ao deletar tag',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+        return response()->json(['message' => 'Tag deleted successfully']);
     }
-
 }

@@ -11,7 +11,11 @@ class ApiToken extends Model
 {
     use HasCompanyTimezone, HasFactory;
 
-    protected $fillable = ['company_id', 'name', 'token'];
+    protected $fillable = ['company_id', 'name', 'token', 'expires_at'];
+
+    protected $casts = [
+        'expires_at' => 'datetime',
+    ];
 
     // protected $hidden = [
     //     'token', // Hide sensitive data from JSON responses
@@ -28,7 +32,7 @@ class ApiToken extends Model
     /**
      * Generate a unique API token and save it
      */
-    public static function generateToken($companyId, $name)
+    public static function generateToken($companyId, $name, $expiresAt = null)
     {
         $token = hash_hmac('sha256', Str::random(40), config('app.key'));
 
@@ -36,6 +40,7 @@ class ApiToken extends Model
             'company_id' => $companyId,
             'name' => $name,
             'token' => $token,
+            'expires_at' => $expiresAt,
         ]);
     }
 
@@ -45,5 +50,13 @@ class ApiToken extends Model
     public static function revokeToken($token)
     {
         return self::where('token', $token)->delete();
+    }
+
+    /**
+     * Whether this token has an expiration date that has passed.
+     */
+    public function isExpired(): bool
+    {
+        return $this->expires_at !== null && $this->expires_at->isPast();
     }
 }

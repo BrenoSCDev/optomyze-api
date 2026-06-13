@@ -17,6 +17,7 @@ class Tag extends Model
     protected $fillable = [
         'company_id',
         'name',
+        'color',
     ];
 
     /**
@@ -28,6 +29,18 @@ class Tag extends Model
         return [
             'company_id' => 'required|exists:companies,id',
             'name' => 'nullable|string|max:100',
+            'color' => 'nullable|regex:/^#[0-9A-Fa-f]{6}$/',
+        ];
+    }
+
+    /**
+     * Validation rules for tag updates.
+     */
+    public static function updateValidationRules(): array
+    {
+        return [
+            'name' => 'nullable|string|max:100',
+            'color' => 'nullable|regex:/^#[0-9A-Fa-f]{6}$/',
         ];
     }
 
@@ -47,5 +60,21 @@ class Tag extends Model
         return self::fromCompany($companyId)
             ->whereRaw('LOWER(name) = ?', [strtolower($name)]) // case-insensitive
             ->exists();
+    }
+
+    /**
+     * Get the leads tagged with this tag.
+     */
+    public function leads()
+    {
+        return $this->belongsToMany(Lead::class, 'lead_tag');
+    }
+
+    /**
+     * Get the deals (sales) tagged with this tag.
+     */
+    public function sales()
+    {
+        return $this->belongsToMany(Sale::class, 'sale_tag');
     }
 }

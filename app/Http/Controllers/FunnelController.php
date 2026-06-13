@@ -158,6 +158,7 @@ class FunnelController extends Controller
                                     'assignedUser:id,name,profile_pic',
                                     'whatsappInboxChat:id,lead_id,profile_pic_url',
                                     'products:id,name,base_price',
+                                    'tags',
                                 ]);
                         }
                     ]);
@@ -229,6 +230,7 @@ class FunnelController extends Controller
                                     'items:id,sale_id,product_name,quantity,total_price',
                                     'charges',
                                     'discounts',
+                                    'tags',
                                 ]);
                         }
                     ]);

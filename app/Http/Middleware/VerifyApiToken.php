@@ -23,6 +23,10 @@ class VerifyApiToken
             return response()->json(['message' => 'Invalid token'], 401);
         }
 
+        if ($token->isExpired()) {
+            return response()->json(['message' => 'Token expired'], 401);
+        }
+
         $company = $token->company;
 
         // Enforce monthly api_requests_limit

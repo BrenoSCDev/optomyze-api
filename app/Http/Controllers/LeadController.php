@@ -14,6 +14,7 @@ use App\Models\LeadTransaction;
 use App\Models\LostReason;
 use App\Models\Product;
 use App\Models\Stage;
+use App\Models\Tag;
 use App\Models\Task;
 use App\Models\User;
 use App\Services\LeadQueueAssignmentService;
@@ -152,6 +153,7 @@ class LeadController extends Controller
             },
             'whatsappInboxChat.channelable',
             'products:id,name,base_price,type,description',
+            'tags',
             'tasks.assignee:id,name,email',
             'tasks.creator:id,name,email',
             'observations.user:id,name,email',
@@ -164,6 +166,7 @@ class LeadController extends Controller
                     'docs',
                     'funnel:id,name',
                     'stage:id,name,color',
+                    'tags',
                 ])->orderBy('created_at', 'desc');
             },
         ]);
@@ -447,20 +450,23 @@ class LeadController extends Controller
     public function updateTags(Request $request, $id)
     {
         $request->validate([
-            'tags' => 'required|array', // Expect an array of tags
+            'tags' => 'required|array',
+            'tags.*' => 'integer|exists:tags,id',
         ]);
 
         $user = Auth::user();
 
         $lead = Lead::fromCompany($user->company_id)->visibleToUser($user)->findOrFail($id);
 
-        // Save tags as JSON (Laravel casts arrays automatically if $casts is set in model)
-        $lead->tags = $request->input('tags');
-        $lead->save();
+        $tagIds = Tag::fromCompany($user->company_id)
+            ->whereIn('id', $request->input('tags'))
+            ->pluck('id');
+
+        $lead->tags()->sync($tagIds);
 
         return response()->json([
             'message' => 'Tags updated successfully.',
-            'lead' => $lead
+            'lead' => $lead->load('tags'),
         ], 200);
     }
 
@@ -714,7 +720,6 @@ class LeadController extends Controller
             'timezone' => 'nullable|string|max:50',
             'language' => 'nullable|string|max:5',
             'ai_score' => 'nullable|numeric|between:0,100',
-            'tags' => 'nullable|array',
             'notes' => 'nullable|string',
             'is_active' => 'nullable|boolean',
             'address_line_1' => 'nullable|string|max:255',
@@ -784,7 +789,6 @@ class LeadController extends Controller
             'timezone' => 'nullable|string|max:50',
             'language' => 'nullable|string|max:5',
             'ai_score' => 'nullable|numeric|between:0,100',
-            'tags' => 'nullable|array',
             'notes' => 'nullable|string',
         ]);
 

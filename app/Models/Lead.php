@@ -75,7 +75,6 @@ class Lead extends Model
         'timezone',
         'language',
         'ai_score',
-        'tags',
         'notes',
         'is_active',
         'is_qualified',
@@ -99,7 +98,6 @@ class Lead extends Model
     protected $casts = [
         'ai_score' => 'decimal:2',
         'contact_methods' => 'array',
-        'tags' => 'array',
         'is_active' => 'boolean',
         'is_qualified' => 'boolean',
         'last_contact_at' => 'datetime',
@@ -172,6 +170,14 @@ class Lead extends Model
     public function sales()
     {
         return $this->hasMany(Sale::class);
+    }
+
+    /**
+     * Get the tags associated with this lead.
+     */
+    public function tags()
+    {
+        return $this->belongsToMany(Tag::class, 'lead_tag');
     }
 
     /**
@@ -508,28 +514,6 @@ class Lead extends Model
     }
 
     /**
-     * Add tags to the lead.
-     */
-    public function addTags(array $tags): bool
-    {
-        $currentTags = $this->tags ?? [];
-        $newTags = array_unique(array_merge($currentTags, $tags));
-        
-        return $this->update(['tags' => $newTags]);
-    }
-
-    /**
-     * Remove tags from the lead.
-     */
-    public function removeTags(array $tags): bool
-    {
-        $currentTags = $this->tags ?? [];
-        $newTags = array_diff($currentTags, $tags);
-        
-        return $this->update(['tags' => array_values($newTags)]);
-    }
-
-    /**
      * Get contact information as array.
      */
     public function getContactInfo(): array
@@ -600,7 +584,6 @@ class Lead extends Model
             'timezone' => 'nullable|string|max:50',
             'language' => 'string|max:5',
             'ai_score' => 'nullable|numeric|between:0,100',
-            'tags' => 'nullable|array',
             'notes' => 'nullable|string',
             'address_line_1' => 'nullable|string|max:255',
             'address_line_2' => 'nullable|string|max:255',
@@ -636,7 +619,6 @@ class Lead extends Model
             'timezone' => 'nullable|string|max:50',
             'language' => 'string|max:5',
             'ai_score' => 'nullable|numeric|between:0,100',
-            'tags' => 'nullable|array',
             'settings' => 'nullable|array',
             'notes' => 'nullable|string',
             'address_line_1' => 'nullable|string|max:255',

@@ -30,6 +30,7 @@ class ApiTokenController extends Controller
 
         $request->validate([
             'name' => 'required|string|max:255',
+            'expires_at' => 'nullable|date|after:now',
         ]);
 
         if ($company->api_tokens_limit !== null) {
@@ -44,7 +45,7 @@ class ApiTokenController extends Controller
             }
         }
 
-        $token = ApiToken::generateToken($user->company_id, $request->name);
+        $token = ApiToken::generateToken($user->company_id, $request->name, $request->expires_at);
 
         return response()->json($token);
     }

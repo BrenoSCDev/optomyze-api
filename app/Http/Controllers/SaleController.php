@@ -9,6 +9,7 @@ use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\SaleTransaction;
 use App\Models\Stage;
+use App\Models\Tag;
 use App\Models\User;
 use App\Services\NotificationService;
 use App\Traits\ResolvesActivityDateRange;
@@ -349,6 +350,32 @@ class SaleController extends Controller
                 'sale'    => $sale->fresh(['items', 'charges', 'discounts', 'lead:id,first_name,last_name', 'user:id,name,email', 'funnel:id,name', 'stage:id,name,color']),
             ]);
         });
+    }
+
+    /**
+     * Update tags for a specific deal (sale).
+     */
+    public function updateTags(Request $request, Sale $sale): JsonResponse
+    {
+        $user = Auth::user();
+
+        $this->assertSaleAccess($sale, $user);
+
+        $request->validate([
+            'tags' => 'required|array',
+            'tags.*' => 'integer|exists:tags,id',
+        ]);
+
+        $tagIds = Tag::fromCompany($user->company_id)
+            ->whereIn('id', $request->input('tags'))
+            ->pluck('id');
+
+        $sale->tags()->sync($tagIds);
+
+        return response()->json([
+            'message' => 'Tags updated successfully.',
+            'sale' => $sale->load('tags'),
+        ]);
     }
 
     public function destroy(Sale $sale): JsonResponse
