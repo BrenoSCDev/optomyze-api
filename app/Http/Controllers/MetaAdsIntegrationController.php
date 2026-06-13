@@ -3,14 +3,28 @@
 namespace App\Http\Controllers;
 
 use App\Models\MetaAdsIntegration;
-use Carbon\Carbon;
+use App\Traits\ResolvesMetaAdsDateRange;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class MetaAdsIntegrationController extends Controller
 {
+    use ResolvesMetaAdsDateRange;
+
+    /**
+     * Campaign-level insight fields - covers spend efficiency, audience
+     * (reach/frequency/unique CTR), link-click quality, and conversion actions.
+     */
+    private const CAMPAIGN_FIELDS = 'campaign_id,campaign_name,objective,impressions,reach,frequency,clicks,inline_link_clicks,unique_clicks,unique_ctr,spend,ctr,cpc,cpm,cost_per_inline_link_click,cpp,actions,action_values,cost_per_action_type';
+
+    /**
+     * Ad set-level insight fields - lighter field set for the ad set breakdown.
+     */
+    private const ADSET_FIELDS = 'adset_id,adset_name,campaign_id,campaign_name,impressions,reach,frequency,clicks,spend,ctr,cpc,actions,action_values';
+
     /**
      * Create a new n8n integration instance for the authenticated user's company
      */
@@ -96,6 +110,12 @@ class MetaAdsIntegrationController extends Controller
     public function fetchMetaData(Request $request)
     {
         try {
+            $request->validate([
+                'date_range' => 'nullable|in:today,yesterday,7_days,30_days,this_month,last_month,custom',
+                'date_from' => 'nullable|date',
+                'date_to' => 'nullable|date',
+            ]);
+
             $user = $request->user();
 
             // Retrieve the first integration for the user's company
@@ -107,42 +127,67 @@ class MetaAdsIntegrationController extends Controller
                 ], 404);
             }
 
-            // Build dynamic 30-day date range
-            $until = Carbon::today()->format('Y-m-d');
-            $since = Carbon::today()->subDays(30)->format('Y-m-d');
+            [$start, $end, $prevStart, $prevEnd] = $this->resolveMetaAdsDateRange($request);
 
-            // Build Graph API URL
             $url = "https://graph.facebook.com/v23.0/{$integration->act_id}/insights";
+            $token = $integration->access_token;
 
-            // Build query params
-            $params = [
-                'time_range' => json_encode([
-                    'since' => $since,
-                    'until' => $until,
-                ]),
+            // Call 1 (critical) - current period, campaign-level, daily granularity.
+            // Drives KPIs, trend charts, campaign intelligence, and insights.
+            $currentResponse = Http::get($url, [
                 'level' => 'campaign',
-                'date_preset' => 'today',
-                'fields' => 'campaign_id,campaign_name,impressions,reach,frequency,clicks,spend,ctr,cpc,cpm,actions,action_values',
+                'time_range' => json_encode(['since' => $start->format(self::META_ADS_DATE_FORMAT), 'until' => $end->format(self::META_ADS_DATE_FORMAT)]),
                 'time_increment' => 1,
                 'limit' => 500,
-                'access_token' => $integration->access_token,
-            ];
+                'fields' => self::CAMPAIGN_FIELDS,
+                'access_token' => $token,
+            ]);
 
-            // Send request
-            $response = Http::get($url, $params);
-
-            if ($response->failed()) {
+            if ($currentResponse->failed()) {
                 return response()->json([
                     'message' => 'Failed to fetch data from Meta Ads API.',
-                    'error' => $response->json(),
-                ], $response->status());
+                    'error' => $currentResponse->json(),
+                ], $currentResponse->status());
             }
+
+            // Call 2 - previous period, campaign-level, aggregated (one row per
+            // campaign for the whole period) - used only for KPI deltas.
+            $previousRows = $this->fetchInsightsSafely($url, [
+                'level' => 'campaign',
+                'time_range' => json_encode(['since' => $prevStart->format(self::META_ADS_DATE_FORMAT), 'until' => $prevEnd->format(self::META_ADS_DATE_FORMAT)]),
+                'limit' => 500,
+                'fields' => self::CAMPAIGN_FIELDS,
+                'access_token' => $token,
+            ]);
+
+            // Call 3 - ad set level, aggregated for the current period.
+            $adsetRows = $this->fetchInsightsSafely($url, [
+                'level' => 'adset',
+                'time_range' => json_encode(['since' => $start->format(self::META_ADS_DATE_FORMAT), 'until' => $end->format(self::META_ADS_DATE_FORMAT)]),
+                'limit' => 500,
+                'fields' => self::ADSET_FIELDS,
+                'access_token' => $token,
+            ]);
 
             return response()->json([
                 'message' => 'Meta Ads data fetched successfully.',
-                'data' => $response->json(),
+                'range' => [
+                    'date_range' => $request->query('date_range', '30_days'),
+                    'current' => ['since' => $start->format(self::META_ADS_DATE_FORMAT), 'until' => $end->format(self::META_ADS_DATE_FORMAT)],
+                    'previous' => ['since' => $prevStart->format(self::META_ADS_DATE_FORMAT), 'until' => $prevEnd->format(self::META_ADS_DATE_FORMAT)],
+                ],
+                'data' => [
+                    'current' => $currentResponse->json('data', []),
+                    'previous' => $previousRows,
+                ],
+                'adsets' => $adsetRows,
             ], 200);
 
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'message' => 'Validation failed.',
+                'errors' => $e->errors(),
+            ], 422);
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Something went wrong while fetching Meta Ads data.',
@@ -150,4 +195,27 @@ class MetaAdsIntegrationController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Fetch insight rows for a non-critical call. Returns an empty array
+     * (instead of failing the whole request) if the Graph API call errors -
+     * e.g. the access token lacks ad set read permissions.
+     */
+    private function fetchInsightsSafely(string $url, array $params): array
+    {
+        try {
+            $response = Http::get($url, $params);
+
+            if ($response->failed()) {
+                Log::warning('Meta Ads insights call failed', ['params' => $params, 'error' => $response->json()]);
+                return [];
+            }
+
+            return $response->json('data', []);
+        } catch (\Exception $e) {
+            Log::warning('Meta Ads insights call threw', ['params' => $params, 'error' => $e->getMessage()]);
+            return [];
+        }
+    }
+
 }
