@@ -803,11 +803,12 @@ class MetricsController extends Controller
                     : 0;
 
                 $stagesData[] = [
-                    'stage_id'   => $stage->id,
-                    'stage_name' => $stage->name,
-                    'stage_type' => $stage->type ?? null,
-                    'leads'      => $leadsInStage,
-                    'percentage' => $percentage,
+                    'stage_id'    => $stage->id,
+                    'stage_name'  => $stage->name,
+                    'stage_type'  => $stage->type ?? null,
+                    'stage_color' => $stage->color ?? null,
+                    'leads'       => $leadsInStage,
+                    'percentage'  => $percentage,
                 ];
             }
 
@@ -862,11 +863,12 @@ class MetricsController extends Controller
                     : 0;
 
                 $stagesData[] = [
-                    'stage_id'   => $stage->id,
-                    'stage_name' => $stage->name,
-                    'stage_type' => $stage->type ?? null,
-                    'sales'      => $salesInStage,
-                    'percentage' => $percentage,
+                    'stage_id'    => $stage->id,
+                    'stage_name'  => $stage->name,
+                    'stage_type'  => $stage->type ?? null,
+                    'stage_color' => $stage->color ?? null,
+                    'sales'       => $salesInStage,
+                    'percentage'  => $percentage,
                 ];
             }
 
