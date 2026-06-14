@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Lead;
+use App\Models\Sale;
+use App\Models\Task;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -22,6 +25,65 @@ class UserController extends Controller
             ->get();
 
         return response()->json($users);
+    }
+
+    /**
+     * Get a single user from the authenticated user's company.
+     */
+    public function show($id)
+    {
+        $companyId = Auth::user()->company_id;
+
+        $user = User::where('company_id', $companyId)
+            ->with(['teams:id,name', 'managedTeams:id,name,manager_user_id'])
+            ->findOrFail($id);
+
+        return response()->json(['data' => $user]);
+    }
+
+    /**
+     * Get performance stats for a user (leads/deals assigned & converted, tasks completed).
+     */
+    public function performance($id)
+    {
+        $companyId = Auth::user()->company_id;
+
+        // Ensure the user belongs to the same company before computing stats.
+        User::where('company_id', $companyId)->findOrFail($id);
+
+        $leadsAssigned = Lead::where('company_id', $companyId)
+            ->where('assigned_to', $id)
+            ->count();
+
+        $leadsConverted = Lead::where('leads.company_id', $companyId)
+            ->where('leads.assigned_to', $id)
+            ->join('stages', 'leads.stage_id', '=', 'stages.id')
+            ->where('stages.type', 'conversion')
+            ->count();
+
+        $dealsAssigned = Sale::where('company_id', $companyId)
+            ->where('user_id', $id)
+            ->count();
+
+        $dealsClosed = Sale::where('company_id', $companyId)
+            ->where('user_id', $id)
+            ->where('status', 'closed')
+            ->count();
+
+        $tasksCompleted = Task::where('assigned_to', $id)
+            ->where('status', 'completed')
+            ->whereHas('lead', fn($q) => $q->where('company_id', $companyId))
+            ->count();
+
+        return response()->json([
+            'data' => [
+                'leads_assigned' => $leadsAssigned,
+                'deals_assigned' => $dealsAssigned,
+                'leads_converted' => $leadsConverted,
+                'deals_closed' => $dealsClosed,
+                'tasks_completed' => $tasksCompleted,
+            ],
+        ]);
     }
 
     /**
@@ -128,7 +190,7 @@ class UserController extends Controller
 
         $users = User::where('company_id', $companyId)
             ->where('name', 'like', "%{$query}%")
-            ->select('id', 'name', 'email', 'role')
+            ->select('id', 'name', 'email', 'role', 'profile_pic')
             ->orderBy('name')
             ->limit(20)
             ->get();

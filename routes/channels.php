@@ -36,3 +36,11 @@ Broadcast::channel('deal-funnel.{funnelId}', function ($user, $funnelId) {
         ->where('company_id', $user->company_id)
         ->exists();
 });
+
+Broadcast::channel('online-users.{companyId}', function ($user, $companyId) {
+    if ((int) $user->company_id !== (int) $companyId) {
+        return false;
+    }
+
+    return ['id' => $user->id, 'name' => $user->name];
+});

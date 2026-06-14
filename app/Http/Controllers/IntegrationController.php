@@ -80,6 +80,9 @@ class IntegrationController extends Controller
                     ->active()
                     ->first();
 
+                $data['wpp_evo_configured'] = !empty($integration->base_url) && !empty($integration->api_key);
+                $data['wpp_evo_base_url'] = $integration->base_url;
+
                 $data['wpp_evo_instances'] = WhatsAppInstance::where(
                     'company_id',
                     $user->company_id
