@@ -24,15 +24,22 @@ class InboxMessage extends Model
         'latitude',
         'longitude',
         'metadata',
+        'reply_to_message_id',
+        'reply_to_snapshot',
+        'reactions',
+        'is_edited',
         'status',
         'sent_at',
     ];
 
     protected $casts = [
-        'latitude'  => 'float',
-        'longitude' => 'float',
-        'metadata'  => 'array',
-        'sent_at'   => 'datetime',
+        'latitude'          => 'float',
+        'longitude'         => 'float',
+        'metadata'          => 'array',
+        'reply_to_snapshot' => 'array',
+        'reactions'         => 'array',
+        'is_edited'         => 'boolean',
+        'sent_at'           => 'datetime',
     ];
 
     public function getCompanyTimezone(): string
@@ -52,5 +59,10 @@ class InboxMessage extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function replyToMessage(): BelongsTo
+    {
+        return $this->belongsTo(InboxMessage::class, 'reply_to_message_id');
     }
 }

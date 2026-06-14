@@ -15,6 +15,7 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
 use App\Events\InboxMessagesCleared;
 use App\Events\InboxMessageReceived;
+use App\Events\InboxMessageUpdated;
 use App\Events\LeadLiveUpdate;
 use App\Services\LeadQueueAssignmentService;
 use Illuminate\Support\Facades\DB;
@@ -27,6 +28,12 @@ class InboxController extends Controller
     public function handleEvolutionWebhook(Request $request)
     {
         $payload = $request->all();
+
+        // Delivery/read receipts for outbound messages arrive as a separate
+        // event and don't carry sender/lead info - handle them up front.
+        if (($payload['event'] ?? null) === 'messages.update') {
+            return $this->handleMessageStatusUpdate($payload);
+        }
 
         // 1️⃣ Identify instance via Evolution instance name
         $instance = WhatsAppInstance::where('instance_name', $payload['instance'] ?? null)->first();
@@ -153,6 +160,19 @@ class InboxController extends Controller
         ) {
             $messageData = $payload['data']['message'];
             $messageType = $payload['data']['messageType'];
+
+            // Reactions and message edits update an EXISTING message rather
+            // than creating a new bubble in the conversation.
+            if ($messageType === 'reactionMessage') {
+                $this->handleReactionMessage($chat, $payload, $messageData);
+                return response()->json(['status' => 'ok'], 200);
+            }
+
+            if ($messageType === 'secretEncryptedMessage') {
+                $this->handleMessageEdit($chat, $payload, $messageData);
+                return response()->json(['status' => 'ok'], 200);
+            }
+
             // Use the real Evolution message ID for proper deduplication.
             // This also prevents double-storing messages that were sent from the
             // CRM (already saved with this ID) and re-delivered via webhook.
@@ -200,6 +220,16 @@ class InboxController extends Controller
                     $messageValues['media_size'] = $audioMessage['fileLength'] ?? null;
                     $messageValues['text']       = null;
                     $mediaDownloadType           = 'audio';
+                }
+            } elseif ($messageType === 'stickerMessage') {
+                $stickerMessage = $messageData['stickerMessage'] ?? null;
+                if ($stickerMessage) {
+                    $messageValues['type']       = 'sticker';
+                    $messageValues['media_url']  = null;
+                    $messageValues['media_mime'] = $stickerMessage['mimetype'] ?? 'image/webp';
+                    $messageValues['media_size'] = $stickerMessage['fileLength'] ?? null;
+                    $messageValues['text']       = null;
+                    $mediaDownloadType           = 'sticker';
                 }
             } elseif ($messageType === 'locationMessage') {
 
@@ -312,6 +342,24 @@ class InboxController extends Controller
                 $messageValues['media_url'] = null;
                 $messageValues['media_mime'] = null;
                 $messageValues['media_size'] = null;
+            }
+
+            // Reply / quoted-message context - applies on top of any message type above
+            $contextInfo = $payload['data']['contextInfo'] ?? null;
+            if ($contextInfo && !empty($contextInfo['quotedMessage'])) {
+                $stanzaId = $contextInfo['stanzaId'] ?? null;
+
+                $replyToMessage = $stanzaId
+                    ? InboxMessage::where('inbox_chat_id', $chat->id)
+                        ->where('external_message_id', $stanzaId)
+                        ->first()
+                    : null;
+
+                $messageValues['reply_to_message_id'] = $replyToMessage?->id;
+                $messageValues['reply_to_snapshot'] = $this->buildQuotedPreview(
+                    $contextInfo['quotedMessage'],
+                    $contextInfo
+                );
             }
 
             // Create the message record immediately (media_url may be null for media types)
@@ -560,6 +608,86 @@ class InboxController extends Controller
                 'error'   => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Send (or remove) an emoji reaction to a WhatsApp message via Evolution's
+     * `/message/sendReaction` endpoint, and reflect it locally under the
+     * 'agent' key of the message's `reactions` column.
+     */
+    public function sendReaction(Request $request, $messageId)
+    {
+        $user = Auth::user();
+
+        if (!$user || !$user->company_id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $companyId = $user->company_id;
+
+        $request->validate([
+            'emoji' => 'present|string|max:8',
+        ]);
+
+        $emoji = $request->input('emoji');
+
+        $message = InboxMessage::with('chat.channelable')
+            ->whereHas('chat', fn ($q) => $q->where('company_id', $companyId))
+            ->where('id', $messageId)
+            ->firstOrFail();
+
+        $chat = $message->chat;
+
+        if ($chat->channel !== InboxChat::CHANNEL_WHATSAPP || !$chat->channelable instanceof WhatsAppInstance) {
+            return response()->json(['message' => 'Reactions are only supported for WhatsApp chats'], 422);
+        }
+
+        if (!$message->external_message_id) {
+            return response()->json(['message' => 'This message has no WhatsApp message id'], 422);
+        }
+
+        $instance = $chat->channelable;
+
+        $integration = WhatsAppEvoIntegration::where('id', $instance->whats_app_evo_integration_id)
+            ->where('company_id', $companyId)
+            ->firstOrFail();
+
+        $response = Http::withHeaders(['apikey' => $integration->api_key])
+            ->post(rtrim($integration->base_url, '/') . '/message/sendReaction/' . $instance->instance_name, [
+                'key' => [
+                    'remoteJid' => $chat->external_chat_id,
+                    'fromMe'    => $message->direction === 'outgoing',
+                    'id'        => $message->external_message_id,
+                ],
+                'reaction' => $emoji,
+            ]);
+
+        if (!$response->successful()) {
+            return response()->json([
+                'message' => 'Failed to send reaction via Evolution API',
+                'error'   => $response->json() ?? $response->body(),
+            ], 422);
+        }
+
+        $reactions = $message->reactions ?? [];
+
+        if ($emoji === '') {
+            unset($reactions['agent']);
+        } else {
+            $reactions['agent'] = [
+                'emoji'     => $emoji,
+                'timestamp' => now()->getTimestampMs(),
+            ];
+        }
+
+        $message->update(['reactions' => $reactions]);
+
+        broadcast(new InboxMessageUpdated($message))->toOthers();
+
+        return response()->json([
+            'status'  => 'ok',
+            'message' => $message,
+        ], 200);
     }
 
     public function sendMediaMessage(Request $request, $instanceId)
@@ -993,6 +1121,7 @@ class InboxController extends Controller
                 'image'    => 'whatsapp/images/' . $companyId,
                 'audio'    => 'whatsapp/audio/' . $companyId,
                 'document' => 'whatsapp/documents/' . $companyId,
+                'sticker'  => 'whatsapp/stickers/' . $companyId,
                 default    => 'whatsapp/files/' . $companyId,
             };
             $storedName = 'whatsapp_' . time() . '_' . uniqid() . '.' . $extension;
@@ -1008,6 +1137,269 @@ class InboxController extends Controller
             ]);
             return null;
         }
+    }
+
+    /**
+     * Build a lightweight preview of a quoted/replied-to message from the raw
+     * `contextInfo.quotedMessage` payload, used to render the reply banner
+     * even when the original message isn't stored locally.
+     */
+    private function buildQuotedPreview(array $quotedMessage, ?array $contextInfo): array
+    {
+        $type = 'text';
+        $text = null;
+
+        if (isset($quotedMessage['conversation'])) {
+            $type = 'text';
+            $text = $quotedMessage['conversation'];
+        } elseif (isset($quotedMessage['extendedTextMessage']['text'])) {
+            $type = 'text';
+            $text = $quotedMessage['extendedTextMessage']['text'];
+        } elseif (isset($quotedMessage['imageMessage'])) {
+            $type = 'image';
+            $text = $quotedMessage['imageMessage']['caption'] ?? null;
+        } elseif (isset($quotedMessage['videoMessage'])) {
+            $type = 'video';
+            $text = $quotedMessage['videoMessage']['caption'] ?? null;
+        } elseif (isset($quotedMessage['audioMessage'])) {
+            $type = 'audio';
+        } elseif (isset($quotedMessage['stickerMessage'])) {
+            $type = 'sticker';
+        } elseif (isset($quotedMessage['documentMessage'])) {
+            $type = 'document';
+            $text = $quotedMessage['documentMessage']['fileName'] ?? $quotedMessage['documentMessage']['title'] ?? null;
+        } elseif (isset($quotedMessage['locationMessage'])) {
+            $type = 'location';
+        } elseif (isset($quotedMessage['contactMessage'])) {
+            $type = 'contact';
+            $text = $quotedMessage['contactMessage']['displayName'] ?? null;
+        }
+
+        return [
+            'type'        => $type,
+            'text'        => $text,
+            'participant' => $contextInfo['participant'] ?? null,
+        ];
+    }
+
+    /**
+     * Apply a WhatsApp emoji reaction to the message it targets.
+     * Reactions live on the target message's `reactions` column, keyed by
+     * who reacted ('contact' or 'agent'). An empty `text` means the reactor
+     * removed their reaction.
+     */
+    private function handleReactionMessage(InboxChat $chat, array $payload, array $messageData): void
+    {
+        $reaction = $messageData['reactionMessage'] ?? null;
+        $targetId = $reaction['key']['id'] ?? null;
+
+        if (!$targetId) {
+            return;
+        }
+
+        $targetMessage = InboxMessage::where('inbox_chat_id', $chat->id)
+            ->where('external_message_id', $targetId)
+            ->first();
+
+        if (!$targetMessage) {
+            return;
+        }
+
+        $reactorKey = ($payload['data']['key']['fromMe'] ?? false) ? 'agent' : 'contact';
+        $emoji = $reaction['text'] ?? '';
+
+        $reactions = $targetMessage->reactions ?? [];
+
+        if ($emoji === '') {
+            unset($reactions[$reactorKey]);
+        } else {
+            $reactions[$reactorKey] = [
+                'emoji'     => $emoji,
+                'timestamp' => $reaction['senderTimestampMs'] ?? null,
+            ];
+        }
+
+        $targetMessage->update(['reactions' => $reactions]);
+
+        broadcast(new InboxMessageUpdated($targetMessage))->toOthers();
+    }
+
+    /**
+     * Flag the targeted message as edited and try to recover the new text.
+     * WhatsApp delivers edits as end-to-end encrypted `secretEncryptedMessage`
+     * payloads, so we can't decrypt the new content ourselves - but Evolution
+     * (via Baileys) already holds the message secret from the original message
+     * and decrypts edits internally, updating its own stored copy. So we just
+     * ask Evolution for the current state of the target message via
+     * `findMessages`. If that doesn't surface the new text (e.g. Evolution
+     * never had the message), we fall back to flagging the edit only.
+     */
+    private function handleMessageEdit(InboxChat $chat, array $payload, array $messageData): void
+    {
+        $secret = $messageData['secretEncryptedMessage'] ?? null;
+
+        if (!$secret || ($secret['secretEncType'] ?? null) !== 'MESSAGE_EDIT') {
+            return;
+        }
+
+        $targetId = $secret['targetMessageKey']['id'] ?? null;
+
+        if (!$targetId) {
+            return;
+        }
+
+        $targetMessage = InboxMessage::where('inbox_chat_id', $chat->id)
+            ->where('external_message_id', $targetId)
+            ->first();
+
+        if (!$targetMessage) {
+            return;
+        }
+
+        $updates = [];
+
+        if (!$targetMessage->is_edited) {
+            $updates['is_edited'] = true;
+        }
+
+        $instanceName = $payload['instance'] ?? null;
+        $integration  = WhatsAppEvoIntegration::where('company_id', $chat->company_id)->first();
+
+        if ($instanceName && $integration) {
+            $newText = $this->fetchEditedTextFromEvolution($integration, $instanceName, $targetId);
+
+            if ($newText !== null && $newText !== $targetMessage->text) {
+                $updates['text'] = $newText;
+            }
+        }
+
+        if (empty($updates)) {
+            return;
+        }
+
+        $targetMessage->update($updates);
+
+        broadcast(new InboxMessageUpdated($targetMessage))->toOthers();
+    }
+
+    /**
+     * Fetch the current text of a message from Evolution's own stored copy
+     * via `findMessages`. For real edits, Evolution/Baileys decrypts the
+     * `MESSAGE_EDIT` payload internally and updates this stored copy, so its
+     * `message.conversation` / `extendedTextMessage.text` reflects the
+     * post-edit content.
+     */
+    private function fetchEditedTextFromEvolution(
+        WhatsAppEvoIntegration $integration,
+        string $instanceName,
+        string $messageId
+    ): ?string {
+        try {
+            $response = Http::timeout(15)
+                ->withHeaders([
+                    'apikey'       => $integration->api_key,
+                    'Content-Type' => 'application/json',
+                ])
+                ->post(
+                    rtrim($integration->base_url, '/') . '/chat/findMessages/' . $instanceName,
+                    ['where' => ['key' => ['id' => $messageId]]]
+                );
+
+            if (!$response->successful()) {
+                return null;
+            }
+
+            $record = $response->json('messages.records.0');
+
+            if (!$record) {
+                return null;
+            }
+
+            $message = $record['message'] ?? [];
+
+            return $message['conversation']
+                ?? $message['extendedTextMessage']['text']
+                ?? null;
+
+        } catch (\Exception $e) {
+            Log::warning('fetchEditedTextFromEvolution: exception', [
+                'message_id' => $messageId,
+                'error'      => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Maps Evolution/Baileys ack statuses to our internal message statuses.
+     */
+    private const MESSAGE_STATUS_MAP = [
+        'ERROR'        => 'failed',
+        'PENDING'      => 'pending',
+        'SERVER_ACK'   => 'sent',
+        'DELIVERY_ACK' => 'delivered',
+        'READ'         => 'read',
+        'PLAYED'       => 'read',
+    ];
+
+    /**
+     * Ordering of internal message statuses, used to ignore out-of-order
+     * webhooks that would regress a message's status (e.g. a late
+     * DELIVERY_ACK arriving after a READ).
+     */
+    private const MESSAGE_STATUS_RANK = [
+        'failed'    => -1,
+        'pending'   => 0,
+        'sent'      => 1,
+        'delivered' => 2,
+        'read'      => 3,
+    ];
+
+    /**
+     * Handle a `messages.update` webhook: updates the delivery/read status
+     * of an outgoing message previously sent from the CRM.
+     */
+    private function handleMessageStatusUpdate(array $payload): \Illuminate\Http\JsonResponse
+    {
+        $instance = WhatsAppInstance::where('instance_name', $payload['instance'] ?? null)->first();
+
+        if (!$instance) {
+            return response()->json(['message' => 'Instance not found'], 404);
+        }
+
+        $data  = $payload['data'] ?? [];
+        $keyId = $data['keyId'] ?? null;
+
+        $newStatus = self::MESSAGE_STATUS_MAP[$data['status'] ?? ''] ?? null;
+
+        if (!$keyId || !$newStatus) {
+            return response()->json(['status' => 'ok'], 200);
+        }
+
+        $message = InboxMessage::where('external_message_id', $keyId)
+            ->where('direction', 'outgoing')
+            ->whereHas('chat', function ($q) use ($instance) {
+                $q->where('channelable_type', WhatsAppInstance::class)
+                    ->where('channelable_id', $instance->id);
+            })
+            ->first();
+
+        if (!$message) {
+            return response()->json(['status' => 'ok'], 200);
+        }
+
+        $currentRank = self::MESSAGE_STATUS_RANK[$message->status] ?? -1;
+        $newRank     = self::MESSAGE_STATUS_RANK[$newStatus];
+
+        if ($newRank <= $currentRank) {
+            return response()->json(['status' => 'ok'], 200);
+        }
+
+        $message->update(['status' => $newStatus]);
+
+        broadcast(new InboxMessageUpdated($message))->toOthers();
+
+        return response()->json(['status' => 'ok'], 200);
     }
 
     /**

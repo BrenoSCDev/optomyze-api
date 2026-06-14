@@ -354,6 +354,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/chats/{chat}/messages', [InboxController::class, 'clearMessages']);
         Route::post('/instances/{instanceId}/messages', [InboxController::class, 'sendTextMessage']);
         Route::post('/instances/{instanceId}/media', [InboxController::class, 'sendMediaMessage']);
+        Route::post('/messages/{message}/reaction', [InboxController::class, 'sendReaction']);
         Route::post('/instagram/{integrationId}/messages', [InboxController::class, 'sendInstagramTextMessage']);
         Route::post('/instagram/{integrationId}/media', [InboxController::class, 'sendInstagramMediaMessage']);
         Route::get('/leads/search', [InboxController::class, 'searchLeads']);
