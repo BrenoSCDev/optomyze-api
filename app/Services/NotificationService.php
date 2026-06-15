@@ -212,8 +212,8 @@ class NotificationService
      * Fire the appropriate in-app broadcast for the given event.
      *
      * For lead_created: fires the existing LeadCreatedNotification broadcast to the
-     * company private channel. For deal events, the SaleTransactionNotification model
-     * hook already broadcasts to the feed — no duplicate dispatch needed here.
+     * company private channel. For deal events, the RecordCreated model hook already
+     * broadcasts to the feed — no duplicate dispatch needed here.
      */
     private function sendInApp(string $eventKey, array $context, int $companyId): void
     {
@@ -239,8 +239,8 @@ class NotificationService
             }
 
             // For deal_created, deal_won, deal_lost, deal_stage_changed, lead_assigned:
-            // SaleTransactionNotification / LeadTransactionNotification model hooks already
-            // broadcast these events to the company feed channel — they are the in-app signal.
+            // the RecordCreated model hook already broadcasts these events to the
+            // company feed channel — they are the in-app signal.
 
             Log::debug("[Notification] in_app dispatched for '{$eventKey}' (company {$companyId}).");
         } catch (\Throwable $e) {

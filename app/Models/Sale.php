@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use App\Models\SaleTransaction;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use App\Models\User;
 
 class Sale extends Model
@@ -83,9 +83,9 @@ class Sale extends Model
         return $this->hasMany(SaleDoc::class);
     }
 
-    public function transactions(): HasMany
+    public function records(): MorphMany
     {
-        return $this->hasMany(SaleTransaction::class);
+        return $this->morphMany(Record::class, 'recordable');
     }
 
     public function tags()

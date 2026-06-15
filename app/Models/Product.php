@@ -19,7 +19,6 @@ class Product extends Model
         'base_price',
         'currency',
         'type',
-        'category',
         'is_active',
         'is_favorite',
         'archived_at',

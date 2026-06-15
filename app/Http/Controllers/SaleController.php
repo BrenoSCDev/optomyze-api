@@ -7,7 +7,7 @@ use App\Jobs\FireIntegrationWebhook;
 use App\Models\Lead;
 use App\Models\Sale;
 use App\Models\SaleItem;
-use App\Models\SaleTransaction;
+use App\Models\Record;
 use App\Models\Stage;
 use App\Models\Tag;
 use App\Models\User;
@@ -193,9 +193,9 @@ class SaleController extends Controller
         ]);
 
         /** -----------------------------------------
-         * 7️⃣ Log creation transaction
+         * 7️⃣ Log creation record
          * ----------------------------------------*/
-        SaleTransaction::createSaleCreation($sale, $user);
+        Record::createDealCreation($sale, $user);
 
         /** -----------------------------------------
          * 8️⃣ Notify — deal_created
@@ -334,16 +334,8 @@ class SaleController extends Controller
                 'total'          => $finalTotal,
             ]);
 
-            // Log update transaction
-            SaleTransaction::create([
-                'sale_id'     => $sale->id,
-                'company_id'  => $sale->company_id,
-                'user_id'     => $user->id,
-                'type'        => SaleTransaction::TYPE_UPDATE,
-                'action'      => SaleTransaction::ACTION_UPDATED,
-                'description' => "Deal \"{$sale->name}\" updated by {$user->name}",
-                'source'      => SaleTransaction::SOURCE_MANUAL,
-            ]);
+            // Log update record
+            Record::createDealUpdate($sale, $user);
 
             return response()->json([
                 'message' => 'Sale updated successfully.',
@@ -387,7 +379,7 @@ class SaleController extends Controller
         DB::transaction(function () use ($sale, $user) {
 
             // Log deletion before the sale is removed
-            SaleTransaction::createSaleDeletion($sale, $user);
+            Record::createDealDeletion($sale, $user);
 
             // Delete related sale items
             $sale->items()->delete();
@@ -433,10 +425,10 @@ class SaleController extends Controller
             'docs',
             'funnel:id,name',
             'stage:id,name,color',
-            'transactions' => function ($query) {
+            'records' => function ($query) {
                 $query->latest();
             },
-            'transactions.user:id,name,email',
+            'records.user:id,name,email',
         ]);
 
         $user = Auth::user();
@@ -498,7 +490,7 @@ class SaleController extends Controller
         $fromStatus = $sale->status;
         $sale->update($updateData);
 
-        SaleTransaction::createStatusChange($sale, $fromStatus, $data['status'], Auth::user());
+        Record::createDealStatusChange($sale, $fromStatus, $data['status'], Auth::user());
 
         $notifEvent = $data['status'] === 'closed' ? 'deal_won' : 'deal_lost';
         $notifLead  = $sale->lead;
@@ -563,7 +555,7 @@ class SaleController extends Controller
 
         $sale->save();
 
-        SaleTransaction::createStageChange($sale, $fromStage, $stage, Auth::user());
+        Record::createDealStageChange($sale, $fromStage, $stage, Auth::user());
 
         $stageNotifEvent = match (true) {
             $stage->type === 'won'  => 'deal_won',
@@ -611,13 +603,14 @@ class SaleController extends Controller
         $companyId = $user->company_id;
         [$start, $end] = $this->resolveActivityDateRange($request);
 
-        $query = SaleTransaction::with([
-                'sale:id,lead_id,user_id,name,total,created_at',
-                'sale.lead:id,first_name,last_name,email,phone',
+        $query = Record::with([
+                'recordable:id,lead_id,user_id,name,total,created_at',
+                'recordable.lead:id,first_name,last_name,email,phone',
                 'user:id,name,email'
             ])
+            ->where('recordable_type', Record::RECORDABLE_SALE)
             ->where('company_id', $companyId)
-            ->whereHas('sale', fn($q) => $q->visibleToUser($user))
+            ->whereHasMorph('recordable', [Sale::class], fn($q) => $q->visibleToUser($user))
             ->whereBetween('created_at', [$start, $end])
             ->latest();
 

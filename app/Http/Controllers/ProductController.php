@@ -42,10 +42,6 @@ class ProductController extends Controller
             $query->byType($request->type);
         }
 
-        if ($request->has('category')) {
-            $query->where('category', $request->category);
-        }
-
         if ($request->has('category_id')) {
             $query->whereHas('categories', fn ($q) => $q->where('product_categories.id', $request->category_id));
         }
@@ -79,7 +75,6 @@ class ProductController extends Controller
             'sku'          => 'required|string',
             'base_price'   => 'required|numeric|min:0',
             'type'         => 'required|in:product,service,digital',
-            'category'     => 'nullable|string|max:255',
             'is_active'    => 'boolean',
             'is_favorite'  => 'boolean',
             'cost_price'   => 'nullable|numeric|min:0',
@@ -197,7 +192,6 @@ class ProductController extends Controller
             'base_price'     => 'sometimes|numeric|min:0',
             'currency'       => 'sometimes|string|size:3',
             'type'           => 'sometimes|in:product,service,digital',
-            'category'       => 'nullable|string|max:255',
             'is_active'      => 'boolean',
             'is_favorite'    => 'boolean',
             'metadata'       => 'nullable|array',
@@ -454,9 +448,6 @@ class ProductController extends Controller
         if ($request->has('type')) {
             $query->where('type', $request->type);
         }
-        if ($request->has('category')) {
-            $query->where('category', $request->category);
-        }
         if ($request->has('category_id')) {
             $query->whereHas('categories', fn ($q) => $q->where('product_categories.id', $request->category_id));
         }
@@ -510,7 +501,6 @@ class ProductController extends Controller
             'sku'         => 'required|string|max:255',
             'base_price'  => 'required|numeric|min:0',
             'type'        => 'required|in:product,service,digital',
-            'category'    => 'nullable|string|max:255',
             'is_active'   => 'boolean',
             'cost_price'  => 'nullable|numeric|min:0',
             'metadata'    => 'nullable|array',
@@ -545,7 +535,6 @@ class ProductController extends Controller
             'sku'         => 'nullable|string|max:255',
             'base_price'  => 'nullable|numeric|min:0',
             'type'        => 'nullable|in:product,service',
-            'category'    => 'nullable|string|max:255',
             'is_active'   => 'boolean',
             'cost_price'  => 'nullable|numeric|min:0',
             'metadata'    => 'nullable|array',

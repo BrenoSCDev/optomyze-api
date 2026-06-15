@@ -13,7 +13,7 @@ use App\Models\InboxChat;
 use App\Models\InboxMessage;
 use App\Models\InstagramIntegration;
 use App\Models\Lead;
-use App\Models\LeadTransaction;
+use App\Models\Record;
 use App\Services\LeadQueueAssignmentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -460,6 +460,7 @@ class InstagramIntegrationController extends Controller
             'first_name'      => $firstName,
             'last_name'       => $lastName,
             'phone'           => null,
+            'external_id'     => $igsid,
             'source_type'     => 'chat_integration',
             'source_platform' => 'instagram',
             'funnel_id'       => $funnel->id,
@@ -467,7 +468,7 @@ class InstagramIntegrationController extends Controller
         ]);
 
         LeadQueueAssignmentService::assign($lead);
-        LeadTransaction::createLeadCreation($lead, null, LeadTransaction::SOURCE_WEBHOOK);
+        Record::createLeadCreation($lead, null, Record::SOURCE_WEBHOOK);
 
         Log::info("[LeadLive] Broadcasting created for lead {$lead->id} to funnel.{$lead->funnel_id}");
         broadcast(new LeadLiveUpdate('created', $lead));
@@ -490,7 +491,7 @@ class InstagramIntegrationController extends Controller
             'last_message_at'     => now(),
         ]);
 
-        LeadTransaction::createInstagramChatStarted($lead, $chat, $integration);
+        Record::createInstagramChatStarted($lead, $chat, $integration);
 
         return $chat;
     }

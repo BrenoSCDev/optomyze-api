@@ -28,6 +28,7 @@ class InboxMessage extends Model
         'reply_to_snapshot',
         'reactions',
         'is_edited',
+        'transcription',
         'status',
         'sent_at',
     ];

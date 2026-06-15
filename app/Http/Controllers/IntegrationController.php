@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\FacebookMessengerIntegration;
 use App\Models\GoogleAdsIntegration;
 use App\Models\InstagramIntegration;
 use App\Models\MetaAdsIntegration;
@@ -36,6 +37,7 @@ class IntegrationController extends Controller
             'wpp_evo' => WhatsAppEvoIntegration::class,
             'optomyze_erp'   => OptomyzeErpIntegration::class,
             'instagram' => InstagramIntegration::class,
+            'facebook' => FacebookMessengerIntegration::class,
         ];
 
         $availability = [];

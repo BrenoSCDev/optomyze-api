@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Log;
 use App\Models\Lead;
 use App\Models\LeadCompany;
 use App\Models\LeadCustomField;
-use App\Models\LeadTransaction;
+use App\Models\Record;
 use App\Models\LostReason;
 use App\Models\Product;
 use App\Models\Stage;
@@ -74,11 +74,11 @@ class LeadController extends Controller
         // Auto-assign via funnel manager queue (round-robin)
         $this->applyQueueAssignment($lead);
 
-        // Create a lead creation transaction
-        LeadTransaction::createLeadCreation(
+        // Create a lead creation record
+        Record::createLeadCreation(
             $lead,
             Auth::user(),
-            LeadTransaction::SOURCE_MANUAL, 
+            Record::SOURCE_MANUAL,
             []
         );
 
@@ -139,10 +139,10 @@ class LeadController extends Controller
         $this->assertLeadAccess($lead, Auth::user());
         $lead->load([
             'assignedUser:id,name,email,profile_pic',
-            'transactions' => function ($query) {
+            'records' => function ($query) {
                 $query->latest();
             },
-            'transactions.user:id,name,email',
+            'records.user:id,name,email',
             'docs',
             'leadCompany:id,legal_name,industry,logo_path',
             'stage:id,name,funnel_id,order',
@@ -385,7 +385,6 @@ class LeadController extends Controller
         }
 
         $previousStage = $lead->stage;
-        $previousFunnelId = $lead->funnel_id;
 
         // Broadcast removal from the old funnel/stage before the lead moves
         broadcast(new LeadLiveUpdate('deleted', $lead));
@@ -395,25 +394,7 @@ class LeadController extends Controller
             'stage_id'  => $targetStage->id,
         ]);
 
-        $leadName = trim(($lead->first_name ?? '') . ' ' . ($lead->last_name ?? '')) ?: "Lead #{$lead->id}";
-
-        LeadTransaction::create([
-            'lead_id'       => $lead->id,
-            'company_id'    => $lead->company_id,
-            'user_id'       => $user->id,
-            'type'          => LeadTransaction::TYPE_STAGE_CHANGE,
-            'action'        => LeadTransaction::ACTION_MOVED,
-            'description'   => "{$leadName} was moved to funnel '{$funnel->name}'",
-            'from_stage_id' => $previousStage?->id,
-            'to_stage_id'   => $targetStage->id,
-            'metadata'      => [
-                'from_funnel_id' => $previousFunnelId,
-                'to_funnel_id'   => $funnel->id,
-                'to_funnel_name' => $funnel->name,
-            ],
-            'is_important'  => true,
-            'source'        => LeadTransaction::SOURCE_MANUAL,
-        ]);
+        Record::createLeadFunnelChange($lead, $funnel, $previousStage, $targetStage, $user);
 
         $freshLead = $lead->fresh(['assignedUser']);
 
@@ -439,7 +420,7 @@ class LeadController extends Controller
             ->where('company_id', $lead->company_id)
             ->firstOrFail();
 
-        LeadTransaction::createLeadLost($lead, $lostReason, $user);
+        Record::createLeadLost($lead, $lostReason, $user);
 
         return response()->json(['message' => 'Lost reason recorded successfully']);
     }
@@ -541,13 +522,14 @@ class LeadController extends Controller
         $companyId = $user->company_id;
         [$start, $end] = $this->resolveActivityDateRange($request);
 
-        $query = LeadTransaction::with([
-                'lead:id,first_name,last_name,email,company_id',
+        $query = Record::with([
+                'recordable:id,first_name,last_name,email,company_id',
                 'user:id,name,email'
             ])
-            ->select('id', 'lead_id', 'user_id', 'type', 'source', 'action', 'description', 'created_at')
+            ->select('id', 'recordable_type', 'recordable_id', 'user_id', 'type', 'source', 'action', 'title', 'description', 'created_at')
+            ->where('recordable_type', Record::RECORDABLE_LEAD)
             ->where('company_id', $companyId)
-            ->whereHas('lead', fn($q) => $q->visibleToUser($user))
+            ->whereHasMorph('recordable', [Lead::class], fn($q) => $q->visibleToUser($user))
             ->whereBetween('created_at', [$start, $end])
             ->latest();
 
@@ -712,7 +694,6 @@ class LeadController extends Controller
             'last_name' => 'nullable|string|max:100',
             'email' => 'nullable|email|max:255',
             'phone' => 'nullable|string|max:20',
-            'ddi' => 'nullable|string|max:20',
             'username' => 'nullable|string|max:100',
             'priority' => 'nullable|in:low,medium,high,urgent',
             'currency' => 'nullable|string|size:3',
@@ -781,7 +762,6 @@ class LeadController extends Controller
             'last_name' => 'nullable|string|max:100',
             'email' => 'nullable|email|max:255',
             'phone' => 'nullable|string|max:20',
-            'ddi' => 'nullable|string|max:20',
             'username' => 'nullable|string|max:100',
             'priority' => 'nullable|in:low,medium,high,urgent',
             'currency' => 'nullable|string|size:3',
@@ -831,22 +811,17 @@ class LeadController extends Controller
         LeadQueueAssignmentService::assign($lead);
 
         $apiToken = $request->get('api_token');
-        LeadTransaction::create([
-            'lead_id'      => $lead->id,
-            'company_id'   => $lead->company_id,
-            'user_id'      => null,
-            'type'         => LeadTransaction::TYPE_CREATION,
-            'action'       => LeadTransaction::ACTION_CREATED,
-            'description'  => $apiToken
-                ? "Lead created via external integration using API token '{$apiToken->name}'"
-                : 'Lead created via external integration',
-            'source'       => LeadTransaction::SOURCE_API,
-            'metadata'     => [
-                'api_token_id'   => $apiToken?->id,
+        Record::createLeadCreation(
+            $lead,
+            null,
+            Record::SOURCE_API,
+            [
+                'api_token_id' => $apiToken?->id,
                 'api_token_name' => $apiToken?->name,
+                'apiTokenName' => $apiToken?->name,
             ],
-            'is_important' => true,
-        ]);
+            $apiToken ? 'via_api_named' : 'via_api'
+        );
 
         if ($lead->funnel_id) {
             broadcast(new LeadLiveUpdate('created', $lead));

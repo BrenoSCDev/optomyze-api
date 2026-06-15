@@ -41,6 +41,7 @@ class Company extends Model
         'api_requests_reset_at',
         'timezone',
         'currency',
+        'language',
     ];
 
     /**
@@ -69,6 +70,7 @@ class Company extends Model
                 'messages_limit'         => 10000,
                 'api_tokens_limit'       => 2,
                 'api_requests_limit'     => 1000,
+                'api_token_rate_limit_per_minute' => 60,
             ],
 
             'premium' => [
@@ -85,6 +87,7 @@ class Company extends Model
                 'messages_limit'         => 50000,
                 'api_tokens_limit'       => 10,
                 'api_requests_limit'     => 10000,
+                'api_token_rate_limit_per_minute' => 300,
             ],
 
             'enterprise' => [
@@ -102,6 +105,7 @@ class Company extends Model
                 'messages_limit'         => null,
                 'api_tokens_limit'       => null,
                 'api_requests_limit'     => null,
+                'api_token_rate_limit_per_minute' => null,
             ],
         };
     }

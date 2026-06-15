@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Lead;
 use App\Models\Product;
+use App\Models\Record;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
@@ -113,15 +114,17 @@ class LeadProductController extends Controller
 
             $lead->products()->sync($syncData);
 
-            // Create Lead Transaction
-            $lead->transactions()->create([
+            // Create Lead Record
+            $lead->records()->create([
                 'company_id' => $lead->company_id,
                 'user_id' => Auth::user()->id,
                 'type' => 'product_update',
                 'action' => 'products_linked',
+                'title' => 'Products Updated',
                 'description' => Auth::user()->name . ' updated the products of interest linked to the lead: ' .
                     implode(', ', $descriptionParts) .
                     ' — Total: ' . number_format($grandTotal, 2, ',', '.'),
+                'source' => Record::SOURCE_MANUAL,
             ]);
 
             $lead->load('products:id,name,base_price');

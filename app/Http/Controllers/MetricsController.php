@@ -8,7 +8,6 @@ use App\Models\Lead;
 use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\Stage;
-use App\Models\LeadTransaction;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;

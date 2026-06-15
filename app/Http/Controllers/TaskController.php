@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Lead;
+use App\Models\Record;
 use App\Models\Task;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -94,12 +95,14 @@ class TaskController extends Controller
                         $description .= " and marked as completed";
                     }
 
-                    $transaction = $lead->transactions()->create([
+                    $transaction = $lead->records()->create([
                         'company_id' => $lead->company_id,
                         'user_id' => Auth::id(),
                         'type' => 'task',
                         'action' => 'created',
+                        'title' => 'Task Created',
                         'description' => $description,
+                        'source' => Record::SOURCE_MANUAL,
                     ]);
 
                     $transaction->load('user');

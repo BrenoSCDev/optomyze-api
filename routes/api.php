@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\LeadDocumentController;
+use App\Http\Controllers\AllowedOriginController;
 use App\Http\Controllers\ApiTokenController;
 use App\Http\Controllers\FunnelController;
 use App\Http\Controllers\FunnelManagerQueueController;
@@ -16,12 +17,12 @@ use App\Http\Controllers\ProductCategoryController;
 use App\Http\Controllers\LeadCustomFieldController;
 use App\Http\Controllers\EntryRequirementController;
 use App\Http\Controllers\EventController;
+use App\Http\Controllers\FacebookMessengerIntegrationController;
 use App\Http\Controllers\GoogleAdsIntegrationController;
 use App\Http\Controllers\IntegrationController;
 use App\Http\Controllers\InstagramIntegrationController;
 use App\Http\Controllers\LeadCompanyController;
 use App\Http\Controllers\LeadController;
-use App\Http\Controllers\LeadTransactionController;
 use App\Http\Controllers\MetaAdsIntegrationController;
 use App\Http\Controllers\MetricsController;
 use App\Http\Controllers\N8nAgentController;
@@ -36,9 +37,9 @@ use App\Http\Controllers\LeadProductController;
 use App\Http\Controllers\ObservationController;
 use App\Http\Controllers\ConversationController;
 use App\Http\Controllers\InternalMessageController;
+use App\Http\Controllers\RecordController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\SaleDocController;
-use App\Http\Controllers\SaleTransactionController;
 use App\Http\Controllers\InboxController;
 use App\Http\Controllers\WhatsAppEvoIntegrationController;
 use App\Http\Controllers\WhatsAppInstanceController;
@@ -263,19 +264,23 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/tokens', [ApiTokenController::class, 'index']);
     Route::post('/tokens', [ApiTokenController::class, 'generate']);
+    Route::put('/tokens/{id}', [ApiTokenController::class, 'update']);
     Route::delete('/tokens/{id}', [ApiTokenController::class, 'destroy']);
+
+    Route::get('/allowed-origins', [AllowedOriginController::class, 'index']);
+    Route::post('/allowed-origins', [AllowedOriginController::class, 'store']);
+    Route::put('/allowed-origins/{id}', [AllowedOriginController::class, 'update']);
+    Route::delete('/allowed-origins/{id}', [AllowedOriginController::class, 'destroy']);
 
 
     /*
     |--------------------------------------------------------------------------
-    | Transactions & Metrics Routes
+    | Records & Metrics Routes
     |--------------------------------------------------------------------------
     */
-    Route::get('/companies/{companyId}/transactions', [LeadTransactionController::class, 'transactionsByCompany']);
-    Route::get('/leads/{leadId}/transactions', [LeadTransactionController::class, 'transactionsByLead']);
-
-    Route::get('/sales/{saleId}/transactions', [SaleTransactionController::class, 'transactionsBySale']);
-    Route::get('/companies/{companyId}/sale-transactions', [SaleTransactionController::class, 'transactionsByCompany']);
+    Route::get('/records', [RecordController::class, 'index']);
+    Route::get('/records-activity', [RecordController::class, 'activity']);
+    Route::get('/companies/{companyId}/records', [RecordController::class, 'byCompany']);
 
     Route::get('/metrics/leads-breakdown', [MetricsController::class, 'dashboard']);
     Route::get('/metrics/monthly-charts', [MetricsController::class, 'monthlyCharts']);
@@ -341,6 +346,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/instagram/disconnect', [InstagramIntegrationController::class, 'disconnectAccount']);
         Route::put('/instagram/funnel', [InstagramIntegrationController::class, 'updateFunnel']);
 
+        // Facebook Messenger Integration (Facebook Graph API, Page access token)
+        Route::post('/facebook', [FacebookMessengerIntegrationController::class, 'createIntegration']);
+        Route::get('/facebook', [FacebookMessengerIntegrationController::class, 'show']);
+        Route::put('/facebook/configure', [FacebookMessengerIntegrationController::class, 'configure']);
+        Route::post('/facebook/test-connection', [FacebookMessengerIntegrationController::class, 'testConnection']);
+        Route::post('/facebook/disconnect', [FacebookMessengerIntegrationController::class, 'disconnectAccount']);
+        Route::put('/facebook/funnel', [FacebookMessengerIntegrationController::class, 'updateFunnel']);
+
     });
 
     /*
@@ -355,6 +368,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/instances/{instanceId}/messages', [InboxController::class, 'sendTextMessage']);
         Route::post('/instances/{instanceId}/media', [InboxController::class, 'sendMediaMessage']);
         Route::post('/messages/{message}/reaction', [InboxController::class, 'sendReaction']);
+        Route::post('/messages/{message}/transcribe', [InboxController::class, 'transcribeMessage']);
         Route::post('/instagram/{integrationId}/messages', [InboxController::class, 'sendInstagramTextMessage']);
         Route::post('/instagram/{integrationId}/media', [InboxController::class, 'sendInstagramMediaMessage']);
         Route::get('/leads/search', [InboxController::class, 'searchLeads']);
@@ -682,5 +696,9 @@ Route::post('/whatsapp-evo-chat', [InboxController::class, 'handleEvolutionWebho
 // Instagram Graph API webhook (called directly by Meta - no CRM session/JWT)
 Route::get('/integrations/instagram/webhook/{webhookCallbackId}', [InstagramIntegrationController::class, 'verifyWebhook']);
 Route::post('/integrations/instagram/webhook/{webhookCallbackId}', [InstagramIntegrationController::class, 'receiveWebhook']);
+
+// Facebook Graph API webhook (called directly by Meta - no CRM session/JWT)
+Route::get('/integrations/facebook/webhook/{webhookCallbackId}', [FacebookMessengerIntegrationController::class, 'verifyWebhook']);
+Route::post('/integrations/facebook/webhook/{webhookCallbackId}', [FacebookMessengerIntegrationController::class, 'receiveWebhook']);
 
 Broadcast::routes(['middleware' => ['auth:sanctum']]);

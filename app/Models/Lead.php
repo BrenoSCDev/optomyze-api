@@ -11,7 +11,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Builder;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use App\Models\User;
+use App\Support\CompanyCurrencyCache;
 
 class Lead extends Model
 {
@@ -65,7 +67,6 @@ class Lead extends Model
         'last_name',
         'email',
         'phone',
-        'ddi',
         'username',
         'priority',
         'currency',
@@ -106,6 +107,16 @@ class Lead extends Model
 
     protected static function booted(): void
     {
+        static::creating(function (Lead $lead) {
+            if (empty($lead->currency)) {
+                $lead->currency = CompanyCurrencyCache::get((int) $lead->company_id);
+            }
+
+            if (empty($lead->priority)) {
+                $lead->priority = self::PRIORITY_MEDIUM;
+            }
+        });
+
         static::deleting(function (Lead $lead) {
             foreach ($lead->inboxChats as $chat) {
                 $chat->messages()->delete();
@@ -394,8 +405,8 @@ class Lead extends Model
             $previousStage = $this->stage;
             $this->update(['stage_id' => $nextStage->id]);
             
-            // Create transaction
-            LeadTransaction::createStageChange($this, $previousStage, $nextStage, $user);
+            // Create record
+            Record::createLeadStageChange($this, $previousStage, $nextStage, $user);
             
             return true;
         }
@@ -414,8 +425,8 @@ class Lead extends Model
             $currentStage = $this->stage;
             $this->update(['stage_id' => $previousStage->id]);
             
-            // Create transaction
-            LeadTransaction::createStageChange($this, $currentStage, $previousStage, $user);
+            // Create record
+            Record::createLeadStageChange($this, $currentStage, $previousStage, $user);
             
             return true;
         }
@@ -436,8 +447,8 @@ class Lead extends Model
             $previousStage = $this->stage;
             $this->update(['stage_id' => $stageId]);
             
-            // Create transaction
-            LeadTransaction::createStageChange($this, $previousStage, $stage, $user);
+            // Create record
+            Record::createLeadStageChange($this, $previousStage, $stage, $user);
             
             return true;
         }
@@ -446,11 +457,11 @@ class Lead extends Model
     }
 
     /**
-     * Transactions relationship
+     * Records relationship
      */
-    public function transactions()
+    public function records(): MorphMany
     {
-        return $this->hasMany(LeadTransaction::class);
+        return $this->morphMany(Record::class, 'recordable');
     }
 
     /**
@@ -576,7 +587,6 @@ class Lead extends Model
             'last_name' => 'nullable|string|max:100',
             'email' => 'nullable|email|max:255',
             'phone' => 'nullable|string|max:20',
-            'ddi' => 'nullable|string|max:20',
             'username' => 'nullable|string|max:100',
             'priority' => 'in:low,medium,high,urgent',
             'currency' => 'string|size:3',
@@ -610,7 +620,6 @@ class Lead extends Model
             'last_name' => 'nullable|string|max:100',
             'email' => 'nullable|email|max:255',
             'phone' => 'nullable|string|max:20',
-            'ddi' => 'nullable|string|max:20',
             'username' => 'nullable|string|max:100',
             'priority' => 'in:low,medium,high,urgent',
             'currency' => 'string|size:3',

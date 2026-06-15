@@ -97,6 +97,7 @@ class InboxController extends Controller
                 'first_name'      => $firstName ?: $phoneNumber,
                 'last_name'       => $lastName,
                 'phone'           => $phoneNumber,
+                'external_id'     => $remoteJid,
                 'source_type'     => 'chat_integration',
                 'source_platform' => 'whatsapp',
                 'funnel_id'       => $funnel->id,
@@ -126,17 +127,17 @@ class InboxController extends Controller
             ]
         );
 
-        // 6️⃣ Fire lead transactions for new lead / new chat
+        // 6️⃣ Fire lead records for new lead / new chat
         if ($leadCreated) {
-            \App\Models\LeadTransaction::createLeadCreation(
+            \App\Models\Record::createLeadCreation(
                 $lead,
                 null,
-                \App\Models\LeadTransaction::SOURCE_WEBHOOK
+                \App\Models\Record::SOURCE_WEBHOOK
             );
         }
 
         if ($chat->wasRecentlyCreated) {
-            \App\Models\LeadTransaction::createWhatsAppChatStarted($lead, $chat, $instance);
+            \App\Models\Record::createWhatsAppChatStarted($lead, $chat, $instance);
 
             // Fetch and store WhatsApp profile picture for the new chat
             $integration = WhatsAppEvoIntegration::where('company_id', $companyId)->first();
@@ -687,6 +688,76 @@ class InboxController extends Controller
         return response()->json([
             'status'  => 'ok',
             'message' => $message,
+        ], 200);
+    }
+
+    /**
+     * Transcribe an audio message via OpenAI's speech-to-text API.
+     * The result is cached on the message's `transcription` column so
+     * repeat requests don't re-hit the API.
+     */
+    public function transcribeMessage(Request $request, $messageId)
+    {
+        $user = Auth::user();
+
+        if (!$user || !$user->company_id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $companyId = $user->company_id;
+
+        $message = InboxMessage::whereHas('chat', fn ($q) => $q->where('company_id', $companyId))
+            ->where('id', $messageId)
+            ->firstOrFail();
+
+        if ($message->type !== 'audio' || !$message->media_url) {
+            return response()->json(['message' => 'This message has no audio to transcribe'], 422);
+        }
+
+        if ($message->transcription) {
+            return response()->json([
+                'status'        => 'ok',
+                'transcription' => $message->transcription,
+                'message'       => $message,
+            ], 200);
+        }
+
+        $apiKey = config('services.openai.key');
+
+        if (!$apiKey) {
+            return response()->json(['message' => 'OpenAI API key is not configured'], 500);
+        }
+
+        if (!Storage::disk('local')->exists($message->media_url)) {
+            return response()->json(['message' => 'Audio file not found'], 404);
+        }
+
+        $audio     = Storage::disk('local')->get($message->media_url);
+        $extension = self::extensionFromMime($message->media_mime ?? 'audio/ogg');
+
+        $response = Http::withToken($apiKey)
+            ->attach('file', $audio, 'audio.' . $extension)
+            ->post('https://api.openai.com/v1/audio/transcriptions', [
+                'model' => 'gpt-4o-mini-transcribe',
+            ]);
+
+        if (!$response->successful()) {
+            return response()->json([
+                'message' => 'Failed to transcribe audio',
+                'error'   => $response->json() ?? $response->body(),
+            ], 422);
+        }
+
+        $transcription = trim($response->json('text') ?? '');
+
+        $message->update(['transcription' => $transcription]);
+
+        broadcast(new InboxMessageUpdated($message))->toOthers();
+
+        return response()->json([
+            'status'        => 'ok',
+            'transcription' => $transcription,
+            'message'       => $message,
         ], 200);
     }
 
