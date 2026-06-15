@@ -38,7 +38,9 @@ class FunnelController extends Controller
             ->whereIn('type', ['sale', 'deal'])
             ->get() // get results first
             ->map(function ($funnel) {
-                $funnel->nleads = $funnel->totalLeadsCount();
+                $funnel->nleads = $funnel->type === 'deal'
+                    ? $funnel->totalDealsCount()
+                    : $funnel->totalLeadsCount();
                 return $funnel;
             });
 

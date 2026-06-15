@@ -138,7 +138,7 @@ class LeadController extends Controller
     {
         $this->assertLeadAccess($lead, Auth::user());
         $lead->load([
-            'assignedUser:id,name,email,profile_pic',
+            'assignedUser:id,name,email,role,profile_pic',
             'records' => function ($query) {
                 $query->latest();
             },
@@ -152,6 +152,14 @@ class LeadController extends Controller
                 $query->orderBy('sent_at');
             },
             'whatsappInboxChat.channelable',
+            'inboxChats' => function ($query) {
+                $query->with([
+                    'messages' => function ($q) {
+                        $q->orderBy('sent_at');
+                    },
+                    'channelable',
+                ]);
+            },
             'products:id,name,base_price,type,description',
             'tags',
             'tasks.assignee:id,name,email',

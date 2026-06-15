@@ -88,6 +88,17 @@ class Funnel extends Model
     }
 
     /**
+     * Get total deals count across all stages in the funnel.
+     */
+    public function totalDealsCount(): int
+    {
+        return $this->stages()
+            ->withCount('deals')
+            ->get()
+            ->sum('deals_count');
+    }
+
+    /**
      * Get only active stages for this funnel.
      */
     public function activeStages(): HasMany

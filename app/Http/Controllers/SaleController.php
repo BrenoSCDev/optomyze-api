@@ -414,7 +414,7 @@ class SaleController extends Controller
         $this->assertSaleAccess($sale, Auth::user());
 
         $sale->load([
-            'user:id,name,email',
+            'user:id,name,email,profile_pic',
             'lead:id,first_name,last_name,email,phone,job_title,company_id,funnel_id,stage_id',
             'lead.funnel:id,name',
             'lead.stage:id,name,color',

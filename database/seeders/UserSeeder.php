@@ -18,7 +18,7 @@ class UserSeeder extends Seeder
             'name' => 'Breno Castro',
             'email' => 'ceo@optomyze.io',
             'password' => Hash::make('password'),
-            'phone' => '+1-555-1111',
+            'phone' => '15551111',
             'role' => 'admin',
             'is_active' => true,
             'company_id' => $company->id,
