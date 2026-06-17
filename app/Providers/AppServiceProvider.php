@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Models\Lead;
 use App\Models\Sale;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\ServiceProvider;
 
@@ -25,6 +26,7 @@ class AppServiceProvider extends ServiceProvider
         Relation::enforceMorphMap([
             'Lead' => Lead::class,
             'Sale' => Sale::class,
+            'User' => User::class,
         ]);
     }
 }

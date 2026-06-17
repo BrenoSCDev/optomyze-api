@@ -25,6 +25,18 @@ class InboxController extends Controller
 {
     private const INSTAGRAM_GRAPH_API_BASE = 'https://graph.instagram.com/v23.0';
 
+    // Instagram's Send API only accepts this fixed set of reaction types -
+    // mapped to/from emoji glyphs so the unified `reactions` column always
+    // stores a renderable emoji, consistent with WhatsApp's free-form emoji.
+    private const INSTAGRAM_EMOJI_TO_REACTION_TYPE = [
+        '👍'  => 'like',
+        '❤️' => 'love',
+        '😆'  => 'smile',
+        '😮'  => 'wow',
+        '😢'  => 'sad',
+        '😠'  => 'angry',
+    ];
+
     public function handleEvolutionWebhook(Request $request)
     {
         $payload = $request->all();
@@ -425,7 +437,7 @@ class InboxController extends Controller
             ->with([
                 'company:id,timezone',
                 'channelable',
-                'lead:id,company_id,first_name,last_name,phone,funnel_id,stage_id',
+                'lead:id,company_id,first_name,last_name,phone,username,funnel_id,stage_id',
                 'lead.funnel:id,name',
                 'lead.stage:id,name',
                 // Only the latest message per chat (for list preview)
@@ -639,35 +651,62 @@ class InboxController extends Controller
 
         $chat = $message->chat;
 
-        if ($chat->channel !== InboxChat::CHANNEL_WHATSAPP || !$chat->channelable instanceof WhatsAppInstance) {
-            return response()->json(['message' => 'Reactions are only supported for WhatsApp chats'], 422);
-        }
-
         if (!$message->external_message_id) {
-            return response()->json(['message' => 'This message has no WhatsApp message id'], 422);
+            return response()->json(['message' => 'This message has no provider message id'], 422);
         }
 
-        $instance = $chat->channelable;
+        if ($chat->channel === InboxChat::CHANNEL_WHATSAPP && $chat->channelable instanceof WhatsAppInstance) {
+            $instance = $chat->channelable;
 
-        $integration = WhatsAppEvoIntegration::where('id', $instance->whats_app_evo_integration_id)
-            ->where('company_id', $companyId)
-            ->firstOrFail();
+            $integration = WhatsAppEvoIntegration::where('id', $instance->whats_app_evo_integration_id)
+                ->where('company_id', $companyId)
+                ->firstOrFail();
 
-        $response = Http::withHeaders(['apikey' => $integration->api_key])
-            ->post(rtrim($integration->base_url, '/') . '/message/sendReaction/' . $instance->instance_name, [
-                'key' => [
-                    'remoteJid' => $chat->external_chat_id,
-                    'fromMe'    => $message->direction === 'outgoing',
-                    'id'        => $message->external_message_id,
-                ],
-                'reaction' => $emoji,
-            ]);
+            $response = Http::withHeaders(['apikey' => $integration->api_key])
+                ->post(rtrim($integration->base_url, '/') . '/message/sendReaction/' . $instance->instance_name, [
+                    'key' => [
+                        'remoteJid' => $chat->external_chat_id,
+                        'fromMe'    => $message->direction === 'outgoing',
+                        'id'        => $message->external_message_id,
+                    ],
+                    'reaction' => $emoji,
+                ]);
 
-        if (!$response->successful()) {
-            return response()->json([
-                'message' => 'Failed to send reaction via Evolution API',
-                'error'   => $response->json() ?? $response->body(),
-            ], 422);
+            if (!$response->successful()) {
+                return response()->json([
+                    'message' => 'Failed to send reaction via Evolution API',
+                    'error'   => $response->json() ?? $response->body(),
+                ], 422);
+            }
+        } elseif ($chat->channel === InboxChat::CHANNEL_INSTAGRAM && $chat->channelable instanceof InstagramIntegration) {
+            $integration = $chat->channelable;
+
+            if ($emoji !== '' && !isset(self::INSTAGRAM_EMOJI_TO_REACTION_TYPE[$emoji])) {
+                return response()->json([
+                    'message'           => 'Unsupported reaction for Instagram chats.',
+                    'supported_emojis'  => array_keys(self::INSTAGRAM_EMOJI_TO_REACTION_TYPE),
+                ], 422);
+            }
+
+            $payload = $emoji === ''
+                ? ['message_id' => $message->external_message_id]
+                : ['message_id' => $message->external_message_id, 'reaction' => self::INSTAGRAM_EMOJI_TO_REACTION_TYPE[$emoji]];
+
+            $response = Http::withToken($integration->access_token)
+                ->post(self::INSTAGRAM_GRAPH_API_BASE . "/{$integration->instagram_user_id}/messages", [
+                    'recipient'     => ['id' => $chat->external_contact_id],
+                    'sender_action' => $emoji === '' ? 'unreact' : 'react',
+                    'payload'       => $payload,
+                ]);
+
+            if (!$response->successful()) {
+                return response()->json([
+                    'message' => 'Failed to send reaction via Instagram API',
+                    'error'   => $response->json() ?? $response->body(),
+                ], 422);
+            }
+        } else {
+            return response()->json(['message' => 'Reactions are not supported for this chat channel'], 422);
         }
 
         $reactions = $message->reactions ?? [];
@@ -906,9 +945,10 @@ class InboxController extends Controller
         $companyId = $user->company_id;
 
         $request->validate([
-            'chat_id'      => 'required|integer',
-            'text'         => 'required|string',
-            'message_mode' => 'sometimes|in:external,internal',
+            'chat_id'             => 'required|integer',
+            'text'                => 'required|string',
+            'message_mode'        => 'sometimes|in:external,internal',
+            'reply_to_message_id' => 'sometimes|nullable|integer',
         ]);
 
         $messageMode = $request->input('message_mode', 'external');
@@ -926,14 +966,24 @@ class InboxController extends Controller
 
         $igsid = $chat->external_contact_id;
 
+        $replyToMessage = $request->filled('reply_to_message_id')
+            ? InboxMessage::where('inbox_chat_id', $chat->id)->find($request->input('reply_to_message_id'))
+            : null;
+
         try {
             $externalMessageId = (string) Str::uuid();
 
             if ($messageMode === 'external') {
+                $outgoingMessage = ['text' => $request->text];
+
+                if ($replyToMessage?->external_message_id) {
+                    $outgoingMessage['reply_to'] = ['mid' => $replyToMessage->external_message_id];
+                }
+
                 $response = Http::withToken($integration->access_token)
                     ->post(self::INSTAGRAM_GRAPH_API_BASE . "/{$integration->instagram_user_id}/messages", [
                         'recipient' => ['id' => $igsid],
-                        'message'   => ['text' => $request->text],
+                        'message'   => $outgoingMessage,
                     ]);
 
                 if (!$response->successful()) {
@@ -958,6 +1008,12 @@ class InboxController extends Controller
                 'message_mode'        => $messageMode,
                 'type'                => 'text',
                 'text'                => $request->text,
+                'reply_to_message_id' => $replyToMessage?->id,
+                'reply_to_snapshot'   => $replyToMessage ? [
+                    'type'        => $replyToMessage->type,
+                    'text'        => $replyToMessage->text,
+                    'participant' => null,
+                ] : null,
                 'status'              => 'sent',
                 'sent_at'             => now(),
             ]);
@@ -993,10 +1049,11 @@ class InboxController extends Controller
         $companyId = $user->company_id;
 
         $request->validate([
-            'chat_id'      => 'required|integer',
-            'type'         => 'required|in:image,audio',
-            'file'         => 'required|file|max:20480',
-            'message_mode' => 'sometimes|in:external,internal',
+            'chat_id'             => 'required|integer',
+            'type'                => 'required|in:image,audio',
+            'file'                => 'required|file|max:20480',
+            'message_mode'        => 'sometimes|in:external,internal',
+            'reply_to_message_id' => 'sometimes|nullable|integer',
         ]);
 
         $messageMode = $request->input('message_mode', 'external');
@@ -1015,6 +1072,10 @@ class InboxController extends Controller
 
         $igsid = $chat->external_contact_id;
 
+        $replyToMessage = $request->filled('reply_to_message_id')
+            ? InboxMessage::where('inbox_chat_id', $chat->id)->find($request->input('reply_to_message_id'))
+            : null;
+
         $uploadedFile = $request->file('file');
         $filePath     = $uploadedFile->store("instagram/outbound/{$companyId}", 'public');
         $mime         = $uploadedFile->getMimeType();
@@ -1026,18 +1087,24 @@ class InboxController extends Controller
             if ($messageMode === 'external') {
                 $publicUrl = rtrim(config('app.url'), '/') . '/storage/' . $filePath;
 
+                $outgoingMessage = [
+                    'attachment' => [
+                        'type'    => $type,
+                        'payload' => [
+                            'url'         => $publicUrl,
+                            'is_reusable' => true,
+                        ],
+                    ],
+                ];
+
+                if ($replyToMessage?->external_message_id) {
+                    $outgoingMessage['reply_to'] = ['mid' => $replyToMessage->external_message_id];
+                }
+
                 $response = Http::withToken($integration->access_token)
                     ->post(self::INSTAGRAM_GRAPH_API_BASE . "/{$integration->instagram_user_id}/messages", [
                         'recipient' => ['id' => $igsid],
-                        'message'   => [
-                            'attachment' => [
-                                'type'    => $type,
-                                'payload' => [
-                                    'url'         => $publicUrl,
-                                    'is_reusable' => true,
-                                ],
-                            ],
-                        ],
+                        'message'   => $outgoingMessage,
                     ]);
 
                 if (!$response->successful()) {
@@ -1066,6 +1133,12 @@ class InboxController extends Controller
                 'media_url'           => $filePath,
                 'media_mime'          => $mime,
                 'media_size'          => $size,
+                'reply_to_message_id' => $replyToMessage?->id,
+                'reply_to_snapshot'   => $replyToMessage ? [
+                    'type'        => $replyToMessage->type,
+                    'text'        => $replyToMessage->text,
+                    'participant' => null,
+                ] : null,
                 'status'              => 'sent',
                 'sent_at'             => now(),
             ]);

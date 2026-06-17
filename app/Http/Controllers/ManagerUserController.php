@@ -4,13 +4,19 @@ namespace App\Http\Controllers;
 
 use App\Models\Company;
 use App\Models\User;
+use App\Services\FirstAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class ManagerUserController extends Controller
 {
+    public function __construct(private FirstAccessService $firstAccessService)
+    {
+    }
+
     /**
      * List all users for a given company.
      *
@@ -68,6 +74,8 @@ class ManagerUserController extends Controller
             'password'   => 'sometimes|string|min:8',
         ]);
 
+        $passwordProvided = isset($validated['password']);
+
         $user = User::create([
             'company_id' => $validated['company_id'],
             'name'       => $validated['name'],
@@ -75,10 +83,14 @@ class ManagerUserController extends Controller
             'phone'      => $validated['phone'] ?? null,
             'role'       => $validated['role'],
             'is_active'  => $validated['is_active'] ?? true,
-            'password'   => isset($validated['password'])
+            'password'   => $passwordProvided
                 ? Hash::make($validated['password'])
-                : Hash::make('changeme'),
+                : Hash::make(Str::random(32)),
         ]);
+
+        if (!$passwordProvided) {
+            $this->firstAccessService->send($user);
+        }
 
         return response()->json($user->makeHidden(['password', 'remember_token']), 201);
     }

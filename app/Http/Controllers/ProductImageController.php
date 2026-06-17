@@ -30,7 +30,6 @@ class ProductImageController extends Controller
     {
         $validated = $request->validate([
             'image'         => 'required|image|max:5120', // 5MB
-            'image_type'    => 'nullable|string|max:50',
             'alt_text'      => 'nullable|string|max:255',
             // 'is_primary'    => 'sometimes|boolean',
             'display_order' => 'nullable|integer',
@@ -73,7 +72,6 @@ class ProductImageController extends Controller
     public function update(Request $request, ProductImage $productImage): JsonResponse
     {
         $validated = $request->validate([
-            'image_type'    => 'nullable|string|max:50',
             'alt_text'      => 'nullable|string|max:255',
             'display_order' => 'nullable|integer',
             'is_primary'    => 'sometimes|boolean',

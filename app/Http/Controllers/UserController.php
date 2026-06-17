@@ -6,13 +6,19 @@ use App\Models\Lead;
 use App\Models\Sale;
 use App\Models\Task;
 use App\Models\User;
+use App\Services\FirstAccessService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class UserController extends Controller
 {
+    public function __construct(private FirstAccessService $firstAccessService)
+    {
+    }
+
     /**
      * Get all users from the authenticated user's company.
      */
@@ -98,12 +104,11 @@ class UserController extends Controller
 
         $validated = $request->validate(User::validationRules());
 
-        $validated['password'] = Hash::make('changeme');
+        $validated['password'] = Hash::make(Str::random(32));
 
         $user = User::create($validated);
 
-        // dd($user->password);
-
+        $this->firstAccessService->send($user);
 
         return response()->json($user, 201);
     }
@@ -115,9 +120,11 @@ class UserController extends Controller
     {
         $validated = $request->validate(User::validationRules());
 
-        $validated['password'] = Hash::make('changeme');
+        $validated['password'] = Hash::make(Str::random(32));
 
         $user = User::create($validated);
+
+        $this->firstAccessService->send($user);
 
         return response()->json($user, 201);
     }
@@ -259,8 +266,10 @@ class UserController extends Controller
         $user = User::create([
             ...$validated,
             'company_id' => $company->id,
-            'password'   => 'changeme',
+            'password'   => Str::random(32),
         ]);
+
+        $this->firstAccessService->send($user);
 
         return response()->json([
             'message' => 'User created successfully',

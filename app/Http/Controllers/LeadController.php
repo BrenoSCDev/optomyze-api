@@ -147,7 +147,8 @@ class LeadController extends Controller
             'leadCompany:id,legal_name,industry,logo_path',
             'stage:id,name,funnel_id,order',
             'stage.funnel:id,name',
-            'stage.funnel.stages:id,funnel_id,name,order',
+            'stage.funnel.stages:id,funnel_id,name,order,description,color,type',
+            'stage.funnel.stages.entryRequirement',
             'whatsappInboxChat.messages' => function ($query) {
                 $query->orderBy('sent_at');
             },

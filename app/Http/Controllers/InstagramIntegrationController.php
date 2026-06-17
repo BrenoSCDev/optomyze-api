@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Events\InboxMessageReceived;
+use App\Events\InboxMessageUpdated;
 use App\Events\LeadLiveUpdate;
 use App\Events\InstagramWebhookSubscribed;
 use App\Events\InstagramWebhookSubscriptionFailed;
@@ -15,6 +16,7 @@ use App\Models\InstagramIntegration;
 use App\Models\Lead;
 use App\Models\Record;
 use App\Services\LeadQueueAssignmentService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
@@ -26,6 +28,17 @@ use Illuminate\Validation\ValidationException;
 class InstagramIntegrationController extends Controller
 {
     private const GRAPH_API_BASE = 'https://graph.instagram.com/v23.0';
+
+    // Mirrors InboxController::INSTAGRAM_EMOJI_TO_REACTION_TYPE (reversed) so
+    // inbound reactions are stored as the same emoji glyphs agents send.
+    private const REACTION_TYPE_TO_EMOJI = [
+        'like'  => '👍',
+        'love'  => '❤️',
+        'smile' => '😆',
+        'wow'   => '😮',
+        'sad'   => '😢',
+        'angry' => '😠',
+    ];
 
     /**
      * Create the (single, per-company) Instagram integration row.
@@ -310,11 +323,30 @@ class InstagramIntegrationController extends Controller
 
         foreach ($request->input('entry', []) as $entry) {
             foreach ($entry['messaging'] ?? [] as $messaging) {
-                if (!isset($messaging['message'])) {
-                    continue;
+                try {
+                    if (isset($messaging['message'])) {
+                        $this->processInstagramMessage($integration, $messaging, $companyId);
+                    } elseif (isset($messaging['read'])) {
+                        $this->processInstagramReadReceipt($integration, $messaging, $companyId);
+                    } elseif (isset($messaging['reaction'])) {
+                        $this->processInstagramReaction($integration, $messaging, $companyId);
+                    } else {
+                        // Typing indicators, postbacks, and any future event
+                        // shape we don't recognize yet - log and move on.
+                        Log::info('Instagram webhook: unhandled messaging event shape', [
+                            'integration_id' => $integration->id,
+                            'keys'           => array_keys($messaging),
+                        ]);
+                    }
+                } catch (\Throwable $e) {
+                    // Never let a single malformed/unexpected event take down
+                    // the whole batch or bubble into a 500 (Meta would retry
+                    // the entire payload, re-processing already-handled items).
+                    Log::error('Instagram webhook: failed to process messaging event', [
+                        'integration_id' => $integration->id,
+                        'error'          => $e->getMessage(),
+                    ]);
                 }
-
-                $this->processInstagramMessage($integration, $messaging, $companyId);
             }
         }
 
@@ -380,6 +412,11 @@ class InstagramIntegrationController extends Controller
             'sent_at'      => now(),
         ];
 
+        if (!empty($message['reply_to'])) {
+            [$messageValues['reply_to_message_id'], $messageValues['reply_to_snapshot']] =
+                $this->resolveInstagramReply($chat, $message['reply_to']);
+        }
+
         $mediaUrl = null;
 
         if (isset($message['text'])) {
@@ -388,15 +425,32 @@ class InstagramIntegrationController extends Controller
         } elseif (!empty($message['attachments'][0])) {
             $attachment = $message['attachments'][0];
 
+            $downloadableTypes = ['audio', 'image', 'video', 'file'];
+
             switch ($attachment['type'] ?? null) {
                 case 'audio':
-                    $messageValues['type']      = 'audio';
-                    $messageValues['media_url'] = null;
+                    $messageValues['type'] = 'audio';
                     break;
                 case 'image':
                     // Stickers and GIFs are also delivered as 'image' attachments.
-                    $messageValues['type']      = 'image';
-                    $messageValues['media_url'] = null;
+                    $messageValues['type'] = 'image';
+                    break;
+                case 'video':
+                    $messageValues['type'] = 'video';
+                    break;
+                case 'file':
+                    $messageValues['type'] = 'document';
+                    break;
+                case 'story_mention':
+                    // A contact mentioned/shared our story back to us.
+                    $messageValues['type']     = 'story_reply';
+                    $messageValues['metadata'] = ['story_mention' => $attachment['payload'] ?? null];
+                    break;
+                case 'share':
+                case 'template':
+                    // Shared post/reel - no downloadable media, keep the link in metadata.
+                    $messageValues['type']     = 'shared_post';
+                    $messageValues['metadata'] = ['share' => $attachment['payload'] ?? null];
                     break;
                 default:
                     Log::info('Instagram webhook: unrecognized attachment type', [
@@ -406,7 +460,14 @@ class InstagramIntegrationController extends Controller
                     return;
             }
 
-            $mediaUrl = $attachment['payload']['url'] ?? null;
+            $messageValues['media_url'] = null;
+
+            if (in_array($attachment['type'] ?? null, $downloadableTypes, true)) {
+                $mediaUrl = $attachment['payload']['url'] ?? null;
+            }
+        } elseif (!empty($message['reply_to'])) {
+            // A bare story reply with no text/attachment of its own.
+            $messageValues['type'] = 'story_reply';
         } else {
             Log::info('Instagram webhook: unrecognized message shape', [
                 'integration_id' => $integration->id,
@@ -424,6 +485,167 @@ class InstagramIntegrationController extends Controller
         $chat->update(['last_message_at' => now()]);
 
         broadcast(new InboxMessageReceived($inboxMessage))->toOthers();
+    }
+
+    /**
+     * Resolve a `message.reply_to` payload into a (reply_to_message_id,
+     * reply_to_snapshot) pair, mirroring InboxController::buildQuotedPreview
+     * for WhatsApp. Instagram only sends the original message's `mid` (no
+     * embedded content), so the snapshot is built from our own stored copy
+     * when we have it, and degrades gracefully (generic "Message" preview)
+     * when the original predates our history or never arrived.
+     */
+    private function resolveInstagramReply(InboxChat $chat, array $replyTo): array
+    {
+        if (!empty($replyTo['mid'])) {
+            $original = InboxMessage::where('inbox_chat_id', $chat->id)
+                ->where('external_message_id', $replyTo['mid'])
+                ->first();
+
+            return [
+                $original?->id,
+                [
+                    'type'        => $original?->type ?? 'text',
+                    'text'        => $original?->text,
+                    'participant' => null,
+                ],
+            ];
+        }
+
+        if (!empty($replyTo['story'])) {
+            return [
+                null,
+                [
+                    'type'        => 'story_reply',
+                    'text'        => null,
+                    'participant' => null,
+                ],
+            ];
+        }
+
+        return [null, null];
+    }
+
+    /**
+     * Handle Instagram `read` events: Instagram (like Messenger) reports the
+     * mid of the LAST message the contact has read, meaning every outgoing
+     * message up to and including it is now read - so a single event can
+     * cover a bulk read of several messages at once. Falls back to the
+     * event's own timestamp when the referenced mid isn't in our history yet
+     * (e.g. arrived out of order), so historical and brand-new messages are
+     * both handled consistently.
+     */
+    private function processInstagramReadReceipt(InstagramIntegration $integration, array $messaging, int $companyId): void
+    {
+        $customerIgsid = $messaging['sender']['id'] ?? null;
+
+        if (!$customerIgsid) {
+            return;
+        }
+
+        $chat = InboxChat::where([
+            'company_id'       => $companyId,
+            'channel'          => InboxChat::CHANNEL_INSTAGRAM,
+            'channelable_type' => InstagramIntegration::class,
+            'channelable_id'   => $integration->id,
+            'external_chat_id' => $customerIgsid,
+        ])->first();
+
+        if (!$chat) {
+            return;
+        }
+
+        $cutoff = isset($messaging['timestamp'])
+            ? Carbon::createFromTimestampMs($messaging['timestamp'])
+            : now();
+
+        $readMid = $messaging['read']['mid'] ?? null;
+
+        if ($readMid) {
+            $readMessage = InboxMessage::where('inbox_chat_id', $chat->id)
+                ->where('external_message_id', $readMid)
+                ->first();
+
+            if ($readMessage?->sent_at) {
+                $cutoff = $readMessage->sent_at;
+            }
+        }
+
+        $messagesToUpdate = InboxMessage::where('inbox_chat_id', $chat->id)
+            ->where('direction', 'outgoing')
+            ->whereNotIn('status', ['read', 'failed'])
+            ->where(function ($query) use ($cutoff) {
+                $query->whereNull('sent_at')->orWhere('sent_at', '<=', $cutoff);
+            })
+            ->get();
+
+        if ($messagesToUpdate->isEmpty()) {
+            return;
+        }
+
+        InboxMessage::whereIn('id', $messagesToUpdate->pluck('id'))->update(['status' => 'read']);
+
+        foreach ($messagesToUpdate as $message) {
+            broadcast(new InboxMessageUpdated($message->fresh()))->toOthers();
+        }
+    }
+
+    /**
+     * Handle Instagram `reaction` events (react/unreact on a message),
+     * mirroring InboxController::handleReactionMessage for WhatsApp -
+     * reactions are keyed by reactor ('contact'|'agent') and update the
+     * existing message rather than creating a new bubble.
+     */
+    private function processInstagramReaction(InstagramIntegration $integration, array $messaging, int $companyId): void
+    {
+        $reaction = $messaging['reaction'] ?? null;
+        $targetMid = $reaction['mid'] ?? null;
+
+        if (!$targetMid) {
+            return;
+        }
+
+        $isEcho = ($messaging['sender']['id'] ?? null) === $integration->instagram_user_id;
+        $customerIgsid = $isEcho
+            ? ($messaging['recipient']['id'] ?? null)
+            : ($messaging['sender']['id'] ?? null);
+
+        if (!$customerIgsid) {
+            return;
+        }
+
+        $targetMessage = InboxMessage::where('external_message_id', $targetMid)
+            ->whereHas('chat', function ($query) use ($companyId, $integration, $customerIgsid) {
+                $query->where('company_id', $companyId)
+                    ->where('channelable_type', InstagramIntegration::class)
+                    ->where('channelable_id', $integration->id)
+                    ->where('external_chat_id', $customerIgsid);
+            })
+            ->first();
+
+        if (!$targetMessage) {
+            return;
+        }
+
+        $reactorKey    = $isEcho ? 'agent' : 'contact';
+        $action        = $reaction['action'] ?? 'react';
+        $reactionType  = $reaction['reaction'] ?? '';
+        $emoji         = $reactionType === '' ? '' : (self::REACTION_TYPE_TO_EMOJI[$reactionType] ?? $reactionType);
+
+        $reactions = $targetMessage->reactions ?? [];
+
+        if ($action === 'unreact' || $emoji === '') {
+            unset($reactions[$reactorKey]);
+        } else {
+            $reactions[$reactorKey] = [
+                'emoji'     => $emoji,
+                'timestamp' => $messaging['timestamp'] ?? null,
+            ];
+        }
+
+        $targetMessage->update(['reactions' => $reactions]);
+
+        broadcast(new InboxMessageUpdated($targetMessage))->toOthers();
     }
 
     /**
@@ -460,6 +682,7 @@ class InstagramIntegrationController extends Controller
             'first_name'      => $firstName,
             'last_name'       => $lastName,
             'phone'           => null,
+            'username'        => $profile['username'] ?? null,
             'external_id'     => $igsid,
             'source_type'     => 'chat_integration',
             'source_platform' => 'instagram',
@@ -499,8 +722,9 @@ class InstagramIntegrationController extends Controller
     /**
      * Fetch the contact's name/username/profile picture from the Instagram
      * Graph API. Returns an empty array if the lookup fails for any reason.
+     * Public so the username backfill command can reuse it for existing leads.
      */
-    private function fetchInstagramProfile(InstagramIntegration $integration, string $igsid): array
+    public function fetchInstagramProfile(InstagramIntegration $integration, string $igsid): array
     {
         try {
             $response = Http::timeout(15)->get(self::GRAPH_API_BASE . "/{$igsid}", [
@@ -552,8 +776,9 @@ class InstagramIntegrationController extends Controller
     }
 
     /**
-     * Download an inbound image/audio attachment from Meta's signed CDN URL
-     * and store it on the private `local` disk, updating the message record.
+     * Download an inbound image/audio/video/document attachment from Meta's
+     * signed CDN URL and store it on the private `local` disk, updating the
+     * message record.
      */
     private function downloadInstagramMedia(InboxMessage $message, string $url, int $companyId): void
     {
@@ -566,9 +791,12 @@ class InstagramIntegrationController extends Controller
 
             $mime      = $response->header('Content-Type') ?? 'application/octet-stream';
             $extension = InboxController::extensionFromMime($mime);
-            $folder    = $message->type === 'audio'
-                ? "instagram/audio/{$companyId}"
-                : "instagram/images/{$companyId}";
+            $folder    = match ($message->type) {
+                'audio'    => "instagram/audio/{$companyId}",
+                'video'    => "instagram/videos/{$companyId}",
+                'document' => "instagram/documents/{$companyId}",
+                default    => "instagram/images/{$companyId}",
+            };
             $path = $folder . '/' . Str::random(20) . ".{$extension}";
 
             Storage::disk('local')->put($path, $response->body());

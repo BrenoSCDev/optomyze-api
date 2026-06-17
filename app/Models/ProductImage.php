@@ -14,7 +14,6 @@ class ProductImage extends Model
         'product_id',
         'storage_path',
         'filename',
-        'image_type',
         'display_order',
         'is_primary',
         'alt_text',
@@ -43,11 +42,6 @@ class ProductImage extends Model
     public function scopePrimary($query)
     {
         return $query->where('is_primary', true);
-    }
-
-    public function scopeByType($query, $type)
-    {
-        return $query->where('image_type', $type);
     }
 
     public function scopeOrdered($query)
