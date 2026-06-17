@@ -25,18 +25,6 @@ class InboxController extends Controller
 {
     private const INSTAGRAM_GRAPH_API_BASE = 'https://graph.instagram.com/v23.0';
 
-    // Instagram's Send API only accepts this fixed set of reaction types -
-    // mapped to/from emoji glyphs so the unified `reactions` column always
-    // stores a renderable emoji, consistent with WhatsApp's free-form emoji.
-    private const INSTAGRAM_EMOJI_TO_REACTION_TYPE = [
-        '👍'  => 'like',
-        '❤️' => 'love',
-        '😆'  => 'smile',
-        '😮'  => 'wow',
-        '😢'  => 'sad',
-        '😠'  => 'angry',
-    ];
-
     public function handleEvolutionWebhook(Request $request)
     {
         $payload = $request->all();
@@ -681,16 +669,11 @@ class InboxController extends Controller
         } elseif ($chat->channel === InboxChat::CHANNEL_INSTAGRAM && $chat->channelable instanceof InstagramIntegration) {
             $integration = $chat->channelable;
 
-            if ($emoji !== '' && !isset(self::INSTAGRAM_EMOJI_TO_REACTION_TYPE[$emoji])) {
-                return response()->json([
-                    'message'           => 'Unsupported reaction for Instagram chats.',
-                    'supported_emojis'  => array_keys(self::INSTAGRAM_EMOJI_TO_REACTION_TYPE),
-                ], 422);
-            }
-
+            // The Instagram Send API takes the literal emoji character as the
+            // `reaction` value (not an English keyword like "like"/"wow").
             $payload = $emoji === ''
                 ? ['message_id' => $message->external_message_id]
-                : ['message_id' => $message->external_message_id, 'reaction' => self::INSTAGRAM_EMOJI_TO_REACTION_TYPE[$emoji]];
+                : ['message_id' => $message->external_message_id, 'reaction' => $emoji];
 
             $response = Http::withToken($integration->access_token)
                 ->post(self::INSTAGRAM_GRAPH_API_BASE . "/{$integration->instagram_user_id}/messages", [
@@ -974,17 +957,17 @@ class InboxController extends Controller
             $externalMessageId = (string) Str::uuid();
 
             if ($messageMode === 'external') {
-                $outgoingMessage = ['text' => $request->text];
+                $body = [
+                    'recipient' => ['id' => $igsid],
+                    'message'   => ['text' => $request->text],
+                ];
 
                 if ($replyToMessage?->external_message_id) {
-                    $outgoingMessage['reply_to'] = ['mid' => $replyToMessage->external_message_id];
+                    $body['reply_to'] = ['mid' => $replyToMessage->external_message_id];
                 }
 
                 $response = Http::withToken($integration->access_token)
-                    ->post(self::INSTAGRAM_GRAPH_API_BASE . "/{$integration->instagram_user_id}/messages", [
-                        'recipient' => ['id' => $igsid],
-                        'message'   => $outgoingMessage,
-                    ]);
+                    ->post(self::INSTAGRAM_GRAPH_API_BASE . "/{$integration->instagram_user_id}/messages", $body);
 
                 if (!$response->successful()) {
                     if ($this->isInstagramWindowExpired($response)) {
@@ -1087,25 +1070,25 @@ class InboxController extends Controller
             if ($messageMode === 'external') {
                 $publicUrl = rtrim(config('app.url'), '/') . '/storage/' . $filePath;
 
-                $outgoingMessage = [
-                    'attachment' => [
-                        'type'    => $type,
-                        'payload' => [
-                            'url'         => $publicUrl,
-                            'is_reusable' => true,
+                $body = [
+                    'recipient' => ['id' => $igsid],
+                    'message'   => [
+                        'attachment' => [
+                            'type'    => $type,
+                            'payload' => [
+                                'url'         => $publicUrl,
+                                'is_reusable' => true,
+                            ],
                         ],
                     ],
                 ];
 
                 if ($replyToMessage?->external_message_id) {
-                    $outgoingMessage['reply_to'] = ['mid' => $replyToMessage->external_message_id];
+                    $body['reply_to'] = ['mid' => $replyToMessage->external_message_id];
                 }
 
                 $response = Http::withToken($integration->access_token)
-                    ->post(self::INSTAGRAM_GRAPH_API_BASE . "/{$integration->instagram_user_id}/messages", [
-                        'recipient' => ['id' => $igsid],
-                        'message'   => $outgoingMessage,
-                    ]);
+                    ->post(self::INSTAGRAM_GRAPH_API_BASE . "/{$integration->instagram_user_id}/messages", $body);
 
                 if (!$response->successful()) {
                     Storage::disk('public')->delete($filePath);
