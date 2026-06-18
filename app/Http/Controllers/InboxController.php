@@ -669,6 +669,12 @@ class InboxController extends Controller
         } elseif ($chat->channel === InboxChat::CHANNEL_INSTAGRAM && $chat->channelable instanceof InstagramIntegration) {
             $integration = $chat->channelable;
 
+            if (!$this->isUsableInstagramMid($message->external_message_id)) {
+                return response()->json([
+                    'message' => 'This message has no valid Instagram reference to react to.',
+                ], 422);
+            }
+
             // The Instagram Send API takes the literal emoji character as the
             // `reaction` value (not an English keyword like "like"/"wow").
             $payload = $emoji === ''
@@ -953,6 +959,12 @@ class InboxController extends Controller
             ? InboxMessage::where('inbox_chat_id', $chat->id)->find($request->input('reply_to_message_id'))
             : null;
 
+        if ($replyToMessage && !$this->isUsableInstagramMid($replyToMessage->external_message_id)) {
+            return response()->json([
+                'message' => 'This message cannot be replied to (no valid Instagram reference for it).',
+            ], 422);
+        }
+
         try {
             $externalMessageId = (string) Str::uuid();
 
@@ -981,6 +993,14 @@ class InboxController extends Controller
                 }
 
                 $externalMessageId = $response->json('message_id') ?? $externalMessageId;
+
+                if (!$response->json('message_id')) {
+                    Log::warning('Instagram send: no message_id in response, using fallback UUID', [
+                        'integration_id' => $integration->id,
+                        'chat_id'        => $chat->id,
+                        'response_body'  => $response->json(),
+                    ]);
+                }
             }
 
             $message = InboxMessage::create([
@@ -1059,6 +1079,12 @@ class InboxController extends Controller
             ? InboxMessage::where('inbox_chat_id', $chat->id)->find($request->input('reply_to_message_id'))
             : null;
 
+        if ($replyToMessage && !$this->isUsableInstagramMid($replyToMessage->external_message_id)) {
+            return response()->json([
+                'message' => 'This message cannot be replied to (no valid Instagram reference for it).',
+            ], 422);
+        }
+
         $uploadedFile = $request->file('file');
         $filePath     = $uploadedFile->store("instagram/outbound/{$companyId}", 'public');
         $mime         = $uploadedFile->getMimeType();
@@ -1104,6 +1130,14 @@ class InboxController extends Controller
                 }
 
                 $externalMessageId = $response->json('message_id') ?? $externalMessageId;
+
+                if (!$response->json('message_id')) {
+                    Log::warning('Instagram media send: no message_id in response, using fallback UUID', [
+                        'integration_id' => $integration->id,
+                        'chat_id'        => $chat->id,
+                        'response_body'  => $response->json(),
+                    ]);
+                }
             }
 
             $message = InboxMessage::create([
@@ -1145,6 +1179,22 @@ class InboxController extends Controller
                 'error'   => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Whether a stored external_message_id is a genuine Meta-issued mid that
+     * Instagram's `reply_to.mid` will accept, as opposed to one of our own
+     * fallback UUIDs (assigned when the Graph API send response didn't
+     * include a `message_id`, e.g. for internal-mode/simulated messages).
+     * Real Instagram mids are long opaque strings with no dashes.
+     */
+    private function isUsableInstagramMid(?string $mid): bool
+    {
+        if (!$mid) {
+            return false;
+        }
+
+        return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $mid) !== 1;
     }
 
     /**
