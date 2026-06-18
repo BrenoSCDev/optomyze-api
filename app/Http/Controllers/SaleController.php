@@ -362,11 +362,56 @@ class SaleController extends Controller
             ->whereIn('id', $request->input('tags'))
             ->pluck('id');
 
+        $oldTagIds = $sale->tags()->pluck('tags.id')->all();
+
         $sale->tags()->sync($tagIds);
+
+        $newTagIds = $tagIds->all();
+        $addedIds = array_diff($newTagIds, $oldTagIds);
+        $removedIds = array_diff($oldTagIds, $newTagIds);
+
+        if (!empty($addedIds)) {
+            foreach (Tag::whereIn('id', $addedIds)->get() as $tag) {
+                Record::createDealTagChange($sale, $tag, true, $user);
+            }
+        }
+
+        if (!empty($removedIds)) {
+            foreach (Tag::whereIn('id', $removedIds)->get() as $tag) {
+                Record::createDealTagChange($sale, $tag, false, $user);
+            }
+        }
 
         return response()->json([
             'message' => 'Tags updated successfully.',
             'sale' => $sale->load('tags'),
+        ]);
+    }
+
+    /**
+     * Assign (or reassign) the user responsible for a deal.
+     */
+    public function assignUser(Request $request, Sale $sale): JsonResponse
+    {
+        $user = Auth::user();
+
+        $this->assertSaleAccess($sale, $user);
+
+        $validated = $request->validate([
+            'user_id' => 'required|exists:users,id',
+        ]);
+
+        $oldUser = $sale->user_id ? User::find($sale->user_id) : null;
+        $newUser = User::find($validated['user_id']);
+
+        $sale->user_id = $validated['user_id'];
+        $sale->save();
+
+        Record::createDealAssignment($sale, $oldUser, $newUser, $user);
+
+        return response()->json([
+            'message' => 'User successfully assigned to deal',
+            'sale' => $sale->fresh(['user:id,name,email']),
         ]);
     }
 
@@ -853,7 +898,18 @@ class SaleController extends Controller
             'stage_id'  => 'nullable|exists:stages,id',
         ]);
 
+        $oldUserId = $sale->user_id;
+
         $sale->update($validated);
+
+        if (array_key_exists('user_id', $validated) && $validated['user_id'] != $oldUserId) {
+            Record::createDealAssignment(
+                $sale,
+                $oldUserId ? User::find($oldUserId) : null,
+                $validated['user_id'] ? User::find($validated['user_id']) : null,
+                null
+            );
+        }
 
         return response()->json([
             'message' => 'Sale updated successfully',

@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Models\Lead;
 use App\Models\LeadDocument;
+use App\Models\Record;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -30,6 +32,11 @@ class LeadDocumentController extends Controller
             'description' => $validated['description'] ?? null,
             'path' => $path,
         ]);
+
+        $lead = Lead::find($validated['lead_id']);
+        if ($lead) {
+            Record::createLeadDocumentAdded($document, $lead, $request->user());
+        }
 
         return response()->json([
             'message' => 'Documento criado com sucesso',

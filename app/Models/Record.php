@@ -43,6 +43,10 @@ class Record extends Model
     const TYPE_WHATSAPP_CHAT = 'whatsapp_chat';
     const TYPE_INSTAGRAM_CHAT = 'instagram_chat';
     const TYPE_LOST = 'lost';
+    const TYPE_TASK = 'task';
+    const TYPE_APPOINTMENT = 'appointment';
+    const TYPE_OBSERVATION = 'observation';
+    const TYPE_DOCUMENT = 'document';
 
     /**
      * Record action constants.
@@ -65,6 +69,7 @@ class Record extends Model
     const ACTION_LOST = 'lost';
     const ACTION_WON = 'won';
     const ACTION_CLOSED = 'closed';
+    const ACTION_COMPLETED = 'completed';
 
     /**
      * Source constants.
@@ -408,6 +413,266 @@ class Record extends Model
             null,
             ['dealName' => $sale->name, 'userName' => $user?->name],
             $user ? self::SOURCE_MANUAL : self::SOURCE_SYSTEM
+        );
+    }
+
+    /**
+     * Log a user being assigned (or unassigned) from a lead.
+     */
+    public static function createLeadAssignment(
+        Lead $lead,
+        ?User $oldUser,
+        ?User $newUser,
+        ?User $actor = null
+    ): self {
+        $action = $newUser === null ? self::ACTION_UNASSIGNED : self::ACTION_ASSIGNED;
+        $variant = $action === self::ACTION_ASSIGNED ? ($oldUser ? 'reassigned' : 'initial') : null;
+
+        return self::make(
+            $lead->company_id,
+            self::RECORDABLE_LEAD,
+            $lead->id,
+            $actor,
+            self::TYPE_ASSIGNMENT,
+            $action,
+            $variant,
+            [
+                'leadName' => self::leadDisplayName($lead),
+                'oldUserName' => $oldUser?->name,
+                'newUserName' => $newUser?->name,
+            ],
+            $actor ? self::SOURCE_MANUAL : self::SOURCE_SYSTEM
+        );
+    }
+
+    /**
+     * Log a user being assigned (or unassigned) as a deal's owner.
+     */
+    public static function createDealAssignment(
+        Sale $sale,
+        ?User $oldUser,
+        ?User $newUser,
+        ?User $actor = null
+    ): self {
+        $action = $newUser === null ? self::ACTION_UNASSIGNED : self::ACTION_ASSIGNED;
+        $variant = $action === self::ACTION_ASSIGNED ? ($oldUser ? 'reassigned' : 'initial') : null;
+
+        return self::make(
+            $sale->company_id,
+            self::RECORDABLE_SALE,
+            $sale->id,
+            $actor,
+            self::TYPE_ASSIGNMENT,
+            $action,
+            $variant,
+            [
+                'dealName' => $sale->name,
+                'oldUserName' => $oldUser?->name,
+                'newUserName' => $newUser?->name,
+            ],
+            $actor ? self::SOURCE_MANUAL : self::SOURCE_SYSTEM
+        );
+    }
+
+    /**
+     * Log a task being created for a lead.
+     */
+    public static function createTaskCreated(Task $task, Lead $lead, ?User $actor = null): self
+    {
+        return self::make(
+            $lead->company_id,
+            self::RECORDABLE_LEAD,
+            $lead->id,
+            $actor,
+            self::TYPE_TASK,
+            self::ACTION_CREATED,
+            null,
+            [
+                'leadName' => self::leadDisplayName($lead),
+                'taskTitle' => $task->title,
+                'assigneeName' => $task->assignee?->name,
+            ],
+            $actor ? self::SOURCE_MANUAL : self::SOURCE_SYSTEM
+        );
+    }
+
+    /**
+     * Log a task being updated (any field other than a completion transition).
+     */
+    public static function createTaskUpdated(Task $task, Lead $lead, ?User $actor = null): self
+    {
+        return self::make(
+            $lead->company_id,
+            self::RECORDABLE_LEAD,
+            $lead->id,
+            $actor,
+            self::TYPE_TASK,
+            self::ACTION_UPDATED,
+            null,
+            ['leadName' => self::leadDisplayName($lead), 'taskTitle' => $task->title],
+            $actor ? self::SOURCE_MANUAL : self::SOURCE_SYSTEM
+        );
+    }
+
+    /**
+     * Log a task being marked as completed.
+     */
+    public static function createTaskCompleted(Task $task, Lead $lead, ?User $actor = null): self
+    {
+        return self::make(
+            $lead->company_id,
+            self::RECORDABLE_LEAD,
+            $lead->id,
+            $actor,
+            self::TYPE_TASK,
+            self::ACTION_COMPLETED,
+            null,
+            ['leadName' => self::leadDisplayName($lead), 'taskTitle' => $task->title],
+            $actor ? self::SOURCE_MANUAL : self::SOURCE_SYSTEM
+        );
+    }
+
+    /**
+     * Log a tag being added to or removed from a lead.
+     */
+    public static function createLeadTagChange(Lead $lead, Tag $tag, bool $added, ?User $actor = null): self
+    {
+        return self::make(
+            $lead->company_id,
+            self::RECORDABLE_LEAD,
+            $lead->id,
+            $actor,
+            self::TYPE_TAG_CHANGE,
+            $added ? self::ACTION_ADDED : self::ACTION_REMOVED,
+            null,
+            ['leadName' => self::leadDisplayName($lead), 'tagName' => $tag->name],
+            $actor ? self::SOURCE_MANUAL : self::SOURCE_SYSTEM
+        );
+    }
+
+    /**
+     * Log a tag being added to or removed from a deal.
+     */
+    public static function createDealTagChange(Sale $sale, Tag $tag, bool $added, ?User $actor = null): self
+    {
+        return self::make(
+            $sale->company_id,
+            self::RECORDABLE_SALE,
+            $sale->id,
+            $actor,
+            self::TYPE_TAG_CHANGE,
+            $added ? self::ACTION_ADDED : self::ACTION_REMOVED,
+            null,
+            ['dealName' => $sale->name, 'tagName' => $tag->name],
+            $actor ? self::SOURCE_MANUAL : self::SOURCE_SYSTEM
+        );
+    }
+
+    /**
+     * Log an appointment being created for a lead.
+     */
+    public static function createAppointmentCreated(Appointment $appointment, Lead $lead, ?User $actor = null): self
+    {
+        return self::make(
+            $lead->company_id,
+            self::RECORDABLE_LEAD,
+            $lead->id,
+            $actor,
+            self::TYPE_APPOINTMENT,
+            self::ACTION_CREATED,
+            null,
+            ['leadName' => self::leadDisplayName($lead), 'appointmentTitle' => $appointment->title],
+            $actor ? self::SOURCE_MANUAL : self::SOURCE_SYSTEM
+        );
+    }
+
+    /**
+     * Log an appointment being updated (any change other than completion).
+     */
+    public static function createAppointmentUpdated(Appointment $appointment, Lead $lead, ?User $actor = null): self
+    {
+        return self::make(
+            $lead->company_id,
+            self::RECORDABLE_LEAD,
+            $lead->id,
+            $actor,
+            self::TYPE_APPOINTMENT,
+            self::ACTION_UPDATED,
+            null,
+            ['leadName' => self::leadDisplayName($lead), 'appointmentTitle' => $appointment->title],
+            $actor ? self::SOURCE_MANUAL : self::SOURCE_SYSTEM
+        );
+    }
+
+    /**
+     * Log an appointment being marked as completed.
+     */
+    public static function createAppointmentCompleted(Appointment $appointment, Lead $lead, ?User $actor = null): self
+    {
+        return self::make(
+            $lead->company_id,
+            self::RECORDABLE_LEAD,
+            $lead->id,
+            $actor,
+            self::TYPE_APPOINTMENT,
+            self::ACTION_COMPLETED,
+            null,
+            ['leadName' => self::leadDisplayName($lead), 'appointmentTitle' => $appointment->title],
+            $actor ? self::SOURCE_MANUAL : self::SOURCE_SYSTEM
+        );
+    }
+
+    /**
+     * Log an observation (note) being added to a lead.
+     */
+    public static function createObservationCreated(Observation $observation, Lead $lead, ?User $actor = null): self
+    {
+        return self::make(
+            $lead->company_id,
+            self::RECORDABLE_LEAD,
+            $lead->id,
+            $actor,
+            self::TYPE_OBSERVATION,
+            self::ACTION_CREATED,
+            null,
+            ['leadName' => self::leadDisplayName($lead)],
+            $actor ? self::SOURCE_MANUAL : self::SOURCE_SYSTEM
+        );
+    }
+
+    /**
+     * Log a document being attached to a lead.
+     */
+    public static function createLeadDocumentAdded(LeadDocument $document, Lead $lead, ?User $actor = null): self
+    {
+        return self::make(
+            $lead->company_id,
+            self::RECORDABLE_LEAD,
+            $lead->id,
+            $actor,
+            self::TYPE_DOCUMENT,
+            self::ACTION_ADDED,
+            null,
+            ['leadName' => self::leadDisplayName($lead), 'documentTitle' => $document->title],
+            $actor ? self::SOURCE_MANUAL : self::SOURCE_SYSTEM
+        );
+    }
+
+    /**
+     * Log a document being attached to a deal.
+     */
+    public static function createDealDocumentAdded(SaleDoc $doc, Sale $sale, ?User $actor = null): self
+    {
+        return self::make(
+            $sale->company_id,
+            self::RECORDABLE_SALE,
+            $sale->id,
+            $actor,
+            self::TYPE_DOCUMENT,
+            self::ACTION_ADDED,
+            null,
+            ['dealName' => $sale->name, 'documentTitle' => $doc->filename],
+            $actor ? self::SOURCE_MANUAL : self::SOURCE_SYSTEM
         );
     }
 

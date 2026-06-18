@@ -4,6 +4,7 @@ use App\Http\Controllers\ProductController;
 use App\Http\Controllers\LeadDocumentController;
 use App\Http\Controllers\AllowedOriginController;
 use App\Http\Controllers\ApiTokenController;
+use App\Http\Controllers\ApiRequestLogController;
 use App\Http\Controllers\FunnelController;
 use App\Http\Controllers\FunnelManagerQueueController;
 use App\Http\Controllers\LostReasonController;
@@ -216,6 +217,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/sales/{sale}', [SaleController::class, 'show']);
     Route::put('/sales/{sale}', [SaleController::class, 'update']);
     Route::put('/sales/{sale}/tags', [SaleController::class, 'updateTags']);
+    Route::post('/sales/{sale}/assign', [SaleController::class, 'assignUser']);
     Route::put('/sales/{sale}/status', [SaleController::class, 'updateStatus']);
     Route::patch('/sales/{sale}/move-stage', [SaleController::class, 'moveToStage']);
     Route::get('/deals-activity/transactions', [SaleController::class, 'dealTransactions']);
@@ -271,6 +273,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/allowed-origins', [AllowedOriginController::class, 'store']);
     Route::put('/allowed-origins/{id}', [AllowedOriginController::class, 'update']);
     Route::delete('/allowed-origins/{id}', [AllowedOriginController::class, 'destroy']);
+
+    Route::get('/api-logs', [ApiRequestLogController::class, 'index']);
+    Route::get('/api-logs/filter-options', [ApiRequestLogController::class, 'filterOptions']);
+    Route::get('/api-logs/{id}', [ApiRequestLogController::class, 'show']);
 
 
     /*
@@ -530,7 +536,7 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 
-Route::middleware('verify.api.token')->prefix('v1')->group(function () {
+Route::middleware(['verify.api.token', 'log.api.requests'])->prefix('v1')->group(function () {
     Route::get('/protected', function(Request $request) {
         return response()->json([
             'message' => 'Access granted',

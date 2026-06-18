@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Record;
 use App\Models\Sale;
 use App\Models\SaleDoc;
 use Illuminate\Http\Request;
@@ -24,6 +25,8 @@ class SaleDocController extends Controller
             'mime_type' => $file->getClientMimeType(),
             'file_size' => $file->getSize(),
         ]);
+
+        Record::createDealDocumentAdded($doc, $sale, $request->user());
 
         return response()->json($doc, 201);
     }

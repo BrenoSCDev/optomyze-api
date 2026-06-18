@@ -452,7 +452,25 @@ class LeadController extends Controller
             ->whereIn('id', $request->input('tags'))
             ->pluck('id');
 
+        $oldTagIds = $lead->tags()->pluck('tags.id')->all();
+
         $lead->tags()->sync($tagIds);
+
+        $newTagIds = $tagIds->all();
+        $addedIds = array_diff($newTagIds, $oldTagIds);
+        $removedIds = array_diff($oldTagIds, $newTagIds);
+
+        if (!empty($addedIds)) {
+            foreach (Tag::whereIn('id', $addedIds)->get() as $tag) {
+                Record::createLeadTagChange($lead, $tag, true, $user);
+            }
+        }
+
+        if (!empty($removedIds)) {
+            foreach (Tag::whereIn('id', $removedIds)->get() as $tag) {
+                Record::createLeadTagChange($lead, $tag, false, $user);
+            }
+        }
 
         return response()->json([
             'message' => 'Tags updated successfully.',
@@ -468,8 +486,13 @@ class LeadController extends Controller
             'user_id' => 'required|exists:users,id',
         ]);
 
+        $oldUser = $lead->assigned_to ? User::find($lead->assigned_to) : null;
+        $newUser = User::find($validated['user_id']);
+
         $lead->assigned_to = $validated['user_id'];
         $lead->save();
+
+        Record::createLeadAssignment($lead, $oldUser, $newUser, Auth::user());
 
         app(NotificationService::class)->dispatch('lead_assigned', $lead->company_id, [
             'lead_owner_id' => $validated['user_id'],
@@ -722,7 +745,18 @@ class LeadController extends Controller
             'country' => 'nullable|string|max:100',
         ]);
 
+        $oldAssignedTo = $lead->assigned_to;
+
         $lead->update($validated);
+
+        if (array_key_exists('assigned_to', $validated) && $validated['assigned_to'] != $oldAssignedTo) {
+            Record::createLeadAssignment(
+                $lead,
+                $oldAssignedTo ? User::find($oldAssignedTo) : null,
+                $validated['assigned_to'] ? User::find($validated['assigned_to']) : null,
+                null
+            );
+        }
 
         return response()->json([
             'message' => 'Lead updated successfully',

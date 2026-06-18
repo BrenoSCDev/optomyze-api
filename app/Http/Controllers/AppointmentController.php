@@ -6,6 +6,7 @@ use App\Jobs\FireIntegrationWebhook;
 use App\Models\Appointment;
 use App\Models\Lead;
 use App\Models\Product;
+use App\Models\Record;
 use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -63,10 +64,15 @@ class AppointmentController extends Controller
             $appointment->products()->sync($productIds);
         }
 
-        $appointment->load(['appointmentType', 'user:id,name,email', 'lead:id,first_name,last_name,funnel_id', 'products:id,name,sku,base_price,type']);
+        $appointment->load(['appointmentType', 'user:id,name,email', 'lead:id,company_id,first_name,last_name,funnel_id,assigned_to', 'products:id,name,sku,base_price,type']);
 
         $lead  = $appointment->lead;
         $actor = Auth::user();
+
+        if ($lead) {
+            Record::createAppointmentCreated($appointment, $lead, $actor);
+        }
+
         app(NotificationService::class)->dispatch('appointment_scheduled', $appointment->company_id, [
             'lead_owner_id'      => $lead?->assigned_to,
             'actor_id'           => $actor->id,
@@ -117,12 +123,24 @@ class AppointmentController extends Controller
             'product_ids.*'       => 'integer|exists:products,id',
         ]);
 
+        $wasCompleted = $appointment->status === 'completed';
+
         if (array_key_exists('product_ids', $data)) {
             $appointment->products()->sync($data['product_ids']);
         }
 
         $appointment->update(collect($data)->except('product_ids')->toArray());
-        $fresh = $appointment->fresh(['appointmentType', 'lead:id,first_name,last_name,funnel_id', 'user:id,name,email', 'products:id,name,sku,base_price,type']);
+        $fresh = $appointment->fresh(['appointmentType', 'lead:id,company_id,first_name,last_name,funnel_id', 'user:id,name,email', 'products:id,name,sku,base_price,type']);
+
+        if ($fresh->lead) {
+            $justCompleted = ($data['status'] ?? null) === 'completed' && !$wasCompleted;
+            if ($justCompleted) {
+                Record::createAppointmentCompleted($fresh, $fresh->lead, Auth::user());
+            } else {
+                Record::createAppointmentUpdated($fresh, $fresh->lead, Auth::user());
+            }
+        }
+
         broadcast(new AppointmentLiveUpdate('updated', $fresh));
         return response()->json($fresh);
     }
@@ -214,7 +232,11 @@ class AppointmentController extends Controller
             $appointment->products()->sync($productIds);
         }
 
-        $appointment->load(['appointmentType', 'lead:id,first_name,last_name,funnel_id,assigned_to', 'user:id,name,email', 'products:id,name,sku,base_price,type']);
+        $appointment->load(['appointmentType', 'lead:id,company_id,first_name,last_name,funnel_id,assigned_to', 'user:id,name,email', 'products:id,name,sku,base_price,type']);
+
+        if ($appointment->lead) {
+            Record::createAppointmentCreated($appointment, $appointment->lead, null);
+        }
 
         broadcast(new AppointmentLiveUpdate('created', $appointment));
 
@@ -258,15 +280,28 @@ class AppointmentController extends Controller
             'product_ids.*'       => 'integer|exists:products,id',
         ]);
 
+        $wasCompleted = $appointment->status === 'completed';
+
         if (array_key_exists('product_ids', $validated)) {
             $appointment->products()->sync($validated['product_ids']);
         }
 
         $appointment->update(collect($validated)->except('product_ids')->toArray());
 
+        $fresh = $appointment->fresh(['appointmentType', 'lead:id,company_id,first_name,last_name', 'products:id,name,sku,base_price,type']);
+
+        if ($fresh->lead) {
+            $justCompleted = ($validated['status'] ?? null) === 'completed' && !$wasCompleted;
+            if ($justCompleted) {
+                Record::createAppointmentCompleted($fresh, $fresh->lead, null);
+            } else {
+                Record::createAppointmentUpdated($fresh, $fresh->lead, null);
+            }
+        }
+
         return response()->json([
             'message' => 'Appointment updated successfully',
-            'data'    => $appointment->fresh(['appointmentType', 'lead:id,first_name,last_name', 'products:id,name,sku,base_price,type']),
+            'data'    => $fresh,
         ]);
     }
 

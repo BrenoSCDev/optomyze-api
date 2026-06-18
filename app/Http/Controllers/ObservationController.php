@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Lead;
 use App\Models\Observation;
+use App\Models\Record;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -34,6 +36,11 @@ class ObservationController extends Controller
             'note' => $data['note'],
             'user_id' => Auth::id(),
         ]);
+
+        $lead = Lead::find($data['lead_id']);
+        if ($lead) {
+            Record::createObservationCreated($observation, $lead, Auth::user());
+        }
 
         return response()->json([
             'message' => 'Observation created successfully.',

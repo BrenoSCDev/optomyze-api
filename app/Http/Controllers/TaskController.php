@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\Lead;
 use App\Models\Record;
 use App\Models\Task;
-use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -77,34 +76,7 @@ class TaskController extends Controller
                 $lead = Lead::find($validated['lead_id']);
 
                 if ($lead) {
-                    $description = "Task \"{$task->title}\" created by {$task->creator->name}";
-
-                    if ($task->assignee) {
-                        $description .= " assigned to {$task->assignee->name}";
-                    }
-
-                    if ($task->priority) {
-                        $description .= " (" . ucfirst($task->priority) . " priority)";
-                    }
-
-                    if ($task->due_date) {
-                        $description .= " – Due: " . Carbon::parse($task->due_date)->format('d/m/Y');
-                    }
-
-                    if ($task->status === 'completed') {
-                        $description .= " and marked as completed";
-                    }
-
-                    $transaction = $lead->records()->create([
-                        'company_id' => $lead->company_id,
-                        'user_id' => Auth::id(),
-                        'type' => 'task',
-                        'action' => 'created',
-                        'title' => 'Task Created',
-                        'description' => $description,
-                        'source' => Record::SOURCE_MANUAL,
-                    ]);
-
+                    $transaction = Record::createTaskCreated($task, $lead, Auth::user());
                     $transaction->load('user');
                 }
             }
@@ -143,13 +115,25 @@ class TaskController extends Controller
                 'assigned_to' => 'sometimes|exists:users,id',
             ]);
 
+            $wasCompleted = $task->status === 'completed';
+
             $task->update($validated);
 
-            if (($validated['status'] ?? null) === 'completed' && !$task->completed_at) {
+            $justCompleted = ($validated['status'] ?? null) === 'completed' && !$wasCompleted;
+
+            if ($justCompleted && !$task->completed_at) {
                 $task->markAsCompleted();
             }
 
-            $task->load(['creator', 'assignee']);
+            $task->load(['creator', 'assignee', 'lead']);
+
+            if ($task->lead) {
+                if ($justCompleted) {
+                    Record::createTaskCompleted($task, $task->lead, Auth::user());
+                } else {
+                    Record::createTaskUpdated($task, $task->lead, Auth::user());
+                }
+            }
 
             return response()->json([
                 'message' => 'Tarefa atualizada com sucesso',
