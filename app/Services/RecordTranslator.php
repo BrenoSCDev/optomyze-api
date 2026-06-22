@@ -109,6 +109,18 @@ class RecordTranslator
                 'ES' => 'Chat de Instagram Iniciado',
                 'DE' => 'Instagram-Chat Gestartet',
             ],
+            'Lead.chat_session.started' => [
+                'EN' => 'Conversation Started',
+                'PT' => 'Conversa Iniciada',
+                'ES' => 'Conversación Iniciada',
+                'DE' => 'Gespräch Gestartet',
+            ],
+            'Lead.chat_session.closed' => [
+                'EN' => 'Conversation Closed',
+                'PT' => 'Conversa Encerrada',
+                'ES' => 'Conversación Cerrada',
+                'DE' => 'Gespräch Beendet',
+            ],
             'Lead.lost.lost' => [
                 'EN' => 'Lead Marked as Lost',
                 'PT' => 'Lead Marcado como Perdido',
@@ -299,6 +311,18 @@ class RecordTranslator
                 'PT' => 'Nova conversa do Instagram iniciada via @{username}',
                 'ES' => 'Nueva conversación de Instagram iniciada a través de @{username}',
                 'DE' => 'Neue Instagram-Unterhaltung über @{username} gestartet',
+            ],
+            'Lead.chat_session.started' => [
+                'EN' => 'New conversation started on {channel}',
+                'PT' => 'Nova conversa iniciada no {channel}',
+                'ES' => 'Nueva conversación iniciada en {channel}',
+                'DE' => 'Neues Gespräch auf {channel} gestartet',
+            ],
+            'Lead.chat_session.closed' => [
+                'EN' => "Conversation closed — {closingReason} ({durationMinutes} min)",
+                'PT' => "Conversa encerrada — {closingReason} ({durationMinutes} min)",
+                'ES' => "Conversación cerrada — {closingReason} ({durationMinutes} min)",
+                'DE' => "Gespräch beendet — {closingReason} ({durationMinutes} Min.)",
             ],
             'Lead.lost.lost' => [
                 'EN' => '{reason}',

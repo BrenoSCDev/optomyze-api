@@ -232,6 +232,14 @@ class Lead extends Model
     }
 
     /**
+     * Get all chat sessions (any channel) for this lead.
+     */
+    public function chatSessions(): HasMany
+    {
+        return $this->hasMany(ChatSession::class);
+    }
+
+    /**
      * Scope a query to only include active leads.
      */
     public function scopeActive(Builder $query): Builder

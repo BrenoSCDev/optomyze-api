@@ -45,13 +45,15 @@ class AppointmentController extends Controller
             'end_at'               => 'nullable|date|after_or_equal:scheduled_at',
             'timezone'             => 'sometimes|string|max:100',
             'notes'                => 'nullable|string',
-            'status'               => 'sometimes|in:scheduled,completed,cancelled,no_show',
+            'status'               => 'sometimes|in:draft,scheduled,completed,cancelled,no_show',
             'product_ids'          => 'sometimes|array',
             'product_ids.*'        => 'integer|exists:products,id',
         ]);
 
-        $data['company_id'] = Auth::user()->company_id;
+        $user = Auth::user();
+        $data['company_id'] = $user->company_id;
         $data['user_id']    = Auth::id();
+        $data['timezone']   = $data['timezone'] ?? $user->company?->timezone ?? 'UTC';
 
         if ($request->has('lead_timezone')) {
             Lead::where('id', $data['lead_id'])->update(['timezone' => $request->lead_timezone]);
@@ -118,7 +120,7 @@ class AppointmentController extends Controller
             'end_at'              => 'nullable|date|after_or_equal:scheduled_at',
             'timezone'            => 'sometimes|string|max:100',
             'notes'               => 'nullable|string',
-            'status'              => 'sometimes|in:scheduled,completed,cancelled,no_show',
+            'status'              => 'sometimes|in:draft,scheduled,completed,cancelled,no_show',
             'product_ids'         => 'sometimes|array',
             'product_ids.*'       => 'integer|exists:products,id',
         ]);
@@ -216,7 +218,7 @@ class AppointmentController extends Controller
             'end_at'               => 'nullable|date|after_or_equal:scheduled_at',
             'timezone'             => 'sometimes|string|max:100',
             'notes'                => 'nullable|string',
-            'status'               => 'sometimes|in:scheduled,completed,cancelled,no_show',
+            'status'               => 'sometimes|in:draft,scheduled,completed,cancelled,no_show',
             'product_ids'          => 'sometimes|array',
             'product_ids.*'        => 'integer|exists:products,id',
         ]);
@@ -225,7 +227,8 @@ class AppointmentController extends Controller
         $appointment = Appointment::create([
             ...collect($validated)->except('product_ids')->toArray(),
             'company_id' => $company->id,
-            'status'     => $validated['status'] ?? 'scheduled',
+            'status'     => $validated['status'] ?? 'draft',
+            'timezone'   => $validated['timezone'] ?? $company->timezone ?? 'UTC',
         ]);
 
         if (!empty($productIds)) {
@@ -275,7 +278,7 @@ class AppointmentController extends Controller
             'end_at'              => 'nullable|date|after_or_equal:scheduled_at',
             'timezone'            => 'sometimes|string|max:100',
             'notes'               => 'nullable|string',
-            'status'              => 'sometimes|in:scheduled,completed,cancelled,no_show',
+            'status'              => 'sometimes|in:draft,scheduled,completed,cancelled,no_show',
             'product_ids'         => 'sometimes|array',
             'product_ids.*'       => 'integer|exists:products,id',
         ]);

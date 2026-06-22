@@ -15,6 +15,7 @@ use App\Models\InboxMessage;
 use App\Models\InstagramIntegration;
 use App\Models\Lead;
 use App\Models\Record;
+use App\Services\ChatSessionService;
 use App\Services\LeadQueueAssignmentService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -404,12 +405,19 @@ class InstagramIntegrationController extends Controller
             return;
         }
 
+        // A session auto-starts from an inbound lead message only; outgoing
+        // (echoed) messages just attach to whatever session is currently active.
+        $chatSession = !$isEcho
+            ? ChatSessionService::startOrGetActive($chat)
+            : $chat->activeChatSession;
+
         $messageValues = [
-            'direction'    => $isEcho ? 'outgoing' : 'incoming',
-            'message_mode' => 'external',
-            'user_id'      => null,
-            'status'       => $isEcho ? 'sent' : 'delivered',
-            'sent_at'      => now(),
+            'direction'       => $isEcho ? 'outgoing' : 'incoming',
+            'message_mode'    => 'external',
+            'user_id'         => null,
+            'status'          => $isEcho ? 'sent' : 'delivered',
+            'sent_at'         => now(),
+            'chat_session_id' => $chatSession?->id,
         ];
 
         if (!empty($message['reply_to'])) {
@@ -478,6 +486,10 @@ class InstagramIntegrationController extends Controller
 
         $inboxMessage = InboxMessage::firstOrCreate($messageAttributes, $messageValues);
 
+        if ($inboxMessage->wasRecentlyCreated && $chatSession) {
+            ChatSessionService::recordMessage($chatSession, $inboxMessage);
+        }
+
         if ($inboxMessage->wasRecentlyCreated && $mediaUrl) {
             $this->downloadInstagramMedia($inboxMessage, $mediaUrl, $companyId);
         }
@@ -485,6 +497,12 @@ class InstagramIntegrationController extends Controller
         $chat->update(['last_message_at' => now()]);
 
         broadcast(new InboxMessageReceived($inboxMessage))->toOthers();
+
+        // Sent only after the inbound message's own broadcast above, so live
+        // clients receive them in the right order too (not just the DB rows).
+        if (!$isEcho && $chatSession) {
+            ChatSessionService::sendWelcomeMessageIfEnabled($chat, $chatSession);
+        }
     }
 
     /**

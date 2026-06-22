@@ -17,6 +17,7 @@ use App\Events\InboxMessagesCleared;
 use App\Events\InboxMessageReceived;
 use App\Events\InboxMessageUpdated;
 use App\Events\LeadLiveUpdate;
+use App\Services\ChatSessionService;
 use App\Services\LeadQueueAssignmentService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -59,6 +60,13 @@ class InboxController extends Controller
         $phoneNumber = str_replace('@s.whatsapp.net', '', $remoteJid);
         $pushName = trim($payload['data']['pushName'] ?? '');
 
+        // Leads are only ever auto-created from an inbound message. An
+        // outbound message sent directly from the connected phone (not via
+        // the CRM) to a number with no matching lead must NOT fabricate one —
+        // it's just tracked on the chat with no lead attached until a real
+        // inbound message arrives for that number.
+        $isInbound = !($payload['data']['key']['fromMe'] ?? false);
+
         // 🔹 Split pushName into first and last name
         $firstName = null;
         $lastName  = null;
@@ -69,29 +77,28 @@ class InboxController extends Controller
             $lastName  = $nameParts[1] ?? null;
         }
 
-        // 3️⃣ Find funnel + entry stage
-        $funnel = $instance->funnel;
-
-        if (!$funnel) {
-            return response()->json(['message' => 'No funnel associated'], 422);
-        }
-
-        $entryStage = $funnel->stages()
-            ->where('type', 'entry')
-            ->orderBy('order')
-            ->first();
-
-        if (!$entryStage) {
-            return response()->json(['message' => 'No entry stage found'], 422);
-        }
-
-        // 4️⃣ Find or create lead
+        // 3️⃣ Find or create lead (inbound only)
         $lead = Lead::where('company_id', $companyId)
             ->where('phone', $phoneNumber)
             ->first();
 
         $leadCreated = false;
-        if (!$lead) {
+        if (!$lead && $isInbound) {
+            $funnel = $instance->funnel;
+
+            if (!$funnel) {
+                return response()->json(['message' => 'No funnel associated'], 422);
+            }
+
+            $entryStage = $funnel->stages()
+                ->where('type', 'entry')
+                ->orderBy('order')
+                ->first();
+
+            if (!$entryStage) {
+                return response()->json(['message' => 'No entry stage found'], 422);
+            }
+
             $lead = Lead::create([
                 'company_id'      => $companyId,
                 'first_name'      => $firstName ?: $phoneNumber,
@@ -110,7 +117,7 @@ class InboxController extends Controller
             broadcast(new LeadLiveUpdate('created', $lead));
         }
 
-        // 5️⃣ Find or create inbox chat
+        // 4️⃣ Find or create inbox chat
         $chat = InboxChat::firstOrCreate(
             [
                 'company_id'        => $companyId,
@@ -120,14 +127,20 @@ class InboxController extends Controller
                 'external_chat_id'  => $remoteJid,
             ],
             [
-                'lead_id'             => $lead->id,
+                'lead_id'             => $lead?->id,
                 'external_contact_id' => $phoneNumber,
                 'is_group'            => false,
                 'last_message_at'     => now(),
             ]
         );
 
-        // 6️⃣ Fire lead records for new lead / new chat
+        // Backfill: this chat may have started lead-less from an earlier
+        // outbound-only message; attach the lead now that we have one.
+        if (!$chat->lead_id && $lead) {
+            $chat->update(['lead_id' => $lead->id]);
+        }
+
+        // 5️⃣ Fire lead records for new lead / new chat
         if ($leadCreated) {
             \App\Models\Record::createLeadCreation(
                 $lead,
@@ -136,7 +149,7 @@ class InboxController extends Controller
             );
         }
 
-        if ($chat->wasRecentlyCreated) {
+        if ($chat->wasRecentlyCreated && $lead) {
             \App\Models\Record::createWhatsAppChatStarted($lead, $chat, $instance);
 
             // Fetch and store WhatsApp profile picture for the new chat
@@ -185,14 +198,22 @@ class InboxController extends Controller
                 'external_message_id' => $waMessageId,
             ];
 
-            $msgDirection = $payload['data']['key']['fromMe'] ?? false ? 'outgoing' : 'incoming';
+            $msgDirection = $isInbound ? 'incoming' : 'outgoing';
+
+            // A session auto-starts from an inbound lead message only; outgoing
+            // messages just attach to whatever session is currently active (if any),
+            // and only once the chat actually has a lead attached.
+            $chatSession = ($isInbound && $chat->lead_id)
+                ? ChatSessionService::startOrGetActive($chat)
+                : $chat->activeChatSession;
 
             $messageValues = [
-                'direction'    => $msgDirection,
-                'message_mode' => 'external',
-                'user_id'      => null,
-                'status'       => 'delivered',
-                'sent_at'      => now(),
+                'direction'       => $msgDirection,
+                'message_mode'    => 'external',
+                'user_id'         => null,
+                'status'          => 'delivered',
+                'sent_at'         => now(),
+                'chat_session_id' => $chatSession?->id,
             ];
 
             // Handle different message types.
@@ -369,6 +390,10 @@ class InboxController extends Controller
                 $messageValues
             );
 
+            if ($chatSession) {
+                ChatSessionService::recordMessage($chatSession, $message);
+            }
+
             // Download media and update the record (only for newly created media messages)
             if ($message->wasRecentlyCreated && $mediaDownloadType) {
                 $integration = WhatsAppEvoIntegration::where('company_id', $companyId)->first();
@@ -399,6 +424,15 @@ class InboxController extends Controller
 
             // Broadcast real-time update
             broadcast(new InboxMessageReceived($message))->toOthers();
+
+            // Sent only after the inbound message's own broadcast above, so
+            // live clients receive them in the right order too (not just the
+            // DB rows) — a welcome message broadcast firing first would show
+            // up before the lead's own message on screen. No-op for a reused
+            // session or an outgoing message.
+            if ($isInbound && $chatSession) {
+                ChatSessionService::sendWelcomeMessageIfEnabled($chat, $chatSession);
+            }
         }
 
         return response()->json(['status' => 'ok'], 200);
@@ -479,7 +513,12 @@ class InboxController extends Controller
 
         $paginator = $chat->messages()
             ->with('user:id,name,profile_pic')
-            ->orderBy('sent_at', 'desc') // newest first
+            // `sent_at` alone isn't a deterministic sort: messages created in
+            // the same second (e.g. an inbound message and the welcome reply
+            // it triggers) tie, and MySQL doesn't guarantee tie order. `id`
+            // breaks the tie consistently in actual insertion order.
+            ->orderBy('sent_at', 'desc')
+            ->orderBy('id', 'desc')
             ->paginate($perPage, ['*'], 'page', $page);
 
         $messages = $paginator->getCollection();
@@ -574,9 +613,15 @@ class InboxController extends Controller
                 $waMessageId = $response->json()['key']['id'] ?? $waMessageId;
             }
 
+            // An agent proactively messaging a lead whose conversation is
+            // closed (or never started) starts a new one here too — just
+            // without a welcome message, since this isn't lead-initiated.
+            $chatSession = $chat->lead_id ? ChatSessionService::startOrGetActive($chat) : $chat->activeChatSession;
+
             // 5️⃣ Store outgoing message
             $message = InboxMessage::create([
                 'inbox_chat_id'       => $chat->id,
+                'chat_session_id'     => $chatSession?->id,
                 'user_id'             => $user->id,
                 'external_message_id' => $waMessageId,
                 'direction'           => 'outgoing',
@@ -885,9 +930,15 @@ class InboxController extends Controller
                 $waMessageId = $response->json()['key']['id'] ?? $waMessageId;
             }
 
+            // An agent proactively messaging a lead whose conversation is
+            // closed (or never started) starts a new one here too — just
+            // without a welcome message, since this isn't lead-initiated.
+            $chatSession = $chat->lead_id ? ChatSessionService::startOrGetActive($chat) : $chat->activeChatSession;
+
             // 6️⃣ Store outgoing message
             $message = InboxMessage::create([
                 'inbox_chat_id'       => $chat->id,
+                'chat_session_id'     => $chatSession?->id,
                 'user_id'             => $user->id,
                 'external_message_id' => $waMessageId,
                 'direction'           => 'outgoing',
@@ -1003,8 +1054,14 @@ class InboxController extends Controller
                 }
             }
 
+            // An agent proactively messaging a lead whose conversation is
+            // closed (or never started) starts a new one here too — just
+            // without a welcome message, since this isn't lead-initiated.
+            $chatSession = $chat->lead_id ? ChatSessionService::startOrGetActive($chat) : $chat->activeChatSession;
+
             $message = InboxMessage::create([
                 'inbox_chat_id'       => $chat->id,
+                'chat_session_id'     => $chatSession?->id,
                 'user_id'             => $user->id,
                 'external_message_id' => $externalMessageId,
                 'direction'           => 'outgoing',
@@ -1140,8 +1197,14 @@ class InboxController extends Controller
                 }
             }
 
+            // An agent proactively messaging a lead whose conversation is
+            // closed (or never started) starts a new one here too — just
+            // without a welcome message, since this isn't lead-initiated.
+            $chatSession = $chat->lead_id ? ChatSessionService::startOrGetActive($chat) : $chat->activeChatSession;
+
             $message = InboxMessage::create([
                 'inbox_chat_id'       => $chat->id,
+                'chat_session_id'     => $chatSession?->id,
                 'user_id'             => $user->id,
                 'external_message_id' => $externalMessageId,
                 'direction'           => 'outgoing',

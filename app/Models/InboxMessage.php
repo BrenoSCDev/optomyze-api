@@ -12,6 +12,7 @@ class InboxMessage extends Model
 
     protected $fillable = [
         'inbox_chat_id',
+        'chat_session_id',
         'user_id',
         'external_message_id',
         'direction',
@@ -55,6 +56,11 @@ class InboxMessage extends Model
     public function chat(): BelongsTo
     {
         return $this->belongsTo(InboxChat::class, 'inbox_chat_id');
+    }
+
+    public function chatSession(): BelongsTo
+    {
+        return $this->belongsTo(ChatSession::class);
     }
 
     public function user(): BelongsTo

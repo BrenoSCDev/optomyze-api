@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Company;
+use App\Models\ConversationSetting;
 use App\Models\CustomProductField;
 use App\Models\Funnel;
 use App\Models\LeadCustomField;
@@ -25,6 +26,7 @@ class SettingsController extends Controller
             ->with('stages.entryRequirement')
             ->get();
         $notificationSettings = NotificationSetting::where('company_id', $user->company_id)->first();
+        $conversationSettings = ConversationSetting::where('company_id', $user->company_id)->first();
         $company = Company::find($user->company_id);
         $companySettings = $company->settings ?? [];
 
@@ -44,10 +46,12 @@ class SettingsController extends Controller
             "customLeadFields"     => $customLeadFields,
             "funnels"              => $funnels,
             "notificationSettings" => $notificationSettings,
+            "conversationSettings" => $conversationSettings,
             "queues"               => $queues,
             "lostReasons"          => $lostReasons,
             "product_settings"     => $companySettings['product_settings'] ?? null,
             "sales_settings"       => $companySettings['sales_settings'] ?? null,
+            "companyTimezone"      => $company->timezone,
         ]);
     }
 

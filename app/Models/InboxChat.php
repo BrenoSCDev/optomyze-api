@@ -65,6 +65,18 @@ class InboxChat extends Model
         return $this->hasMany(InboxMessage::class);
     }
 
+    public function chatSessions(): HasMany
+    {
+        return $this->hasMany(ChatSession::class, 'inbox_chat_id');
+    }
+
+    public function activeChatSession(): HasOne
+    {
+        return $this->hasOne(ChatSession::class, 'inbox_chat_id')
+            ->where('status', ChatSession::STATUS_ACTIVE)
+            ->latestOfMany();
+    }
+
     public function latestMessage(): HasOne
     {
         return $this->hasOne(InboxMessage::class)->latestOfMany('sent_at');

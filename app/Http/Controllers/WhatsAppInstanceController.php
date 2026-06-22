@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\InboxChat;
 use App\Models\WhatsAppEvoIntegration;
 use App\Models\WhatsAppInstance;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Http;
 
@@ -221,10 +223,46 @@ class WhatsAppInstanceController extends Controller
         }
     }
 
-    public function disconnectInstance($instanceId)
+    /**
+     * Info needed to render the disconnect confirmation modal: how many
+     * chats are tied to this instance, and which other instances (any
+     * status) in the company could receive them.
+     */
+    public function disconnectInfo($instanceId)
+    {
+        $companyId = Auth::user()->company_id;
+
+        $instance = WhatsAppInstance::where('id', $instanceId)
+            ->where('company_id', $companyId)
+            ->firstOrFail();
+
+        $chatCount = InboxChat::where('channelable_type', WhatsAppInstance::class)
+            ->where('channelable_id', $instance->id)
+            ->count();
+
+        $otherInstances = WhatsAppInstance::where('company_id', $companyId)
+            ->where('id', '!=', $instance->id)
+            ->get(['id', 'instance_name', 'label', 'status'])
+            ->map(fn ($i) => [
+                'id' => $i->id,
+                'label' => $i->label ?: $i->instance_name,
+                'status' => $i->status,
+            ]);
+
+        return response()->json([
+            'chat_count' => $chatCount,
+            'other_instances' => $otherInstances,
+        ], 200);
+    }
+
+    public function disconnectInstance(Request $request, $instanceId)
     {
         $user = Auth::user();
         $companyId = $user->company_id;
+
+        $data = $request->validate([
+            'reassign_to_instance_id' => 'nullable|integer|exists:whats_app_instances,id',
+        ]);
 
         $instance = WhatsAppInstance::where('id', $instanceId)
             ->where('company_id', $companyId)
@@ -250,9 +288,20 @@ class WhatsAppInstanceController extends Controller
 
             $instance->update(['status' => 'disconnected']);
 
+            $reassignment = null;
+
+            if (!empty($data['reassign_to_instance_id'])) {
+                $targetInstance = WhatsAppInstance::where('id', $data['reassign_to_instance_id'])
+                    ->where('company_id', $companyId)
+                    ->firstOrFail();
+
+                $reassignment = $this->reassignChats($instance, $targetInstance);
+            }
+
             return response()->json([
                 'message' => 'WhatsApp instance disconnected successfully',
                 'status'  => 'disconnected',
+                'reassignment' => $reassignment,
             ], 200);
 
         } catch (\Throwable $e) {
@@ -261,6 +310,47 @@ class WhatsAppInstanceController extends Controller
                 'error'   => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Re-point every chat from the old instance to the new one so the
+     * lead's history and any open conversation continue uninterrupted once
+     * the phone number is reconnected under the new instance. Chats that
+     * would collide with an existing chat already on the target instance
+     * (same external_chat_id) are skipped rather than failing the whole
+     * batch, and logged for manual follow-up.
+     */
+    private function reassignChats(WhatsAppInstance $from, WhatsAppInstance $to): array
+    {
+        $chats = InboxChat::where('channelable_type', WhatsAppInstance::class)
+            ->where('channelable_id', $from->id)
+            ->get();
+
+        $moved = 0;
+        $skipped = 0;
+
+        foreach ($chats as $chat) {
+            $collision = InboxChat::where('channelable_type', WhatsAppInstance::class)
+                ->where('channelable_id', $to->id)
+                ->where('channel', $chat->channel)
+                ->where('external_chat_id', $chat->external_chat_id)
+                ->exists();
+
+            if ($collision) {
+                $skipped++;
+                Log::warning('WhatsApp instance reassignment: skipped chat due to collision on target instance', [
+                    'chat_id' => $chat->id,
+                    'from_instance_id' => $from->id,
+                    'to_instance_id' => $to->id,
+                ]);
+                continue;
+            }
+
+            $chat->update(['channelable_id' => $to->id]);
+            $moved++;
+        }
+
+        return ['moved' => $moved, 'skipped' => $skipped];
     }
 
     /**

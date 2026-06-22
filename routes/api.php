@@ -23,6 +23,7 @@ use App\Http\Controllers\GoogleAdsIntegrationController;
 use App\Http\Controllers\IntegrationController;
 use App\Http\Controllers\InstagramIntegrationController;
 use App\Http\Controllers\LeadCompanyController;
+use App\Http\Controllers\LeadAppointmentController;
 use App\Http\Controllers\LeadController;
 use App\Http\Controllers\MetaAdsIntegrationController;
 use App\Http\Controllers\MetricsController;
@@ -41,7 +42,13 @@ use App\Http\Controllers\InternalMessageController;
 use App\Http\Controllers\RecordController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\SaleDocController;
+use App\Http\Controllers\ChatSessionController;
+use App\Http\Controllers\ClosingMessageController;
+use App\Http\Controllers\ClosingReasonController;
+use App\Http\Controllers\ConversationMetricsController;
+use App\Http\Controllers\ConversationSettingController;
 use App\Http\Controllers\InboxController;
+use App\Http\Controllers\WelcomeMessageConfigController;
 use App\Http\Controllers\WhatsAppEvoIntegrationController;
 use App\Http\Controllers\WhatsAppInstanceController;
 use App\Http\Controllers\NotificationSettingController;
@@ -342,6 +349,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/whatsapp-evo-instances/qrcode/{instanceId}', [WhatsAppInstanceController::class, 'generateQrCode']);
         Route::post('/whatsapp-evo-instances/send-message/{instanceId}', [WhatsAppInstanceController::class, 'sendMessage']);
         Route::post('/whatsapp-evo-instances/disconnect/{instanceId}', [WhatsAppInstanceController::class, 'disconnectInstance']);
+        Route::get('/whatsapp-evo-instances/{instanceId}/disconnect-info', [WhatsAppInstanceController::class, 'disconnectInfo']);
         Route::put('/whatsapp-evo-integrations/{instance}/funnel', [WhatsAppInstanceController::class, 'updateFunnel']);
 
         // Instagram Integration (Instagram Graph API)
@@ -378,7 +386,30 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/instagram/{integrationId}/messages', [InboxController::class, 'sendInstagramTextMessage']);
         Route::post('/instagram/{integrationId}/media', [InboxController::class, 'sendInstagramMediaMessage']);
         Route::get('/leads/search', [InboxController::class, 'searchLeads']);
+        Route::get('/chats/{chat}/active-session', [ChatSessionController::class, 'active']);
+        Route::post('/chats/{chat}/sessions/{session}/close', [ChatSessionController::class, 'close']);
+        Route::get('/chats/{chat}/closing-message-preview', [ChatSessionController::class, 'closingMessagePreview']);
     });
+
+    Route::get('/closing-reasons', [ClosingReasonController::class, 'index']);
+    Route::post('/closing-reasons', [ClosingReasonController::class, 'store']);
+    Route::put('/closing-reasons/{id}', [ClosingReasonController::class, 'update']);
+    Route::delete('/closing-reasons/{id}', [ClosingReasonController::class, 'destroy']);
+    Route::post('/closing-reasons/reorder', [ClosingReasonController::class, 'reorder']);
+
+    Route::get('/closing-messages', [ClosingMessageController::class, 'index']);
+    Route::post('/closing-messages', [ClosingMessageController::class, 'store']);
+    Route::put('/closing-messages/{id}', [ClosingMessageController::class, 'update']);
+    Route::delete('/closing-messages/{id}', [ClosingMessageController::class, 'destroy']);
+
+    Route::post('/conversation-settings', [ConversationSettingController::class, 'store']);
+    Route::patch('/conversation-settings', [ConversationSettingController::class, 'update']);
+
+    Route::get('/welcome-message-configs', [WelcomeMessageConfigController::class, 'index']);
+    Route::put('/welcome-message-configs', [WelcomeMessageConfigController::class, 'upsert']);
+
+    Route::get('/conversations-metrics/dashboard', [ConversationMetricsController::class, 'dashboard']);
+    Route::get('/conversations-metrics/daily-report', [ConversationMetricsController::class, 'dailyReport']);
 
 
     /*
@@ -657,6 +688,13 @@ Route::middleware(['verify.api.token', 'log.api.requests'])->prefix('v1')->group
     Route::put('/appointments/{id}', [AppointmentController::class, 'apiUpdate']);
     Route::delete('/appointments/{id}', [AppointmentController::class, 'apiDestroy']);
     Route::post('/appointments/{id}/products/sync', [AppointmentController::class, 'apiSyncProducts']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Lead + Appointment (combined, phone-deduplicated)
+    |--------------------------------------------------------------------------
+    */
+    Route::post('/lead-appointments', [LeadAppointmentController::class, 'store']);
 
     /*
     |--------------------------------------------------------------------------

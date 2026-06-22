@@ -79,9 +79,15 @@ class InboxMessageReceived implements ShouldBroadcastNow
                 'reactions'           => $this->message->reactions,
                 'is_edited'           => $this->message->is_edited,
                 'status'              => $this->message->status,
-                'sent_at'             => $this->message->sent_at,
-                'created_at'          => $this->message->created_at,
-                'updated_at'          => $this->message->updated_at,
+                // Carbon's default JSON serialization always forces UTC
+                // ("Z" suffix) regardless of the instance's local timezone —
+                // explicitly use the same company-timezone-aware ISO8601
+                // format the REST API returns (via the model's
+                // serializeDate() override), so live and refreshed messages
+                // show the same time.
+                'sent_at'             => $this->message->sent_at?->toIso8601String(),
+                'created_at'          => $this->message->created_at?->toIso8601String(),
+                'updated_at'          => $this->message->updated_at?->toIso8601String(),
                 'user'                => $this->message->user
                     ? [
                         'id'          => $this->message->user->id,

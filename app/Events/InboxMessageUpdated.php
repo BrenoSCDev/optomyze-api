@@ -51,7 +51,7 @@ class InboxMessageUpdated implements ShouldBroadcastNow
                 'reactions'     => $this->message->reactions,
                 'is_edited'     => $this->message->is_edited,
                 'status'        => $this->message->status,
-                'updated_at'    => $this->message->updated_at,
+                'updated_at'    => $this->message->updated_at?->toIso8601String(),
             ],
         ];
     }

@@ -42,6 +42,7 @@ class Record extends Model
     const TYPE_FIELD_CHANGE = 'field_change';
     const TYPE_WHATSAPP_CHAT = 'whatsapp_chat';
     const TYPE_INSTAGRAM_CHAT = 'instagram_chat';
+    const TYPE_CHAT_SESSION = 'chat_session';
     const TYPE_LOST = 'lost';
     const TYPE_TASK = 'task';
     const TYPE_APPOINTMENT = 'appointment';
@@ -66,6 +67,7 @@ class Record extends Model
     const ACTION_ADDED = 'added';
     const ACTION_REMOVED = 'removed';
     const ACTION_CHAT_STARTED = 'chat_started';
+    const ACTION_STARTED = 'started';
     const ACTION_LOST = 'lost';
     const ACTION_WON = 'won';
     const ACTION_CLOSED = 'closed';
@@ -191,6 +193,55 @@ class Record extends Model
                 'igsid' => $chat->external_contact_id,
             ],
             self::SOURCE_WEBHOOK
+        );
+    }
+
+    /**
+     * Create a chat session started record.
+     */
+    public static function createChatSessionStarted(Lead $lead, ChatSession $session): self
+    {
+        return self::make(
+            $lead->company_id,
+            self::RECORDABLE_LEAD,
+            $lead->id,
+            null,
+            self::TYPE_CHAT_SESSION,
+            self::ACTION_STARTED,
+            null,
+            [
+                'chat_session_id' => $session->id,
+                'channel' => $session->channel,
+            ],
+            self::SOURCE_SYSTEM
+        );
+    }
+
+    /**
+     * Create a chat session closed record.
+     */
+    public static function createChatSessionEnded(
+        Lead $lead,
+        ChatSession $session,
+        ClosingReason $reason,
+        ?User $actor = null
+    ): self {
+        return self::make(
+            $lead->company_id,
+            self::RECORDABLE_LEAD,
+            $lead->id,
+            $actor,
+            self::TYPE_CHAT_SESSION,
+            self::ACTION_CLOSED,
+            null,
+            [
+                'chat_session_id' => $session->id,
+                'channel' => $session->channel,
+                'closingReason' => $reason->name,
+                'closing_reason_id' => $reason->id,
+                'durationMinutes' => (int) round($session->duration_seconds / 60),
+            ],
+            self::SOURCE_MANUAL
         );
     }
 
