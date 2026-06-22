@@ -37,7 +37,7 @@ return new class extends Migration
 
             $table->timestamps();
 
-            $table->unique(['closing_message_id', 'closing_reason_id']);
+            $table->unique(['closing_message_id', 'closing_reason_id'], 'closing_message_closing_reason_unique');
         });
 
         // Replaced by the closing_messages many-to-many relationship above —
