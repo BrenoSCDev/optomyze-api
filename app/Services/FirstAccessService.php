@@ -11,7 +11,7 @@ use Illuminate\Support\Str;
 
 class FirstAccessService
 {
-    private const WEBHOOK_URL = 'https://optomyze-n8n.kmfrpu.easypanel.host/webhook-test/b9d6ea2d-0ae9-4331-a0ad-bff94512f7cf';
+    private const WEBHOOK_URL = 'https://optomyze-n8n.kmfrpu.easypanel.host/webhook/b9d6ea2d-0ae9-4331-a0ad-bff94512f7cf';
 
     /**
      * Generate a password-setup token for a newly created user (same mechanism
@@ -29,7 +29,7 @@ class FirstAccessService
             ]
         );
 
-        $setPasswordUrl = 'http://localhost:8080/set-password?token=' . $token . '&email=' . urlencode($user->email);
+        $setPasswordUrl = 'https://crm.optomyze.io/set-password?token=' . $token . '&email=' . urlencode($user->email);
 
         $body = [
             'email' => $user->email,
