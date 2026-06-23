@@ -46,12 +46,17 @@ class InboxController extends Controller
         $companyId = $instance->company_id;
 
         // 2️⃣ Resolve sender info
-        // For incoming messages senderPn holds the contact JID.
-        // For outgoing messages sent from the phone (fromMe=true) senderPn is null;
-        // the recipient JID is in key.remoteJid instead.
-        $remoteJid = $payload['data']['key']['senderPn']
-            ?? $payload['data']['key']['remoteJid']
-            ?? null;
+        // Evolution API v3.6.0+: when "lid" addressing is used, key.remoteJid
+        // holds an opaque identifier ending in "@lid" and the real WhatsApp
+        // number is carried separately in key.remoteJidAlt as
+        // "<number>@s.whatsapp.net". Otherwise the number is in key.remoteJid
+        // directly, regardless of message direction.
+        $rawRemoteJid = $payload['data']['key']['remoteJid'] ?? null;
+        $remoteJidAlt = $payload['data']['key']['remoteJidAlt'] ?? null;
+
+        $remoteJid = (is_string($rawRemoteJid) && str_ends_with($rawRemoteJid, '@lid'))
+            ? ($remoteJidAlt ?? $rawRemoteJid)
+            : $rawRemoteJid;
 
         if (!$remoteJid) {
             return response()->json(['message' => 'remoteJid not found'], 422);
@@ -117,25 +122,35 @@ class InboxController extends Controller
             broadcast(new LeadLiveUpdate('created', $lead));
         }
 
-        // 4️⃣ Find or create inbox chat
-        $chat = InboxChat::firstOrCreate(
-            [
-                'company_id'        => $companyId,
-                'channel'           => InboxChat::CHANNEL_WHATSAPP,
-                'channelable_type'  => WhatsAppInstance::class,
-                'channelable_id'    => $instance->id,
-                'external_chat_id'  => $remoteJid,
-            ],
-            [
+        // 4️⃣ Find or create inbox chat — only ever created from an inbound
+        // message. An outbound message (fromMe=true) with no existing chat
+        // has nothing to attach to yet, so it's dropped instead of
+        // fabricating an empty chat.
+        $chatAttributes = [
+            'company_id'        => $companyId,
+            'channel'           => InboxChat::CHANNEL_WHATSAPP,
+            'channelable_type'  => WhatsAppInstance::class,
+            'channelable_id'    => $instance->id,
+            'external_chat_id'  => $remoteJid,
+        ];
+
+        if ($isInbound) {
+            $chat = InboxChat::firstOrCreate($chatAttributes, [
                 'lead_id'             => $lead?->id,
                 'external_contact_id' => $phoneNumber,
                 'is_group'            => false,
                 'last_message_at'     => now(),
-            ]
-        );
+            ]);
+        } else {
+            $chat = InboxChat::where($chatAttributes)->first();
 
-        // Backfill: this chat may have started lead-less from an earlier
-        // outbound-only message; attach the lead now that we have one.
+            if (!$chat) {
+                return response()->json(['message' => 'No existing chat for outbound message'], 200);
+            }
+        }
+
+        // Backfill: this chat may have started lead-less because no lead
+        // matched the phone number yet; attach the lead now that we have one.
         if (!$chat->lead_id && $lead) {
             $chat->update(['lead_id' => $lead->id]);
         }
