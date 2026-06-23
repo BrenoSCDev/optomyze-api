@@ -244,7 +244,7 @@ class InboxController extends Controller
                     $messageValues['type']       = 'image';
                     $messageValues['media_url']  = null;
                     $messageValues['media_mime'] = $imageMessage['mimetype'] ?? 'image/jpeg';
-                    $messageValues['media_size'] = $imageMessage['fileLength'] ?? null;
+                    $messageValues['media_size'] = self::resolveLongValue($imageMessage['fileLength'] ?? null);
                     $messageValues['text']       = $imageMessage['caption'] ?? null;
                     $mediaDownloadType           = 'image';
                 }
@@ -254,7 +254,7 @@ class InboxController extends Controller
                     $messageValues['type']       = 'audio';
                     $messageValues['media_url']  = null;
                     $messageValues['media_mime'] = $audioMessage['mimetype'] ?? 'audio/ogg';
-                    $messageValues['media_size'] = $audioMessage['fileLength'] ?? null;
+                    $messageValues['media_size'] = self::resolveLongValue($audioMessage['fileLength'] ?? null);
                     $messageValues['text']       = null;
                     $mediaDownloadType           = 'audio';
                 }
@@ -264,9 +264,24 @@ class InboxController extends Controller
                     $messageValues['type']       = 'sticker';
                     $messageValues['media_url']  = null;
                     $messageValues['media_mime'] = $stickerMessage['mimetype'] ?? 'image/webp';
-                    $messageValues['media_size'] = $stickerMessage['fileLength'] ?? null;
+                    $messageValues['media_size'] = self::resolveLongValue($stickerMessage['fileLength'] ?? null);
                     $messageValues['text']       = null;
                     $mediaDownloadType           = 'sticker';
+                }
+            } elseif ($messageType === 'videoMessage') {
+                // WhatsApp GIFs are sent as a looping videoMessage with
+                // gifPlayback=true rather than a distinct message type.
+                $videoMessage = $messageData['videoMessage'] ?? null;
+                if ($videoMessage) {
+                    $messageValues['type']       = 'video';
+                    $messageValues['media_url']  = null;
+                    $messageValues['media_mime'] = $videoMessage['mimetype'] ?? 'video/mp4';
+                    $messageValues['media_size'] = self::resolveLongValue($videoMessage['fileLength'] ?? null);
+                    $messageValues['text']       = $videoMessage['caption'] ?? null;
+                    $messageValues['metadata']   = ($videoMessage['gifPlayback'] ?? false)
+                        ? ['gif_playback' => true]
+                        : null;
+                    $mediaDownloadType           = 'video';
                 }
             } elseif ($messageType === 'locationMessage') {
 
@@ -288,7 +303,7 @@ class InboxController extends Controller
                     $messageValues['type']       = 'document';
                     $messageValues['media_url']  = null;
                     $messageValues['media_mime'] = $documentMessage['mimetype'] ?? 'application/octet-stream';
-                    $messageValues['media_size'] = $documentMessage['fileLength'] ?? null;
+                    $messageValues['media_size'] = self::resolveLongValue($documentMessage['fileLength'] ?? null);
                     $messageValues['text']       = $documentMessage['fileName'] ?? $documentMessage['title'] ?? null;
                     $messageValues['latitude']   = null;
                     $messageValues['longitude']  = null;
@@ -468,6 +483,7 @@ class InboxController extends Controller
         $page      = max(1, (int) $request->query('page', 1));
         $perPage   = 20;
         $channel   = $request->query('channel');
+        $search    = trim((string) $request->query('search', ''));
 
         $query = InboxChat::query()
             ->where('company_id', $companyId)
@@ -484,6 +500,23 @@ class InboxController extends Controller
 
         if ($channel) {
             $query->channel($channel);
+        }
+
+        // Search across the chat's own contact fields (covers leadless chats)
+        // and the linked lead's name/phone - lets agents jump straight to a
+        // conversation by typing the lead's first or last name.
+        if ($search !== '') {
+            $query->where(function ($q) use ($search) {
+                $like = "%{$search}%";
+                $q->where('contact_name', 'like', $like)
+                    ->orWhere('external_contact_id', 'like', $like)
+                    ->orWhereHas('lead', function ($leadQuery) use ($like) {
+                        $leadQuery->where('first_name', 'like', $like)
+                            ->orWhere('last_name', 'like', $like)
+                            ->orWhereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", [$like])
+                            ->orWhere('phone', 'like', $like);
+                    });
+            });
         }
 
         $paginator = $query->paginate($perPage, ['*'], 'page', $page);
@@ -1377,6 +1410,7 @@ class InboxController extends Controller
                 'audio'    => 'whatsapp/audio/' . $companyId,
                 'document' => 'whatsapp/documents/' . $companyId,
                 'sticker'  => 'whatsapp/stickers/' . $companyId,
+                'video'    => 'whatsapp/videos/' . $companyId,
                 default    => 'whatsapp/files/' . $companyId,
             };
             $storedName = 'whatsapp_' . time() . '_' . uniqid() . '.' . $extension;
@@ -1710,6 +1744,28 @@ class InboxController extends Controller
             ]);
             return null;
         }
+    }
+
+    /**
+     * Evolution API (protobuf Long fields like fileLength) now serializes
+     * 64-bit values as {"low": ..., "high": ..., "unsigned": ...} instead of
+     * a plain number. Collapse that back into a plain int so it can be
+     * stored in an integer column; passes plain numbers through unchanged.
+     */
+    private static function resolveLongValue($value): ?int
+    {
+        if (is_array($value) && array_key_exists('low', $value)) {
+            $low  = (int) ($value['low'] ?? 0);
+            $high = (int) ($value['high'] ?? 0);
+
+            if (($value['unsigned'] ?? false) && $low < 0) {
+                $low += 4294967296;
+            }
+
+            return $high !== 0 ? ($high * 4294967296 + $low) : $low;
+        }
+
+        return is_numeric($value) ? (int) $value : null;
     }
 
     public static function extensionFromMime(string $mimeType): string
