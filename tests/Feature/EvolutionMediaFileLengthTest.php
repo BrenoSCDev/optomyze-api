@@ -2,6 +2,7 @@
 
 use App\Models\Company;
 use App\Models\Funnel;
+use App\Models\InboxChat;
 use App\Models\InboxMessage;
 use App\Models\Stage;
 use App\Models\User;
@@ -282,6 +283,105 @@ function evolutionAnimatedStickerPayload(string $instanceName): array
     ];
 }
 
+// Real Evolution API v3.6.0 inbound documentMessage payload (PDF), trimmed
+// of the large byte-array fields irrelevant to this test.
+function evolutionPdfDocumentPayload(string $instanceName): array
+{
+    return [
+        'event' => 'messages.upsert',
+        'instance' => $instanceName,
+        'data' => [
+            'key' => [
+                'remoteJid' => '120371390971995@lid',
+                'remoteJidAlt' => '556294092429@s.whatsapp.net',
+                'fromMe' => false,
+                'id' => '3A3E7689185936F2523B',
+                'participant' => '',
+                'addressingMode' => 'lid',
+            ],
+            'pushName' => 'Alexia - Optomyze',
+            'status' => 'DELIVERY_ACK',
+            'message' => [
+                'documentMessage' => [
+                    'url' => 'https://mmg.whatsapp.net/v/fake.enc',
+                    'mimetype' => 'application/pdf',
+                    'title' => '71C7814B-1A82-437B-A828-4FDB8B1B8875',
+                    'fileLength' => ['low' => 43798, 'high' => 0, 'unsigned' => true],
+                    'pageCount' => 1,
+                    'fileName' => '71C7814B-1A82-437B-A828-4FDB8B1B8875.pdf',
+                    'contactVcard' => false,
+                ],
+            ],
+            'contextInfo' => null,
+            'messageType' => 'documentMessage',
+            'messageTimestamp' => 1782256019,
+            'instanceId' => '01d1a42a-e5ac-4419-ae83-ef962da5b60c',
+            'source' => 'ios',
+        ],
+        'destination' => 'https://example.com/webhook',
+        'date_time' => '2026-06-23T20:06:59.265Z',
+        'sender' => '556295225796@s.whatsapp.net',
+        'server_url' => 'https://evolution.example.com',
+        'apikey' => 'fake-api-key',
+    ];
+}
+
+// Real Evolution API v3.6.0 outbound (fromMe=true) documentMessage payload
+// (Word doc, sent directly from the connected phone), trimmed of the large
+// byte-array fields irrelevant to this test.
+function evolutionWordDocumentPayload(string $instanceName): array
+{
+    return [
+        'event' => 'messages.upsert',
+        'instance' => $instanceName,
+        'data' => [
+            'key' => [
+                'remoteJid' => '120371390971995@lid',
+                'remoteJidAlt' => '556294092429@s.whatsapp.net',
+                'fromMe' => true,
+                'id' => '2A95180632DEDF2A713D',
+                'participant' => '',
+                'addressingMode' => 'lid',
+            ],
+            'pushName' => 'Breno Castro',
+            'status' => 'SERVER_ACK',
+            'message' => [
+                'documentMessage' => [
+                    'url' => 'https://mmg.whatsapp.net/v/fake.enc',
+                    'mimetype' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'title' => 'COLD CALL SCRIPT BAD WEBSITE',
+                    'fileLength' => ['low' => 8533, 'high' => 0, 'unsigned' => true],
+                    'fileName' => 'COLD CALL SCRIPT BAD WEBSITE.docx',
+                    'contactVcard' => false,
+                    'contextInfo' => [
+                        'mentionedJid' => [],
+                        'groupMentions' => [],
+                        'forwardingScore' => 1,
+                        'isForwarded' => true,
+                        'pairedMediaType' => 0,
+                    ],
+                ],
+            ],
+            'contextInfo' => [
+                'mentionedJid' => [],
+                'groupMentions' => [],
+                'forwardingScore' => 1,
+                'isForwarded' => true,
+                'pairedMediaType' => 0,
+            ],
+            'messageType' => 'documentMessage',
+            'messageTimestamp' => 1782256149,
+            'instanceId' => '01d1a42a-e5ac-4419-ae83-ef962da5b60c',
+            'source' => 'unknown',
+        ],
+        'destination' => 'https://example.com/webhook',
+        'date_time' => '2026-06-23T20:09:09.847Z',
+        'sender' => '556295225796@s.whatsapp.net',
+        'server_url' => 'https://evolution.example.com',
+        'apikey' => 'fake-api-key',
+    ];
+}
+
 test('audio message with Long-style fileLength is stored without error', function () {
     Http::fake(['*/chat/getBase64FromMediaMessage/*' => Http::response(['base64' => null], 200)]);
 
@@ -379,4 +479,56 @@ test('animated sticker (isAnimated=true) with Long-style fileLength is stored wi
     expect($message->type)->toBe('sticker');
     expect($message->media_size)->toBe(247098);
     expect($message->media_mime)->toBe('image/webp');
+});
+
+test('pdf document message with Long-style fileLength is stored without error', function () {
+    Http::fake(['*/chat/getBase64FromMediaMessage/*' => Http::response(['base64' => null], 200)]);
+
+    $instance = makeWhatsAppInstanceForMediaTest();
+
+    $response = $this->postJson('/api/whatsapp-evo-chat', evolutionPdfDocumentPayload($instance->instance_name));
+
+    $response->assertOk();
+
+    $message = InboxMessage::whereHas(
+        'chat',
+        fn ($q) => $q->where('channelable_id', $instance->id)
+    )->first();
+
+    expect($message)->not->toBeNull();
+    expect($message->type)->toBe('document');
+    expect($message->media_mime)->toBe('application/pdf');
+    expect($message->media_size)->toBe(43798);
+    expect($message->text)->toBe('71C7814B-1A82-437B-A828-4FDB8B1B8875.pdf');
+});
+
+test('outbound docx document message (fromMe=true) with Long-style fileLength is stored without error', function () {
+    Http::fake(['*/chat/getBase64FromMediaMessage/*' => Http::response(['base64' => null], 200)]);
+
+    $instance = makeWhatsAppInstanceForMediaTest();
+
+    // Outbound-only messages only attach to an already-existing chat
+    // (outbound never fabricates a new one) - simulate one already there.
+    $chat = InboxChat::create([
+        'company_id' => $instance->company_id,
+        'channel' => InboxChat::CHANNEL_WHATSAPP,
+        'channelable_type' => WhatsAppInstance::class,
+        'channelable_id' => $instance->id,
+        'external_chat_id' => '556294092429@s.whatsapp.net',
+        'external_contact_id' => '556294092429',
+        'last_message_at' => now(),
+    ]);
+
+    $response = $this->postJson('/api/whatsapp-evo-chat', evolutionWordDocumentPayload($instance->instance_name));
+
+    $response->assertOk();
+
+    $message = InboxMessage::where('inbox_chat_id', $chat->id)->first();
+
+    expect($message)->not->toBeNull();
+    expect($message->type)->toBe('document');
+    expect($message->direction)->toBe('outgoing');
+    expect($message->media_mime)->toBe('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    expect($message->media_size)->toBe(8533);
+    expect($message->text)->toBe('COLD CALL SCRIPT BAD WEBSITE.docx');
 });

@@ -94,4 +94,27 @@ class FileController extends Controller
             'Content-Disposition' => ($download ? 'attachment' : 'inline') . '; filename="' . $filename . '"',
         ]);
     }
+
+    /**
+     * Serve a file via a short-lived signed URL, with no Sanctum/company
+     * checks. Used so external platforms (e.g. Instagram's Graph API) can
+     * fetch outbound media we send them - they can't present our auth
+     * header, so the URL's signature (tied to this exact path and an
+     * expiry) is the auth instead. The route's `signed` middleware already
+     * rejects any tampered or expired URL before this method ever runs.
+     */
+    public function serveSigned(Request $request, string $path)
+    {
+        if (Storage::disk('local')->exists($path)) {
+            $absolutePath = Storage::disk('local')->path($path);
+        } elseif (Storage::disk('public')->exists($path)) {
+            $absolutePath = Storage::disk('public')->path($path);
+        } else {
+            abort(404, 'File not found');
+        }
+
+        return response()->file($absolutePath, [
+            'Content-Disposition' => 'inline; filename="' . basename($path) . '"',
+        ]);
+    }
 }

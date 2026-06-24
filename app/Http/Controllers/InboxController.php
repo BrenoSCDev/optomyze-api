@@ -21,6 +21,7 @@ use App\Services\ChatSessionService;
 use App\Services\LeadQueueAssignmentService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\URL;
 
 class InboxController extends Controller
 {
@@ -1191,7 +1192,7 @@ class InboxController extends Controller
         }
 
         $uploadedFile = $request->file('file');
-        $filePath     = $uploadedFile->store("instagram/outbound/{$companyId}", 'public');
+        $filePath     = $uploadedFile->store("instagram/outbound/{$companyId}", 'local');
         $mime         = $uploadedFile->getMimeType();
         $size         = $uploadedFile->getSize();
 
@@ -1199,7 +1200,13 @@ class InboxController extends Controller
             $externalMessageId = (string) Str::uuid();
 
             if ($messageMode === 'external') {
-                $publicUrl = rtrim(config('app.url'), '/') . '/storage/' . $filePath;
+                // Instagram's servers fetch this URL directly and can't present
+                // our Sanctum auth header, so it can't go through the normal
+                // private /api/files route. A signed URL lets us hand them a
+                // real public link to this one file, time-limited, without
+                // relying on the public disk / storage:link being set up
+                // correctly in every environment (which is what was 404ing).
+                $publicUrl = URL::temporarySignedRoute('files.signed', now()->addMinutes(30), ['path' => $filePath]);
 
                 $attachment = [
                     'type'    => $type,
@@ -1228,7 +1235,7 @@ class InboxController extends Controller
                     ->post(self::INSTAGRAM_GRAPH_API_BASE . "/{$integration->instagram_user_id}/messages", $body);
 
                 if (!$response->successful()) {
-                    Storage::disk('public')->delete($filePath);
+                    Storage::disk('local')->delete($filePath);
 
                     if ($this->isInstagramWindowExpired($response)) {
                         return response()->json(['message' => 'instagram_window_expired'], 422);
@@ -1292,7 +1299,7 @@ class InboxController extends Controller
             ], 200);
 
         } catch (\Throwable $e) {
-            Storage::disk('public')->delete($filePath);
+            Storage::disk('local')->delete($filePath);
             return response()->json([
                 'message' => 'Failed to send Instagram media',
                 'error'   => $e->getMessage(),
