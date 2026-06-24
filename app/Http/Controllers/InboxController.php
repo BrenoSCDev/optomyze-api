@@ -1206,7 +1206,16 @@ class InboxController extends Controller
                 // real public link to this one file, time-limited, without
                 // relying on the public disk / storage:link being set up
                 // correctly in every environment (which is what was 404ing).
-                $publicUrl = URL::temporarySignedRoute('files.signed', now()->addMinutes(30), ['path' => $filePath]);
+                //
+                // The signature is generated *relative* (absolute: false) so
+                // it only covers the path + query string, not the scheme/host
+                // - prod sits behind a proxy that terminates TLS and forwards
+                // plain HTTP internally, so an absolute signature would be
+                // signed as https:// but validated as http://, and fail.
+                // URL::to() then prepends the correct external host/scheme
+                // (forced to https in production, see AppServiceProvider).
+                $signedPath = URL::temporarySignedRoute('files.signed', now()->addMinutes(30), ['path' => $filePath], false);
+                $publicUrl  = URL::to($signedPath);
 
                 $attachment = [
                     'type'    => $type,

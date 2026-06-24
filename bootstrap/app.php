@@ -19,6 +19,13 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function ($middleware) {
         // $middleware->prepend(\Illuminate\Http\Middleware\HandleCors::class);
 
+        // Prod is only reachable through the platform's own TLS-terminating
+        // reverse proxy, which forwards plain HTTP internally. Without
+        // trusting it, Laravel can't tell the original request was HTTPS
+        // (e.g. for signed-URL validation, which reconstructs the request's
+        // URL including scheme to recompute the signature).
+        $middleware->trustProxies(at: '*');
+
         $middleware->alias([
             'verify.api.token'    => VerifyApiToken::class,
             'permission'          => CheckPermission::class,
