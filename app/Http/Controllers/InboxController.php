@@ -1235,8 +1235,10 @@ class InboxController extends Controller
                     }
 
                     return response()->json([
-                        'message' => 'Failed to send media via Instagram API',
-                        'error'   => $response->json() ?? $response->body(),
+                        'message'         => 'Failed to send media via Instagram API',
+                        'error'           => $response->json() ?? $response->body(),
+                        'request_url'     => self::INSTAGRAM_GRAPH_API_BASE . "/{$integration->instagram_user_id}/messages",
+                        'request_payload' => $body,
                     ], 422);
                 }
 
