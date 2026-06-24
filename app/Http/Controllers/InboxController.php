@@ -1201,17 +1201,23 @@ class InboxController extends Controller
             if ($messageMode === 'external') {
                 $publicUrl = rtrim(config('app.url'), '/') . '/storage/' . $filePath;
 
+                $attachment = [
+                    'type'    => $type,
+                    'payload' => [
+                        'url' => $publicUrl,
+                    ],
+                ];
+
+                // Instagram's Send API is inconsistent: images go under the
+                // plural "attachments" key, while audio/video/file go under
+                // the singular "attachment" key. Using the wrong key for the
+                // type silently produces an "Upload failed" (2018007) error
+                // instead of a clear validation error.
                 $body = [
                     'recipient' => ['id' => $igsid],
-                    'message'   => [
-                        'attachment' => [
-                            'type'    => $type,
-                            'payload' => [
-                                'url'         => $publicUrl,
-                                'is_reusable' => true,
-                            ],
-                        ],
-                    ],
+                    'message'   => $type === 'image'
+                        ? ['attachments' => $attachment]
+                        : ['attachment' => $attachment],
                 ];
 
                 if ($replyToMessage?->external_message_id) {
