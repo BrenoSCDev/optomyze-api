@@ -1194,6 +1194,13 @@ class InboxController extends Controller
         $uploadedFile = $request->file('file');
         $filePath     = $uploadedFile->store("instagram/outbound/{$companyId}", 'local');
         $mime         = $uploadedFile->getMimeType();
+        // getMimeType() inspects the file's magic bytes, so a WebM container
+        // always resolves to video/webm even when it only carries audio tracks.
+        // Instagram validates the fetched Content-Type against the declared
+        // attachment type and rejects a mismatch, so remap here.
+        if ($type === 'audio' && str_starts_with($mime, 'video/')) {
+            $mime = 'audio/' . substr($mime, strlen('video/'));
+        }
         $size         = $uploadedFile->getSize();
 
         try {
