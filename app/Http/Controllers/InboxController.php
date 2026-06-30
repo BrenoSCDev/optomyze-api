@@ -1239,14 +1239,15 @@ class InboxController extends Controller
                 ];
 
                 // Instagram's Send API is inconsistent: images go under the
-                // plural "attachments" key, while audio/video/file go under
-                // the singular "attachment" key. Using the wrong key for the
-                // type silently produces an "Upload failed" (2018007) error
-                // instead of a clear validation error.
+                // plural "attachments" key as an array, while audio/video/file
+                // go under the singular "attachment" key as a plain object.
+                // Using the wrong key or wrong shape produces either an
+                // "Upload failed" (2018007) or a "must be a valid json object
+                // with string keys" (code 100) validation error.
                 $body = [
                     'recipient' => ['id' => $igsid],
                     'message'   => $type === 'image'
-                        ? ['attachments' => $attachment]
+                        ? ['attachments' => [$attachment]]
                         : ['attachment' => $attachment],
                 ];
 

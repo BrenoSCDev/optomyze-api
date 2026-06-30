@@ -62,10 +62,10 @@ test('image media uses the plural attachments key per Instagram docs', function 
 
     Http::assertSent(function ($request) {
         $body = $request->data();
-        return isset($body['message']['attachments'])
+        return isset($body['message']['attachments'][0])
             && !isset($body['message']['attachment'])
-            && $body['message']['attachments']['type'] === 'image'
-            && isset($body['message']['attachments']['payload']['url']);
+            && $body['message']['attachments'][0]['type'] === 'image'
+            && isset($body['message']['attachments'][0]['payload']['url']);
     });
 });
 
@@ -116,7 +116,7 @@ test('media payload does not include the undocumented is_reusable field', functi
 
     Http::assertSent(function ($request) {
         $body = $request->data();
-        return !isset($body['message']['attachments']['payload']['is_reusable']);
+        return !isset($body['message']['attachments'][0]['payload']['is_reusable']);
     });
 });
 
@@ -149,8 +149,8 @@ test('failure response includes the exact request payload sent to Instagram for 
 
     $payload = $response->json('request_payload');
     expect($payload['recipient']['id'])->toBe('igsid_123');
-    expect($payload['message']['attachments']['type'])->toBe('image');
-    expect($payload['message']['attachments']['payload']['url'])->toBeString();
+    expect($payload['message']['attachments'][0]['type'])->toBe('image');
+    expect($payload['message']['attachments'][0]['payload']['url'])->toBeString();
 
     // The access token must never leak into the echoed payload - it's sent
     // via the Authorization header, not the request body.
@@ -176,7 +176,7 @@ test('the signed media url sent to Instagram is fetchable without authentication
 
     $sentUrl = null;
     Http::assertSent(function ($request) use (&$sentUrl) {
-        $sentUrl = $request->data()['message']['attachments']['payload']['url'];
+        $sentUrl = $request->data()['message']['attachments'][0]['payload']['url'];
         return true;
     });
 
@@ -204,7 +204,7 @@ test('a tampered signed media url is rejected', function () {
 
     $sentUrl = null;
     Http::assertSent(function ($request) use (&$sentUrl) {
-        $sentUrl = $request->data()['message']['attachments']['payload']['url'];
+        $sentUrl = $request->data()['message']['attachments'][0]['payload']['url'];
         return true;
     });
 
