@@ -123,10 +123,24 @@ class FunnelController extends Controller
         $validated = $request->validate([
             'name'        => 'required|string|max:255',
             'description' => 'nullable|string',
-            'is_active'   => 'boolean',
         ]);
 
         $funnel->update($validated);
+
+        return response()->json($funnel);
+    }
+
+    /**
+     * Toggle the specified funnel's active status.
+     */
+    public function toggleStatus($id)
+    {
+        $user = Auth::user();
+
+        $funnel = Funnel::fromCompany($user->company_id)->findOrFail($id);
+
+        $funnel->is_active = !$funnel->is_active;
+        $funnel->save();
 
         return response()->json($funnel);
     }

@@ -149,6 +149,11 @@ class UserController extends Controller
             Rule::unique('users', 'email')->ignore($user->id),
         ];
 
+        // company_id is set once at creation and scoped via $companyId above —
+        // this endpoint doesn't let the company be changed, so drop the
+        // "required" rule rather than asking the client to resend it.
+        unset($rules['company_id']);
+
         $validated = $request->validate($rules);
 
         $user->update($validated);

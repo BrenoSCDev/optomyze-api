@@ -182,6 +182,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/funnels/{id}', [FunnelController::class, 'leadsByStages']);
     Route::get('/funnels/{id}/deals', [FunnelController::class, 'dealsByStages']);
     Route::put('/funnels/{id}', [FunnelController::class, 'update']);
+    Route::patch('/funnels/{id}/toggle-status', [FunnelController::class, 'toggleStatus']);
     Route::delete('/funnels/{id}', [FunnelController::class, 'destroy']);
 
     Route::get('/funnels/{funnelId}/stages', [StageController::class, 'index']);

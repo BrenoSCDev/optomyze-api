@@ -211,3 +211,37 @@ test('a tampered signed media url is rejected', function () {
     $response = $this->get($sentUrl . 'x');
     $response->assertForbidden();
 });
+
+test('webm audio is served with its real audio/webm mime, not the video/webm extension guess', function () {
+    // A browser's MediaRecorder typically names voice notes "<uuid>.webm"
+    // and reports them as audio/webm - but the file extension alone
+    // resolves to video/webm, which mismatched the declared "audio"
+    // attachment type and made Instagram's fetch reject the upload.
+    Storage::fake('local');
+    Http::fake([
+        '*graph.instagram.com*' => Http::response(['recipient_id' => 'igsid_123', 'message_id' => 'mid.222'], 200),
+    ]);
+
+    $fixtures = makeInstagramFixtures();
+
+    $this->actingAs($fixtures['user'])->post(
+        "/api/inbox/instagram/{$fixtures['integration']->id}/media",
+        [
+            'chat_id' => $fixtures['chat']->id,
+            'type' => 'audio',
+            'file' => UploadedFile::fake()->create('voice.webm', 10, 'audio/webm'),
+        ]
+    );
+
+    $sentUrl = null;
+    Http::assertSent(function ($request) use (&$sentUrl) {
+        $sentUrl = $request->data()['message']['attachment']['payload']['url'];
+        return true;
+    });
+
+    expect($sentUrl)->toContain('mime=audio');
+
+    $response = $this->get($sentUrl);
+    $response->assertOk();
+    $response->assertHeader('Content-Type', 'audio/webm');
+});

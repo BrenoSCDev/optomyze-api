@@ -1214,7 +1214,21 @@ class InboxController extends Controller
                 // signed as https:// but validated as http://, and fail.
                 // URL::to() then prepends the correct external host/scheme
                 // (forced to https in production, see AppServiceProvider).
-                $signedPath = URL::temporarySignedRoute('files.signed', now()->addMinutes(30), ['path' => $filePath], false);
+                //
+                // The original mime ($mime, captured from the upload) rides
+                // along as a signed query param so the route can serve the
+                // exact Content-Type it was recorded as. A path-extension
+                // guess isn't reliable here: a browser-recorded .webm voice
+                // note is audio/webm, but the extension alone resolves to
+                // video/webm, and Instagram rejects the attachment when the
+                // fetched Content-Type doesn't match the declared "audio"
+                // attachment type.
+                $signedPath = URL::temporarySignedRoute(
+                    'files.signed',
+                    now()->addMinutes(30),
+                    ['path' => $filePath, 'mime' => $mime],
+                    false
+                );
                 $publicUrl  = URL::to($signedPath);
 
                 $attachment = [

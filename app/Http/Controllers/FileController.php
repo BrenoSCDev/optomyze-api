@@ -113,8 +113,18 @@ class FileController extends Controller
             abort(404, 'File not found');
         }
 
-        return response()->file($absolutePath, [
+        $headers = [
             'Content-Disposition' => 'inline; filename="' . basename($path) . '"',
-        ]);
+        ];
+
+        // Prefer the mime type captured at upload time (e.g. audio/webm)
+        // over guessing from the file extension - .webm alone resolves to
+        // video/webm, which mismatches a declared "audio" attachment and
+        // makes platforms like Instagram reject the fetch.
+        if ($mime = $request->query('mime')) {
+            $headers['Content-Type'] = $mime;
+        }
+
+        return response()->file($absolutePath, $headers);
     }
 }
