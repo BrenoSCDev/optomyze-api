@@ -212,40 +212,10 @@ test('a tampered signed media url is rejected', function () {
     $response->assertForbidden();
 });
 
-test('webm detected as video/webm by getMimeType is remapped to audio/webm for audio attachments', function () {
-    // In production, getMimeType() inspects the file's magic bytes and always
-    // returns video/webm for a WebM container - even when it only carries audio.
-    // The remap must fire so the signed URL carries mime=audio/webm, not video/webm.
-    Storage::fake('local');
-    Http::fake([
-        '*graph.instagram.com*' => Http::response(['recipient_id' => 'igsid_123', 'message_id' => 'mid.333'], 200),
-    ]);
-
-    $fixtures = makeInstagramFixtures();
-
-    $this->actingAs($fixtures['user'])->post(
-        "/api/inbox/instagram/{$fixtures['integration']->id}/media",
-        [
-            'chat_id' => $fixtures['chat']->id,
-            'type' => 'audio',
-            'file' => UploadedFile::fake()->create('voice.webm', 10, 'video/webm'),
-        ]
-    );
-
-    $sentUrl = null;
-    Http::assertSent(function ($request) use (&$sentUrl) {
-        $sentUrl = $request->data()['message']['attachment']['payload']['url'];
-        return true;
-    });
-
-    expect($sentUrl)->toContain('mime=audio%2Fwebm');
-});
-
-test('webm audio is served with its real audio/webm mime, not the video/webm extension guess', function () {
-    // A browser's MediaRecorder typically names voice notes "<uuid>.webm"
-    // and reports them as audio/webm - but the file extension alone
-    // resolves to video/webm, which mismatched the declared "audio"
-    // attachment type and made Instagram's fetch reject the upload.
+test('ogg audio is sent with the correct mime and is fetchable without authentication', function () {
+    // OGG is the format Instagram receives after WebM→OGG conversion (and is
+    // also what non-Chrome browsers may send natively). Verifies the full
+    // sign → serve pipeline with a format that doesn't require ffmpeg in tests.
     Storage::fake('local');
     Http::fake([
         '*graph.instagram.com*' => Http::response(['recipient_id' => 'igsid_123', 'message_id' => 'mid.222'], 200),
@@ -258,7 +228,7 @@ test('webm audio is served with its real audio/webm mime, not the video/webm ext
         [
             'chat_id' => $fixtures['chat']->id,
             'type' => 'audio',
-            'file' => UploadedFile::fake()->create('voice.webm', 10, 'audio/webm'),
+            'file' => UploadedFile::fake()->create('voice.ogg', 10, 'audio/ogg'),
         ]
     );
 
@@ -268,9 +238,9 @@ test('webm audio is served with its real audio/webm mime, not the video/webm ext
         return true;
     });
 
-    expect($sentUrl)->toContain('mime=audio');
+    expect($sentUrl)->toContain('mime=audio%2Fogg');
 
     $response = $this->get($sentUrl);
     $response->assertOk();
-    $response->assertHeader('Content-Type', 'audio/webm');
+    $response->assertHeader('Content-Type', 'audio/ogg');
 });

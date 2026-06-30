@@ -1194,19 +1194,49 @@ class InboxController extends Controller
         $uploadedFile = $request->file('file');
         $filePath     = $uploadedFile->store("instagram/outbound/{$companyId}", 'local');
         $mime         = $uploadedFile->getMimeType();
-        // getMimeType() inspects the file's magic bytes, so a WebM container
-        // always resolves to video/webm even when it only carries audio tracks.
-        // Instagram validates the fetched Content-Type against the declared
-        // attachment type and rejects a mismatch, so remap here.
+        // getMimeType() inspects magic bytes: WebM containers always resolve to
+        // video/webm even when they only carry audio tracks.
         if ($type === 'audio' && str_starts_with($mime, 'video/')) {
             $mime = 'audio/' . substr($mime, strlen('video/'));
         }
-        $size         = $uploadedFile->getSize();
+        $size = $uploadedFile->getSize();
 
         try {
             $externalMessageId = (string) Str::uuid();
 
             if ($messageMode === 'external') {
+                // Instagram doesn't support WebM audio (error 2534080). Convert to OGG
+                // (same Opus codec, different container) via ffmpeg before sending.
+                // $filePath / $mime / $size are updated in place so the InboxMessage
+                // record written below reflects the actually-stored file.
+                if ($type === 'audio' && $mime === 'audio/webm') {
+                    $absoluteInput  = Storage::disk('local')->path($filePath);
+                    $oggRelPath     = pathinfo($filePath, PATHINFO_DIRNAME) . '/' . pathinfo($filePath, PATHINFO_FILENAME) . '.ogg';
+                    $absoluteOutput = Storage::disk('local')->path($oggRelPath);
+
+                    exec(
+                        'ffmpeg -y -i ' . escapeshellarg($absoluteInput) . ' -c:a libopus ' . escapeshellarg($absoluteOutput) . ' 2>/dev/null',
+                        $_ffmpegOut,
+                        $ffmpegExit
+                    );
+
+                    if ($ffmpegExit === 0 && file_exists($absoluteOutput)) {
+                        Storage::disk('local')->delete($filePath);
+                        $filePath = $oggRelPath;
+                        $mime     = 'audio/ogg';
+                        $size     = filesize($absoluteOutput);
+                    } else {
+                        Storage::disk('local')->delete($filePath);
+                        Log::error('Instagram audio: ffmpeg WebM→OGG conversion failed', [
+                            'company_id' => $companyId,
+                            'exit_code'  => $ffmpegExit,
+                        ]);
+                        return response()->json([
+                            'message' => 'Audio conversion failed. Ensure ffmpeg is installed on the server.',
+                        ], 422);
+                    }
+                }
+
                 // Instagram's servers fetch this URL directly and can't present
                 // our Sanctum auth header, so it can't go through the normal
                 // private /api/files route. A signed URL lets us hand them a
@@ -1222,14 +1252,10 @@ class InboxController extends Controller
                 // URL::to() then prepends the correct external host/scheme
                 // (forced to https in production, see AppServiceProvider).
                 //
-                // The original mime ($mime, captured from the upload) rides
-                // along as a signed query param so the route can serve the
-                // exact Content-Type it was recorded as. A path-extension
-                // guess isn't reliable here: a browser-recorded .webm voice
-                // note is audio/webm, but the extension alone resolves to
-                // video/webm, and Instagram rejects the attachment when the
-                // fetched Content-Type doesn't match the declared "audio"
-                // attachment type.
+                // The mime rides along as a signed query param so the route
+                // can serve the exact Content-Type. WebM audio is converted to
+                // OGG above, so by this point $mime is always a format Instagram
+                // accepts (audio/ogg, audio/mpeg, etc.).
                 $signedPath = URL::temporarySignedRoute(
                     'files.signed',
                     now()->addMinutes(30),
