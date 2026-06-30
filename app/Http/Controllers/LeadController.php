@@ -8,6 +8,7 @@ use App\Models\EntryRequirement;
 use App\Services\NotificationService;
 use Illuminate\Support\Facades\Log;
 use App\Models\Lead;
+use App\Support\PhoneNormalizer;
 use App\Models\LeadCompany;
 use App\Models\LeadCustomField;
 use App\Models\Record;
@@ -830,11 +831,21 @@ class LeadController extends Controller
         }
 
         // 🔍 Check if lead already exists in this company
+        $rawPhone     = $validated['phone'] ?? null;
+        $phoneDigits  = $rawPhone !== null ? PhoneNormalizer::normalize($rawPhone) : null;
+        $phoneVariants = $phoneDigits !== null && $phoneDigits !== ''
+            ? PhoneNormalizer::variants($phoneDigits)
+            : null;
+
         $existingLead = Lead::where('company_id', $company->id)
             ->where('first_name', $validated['first_name'] ?? null)
             ->where('last_name', $validated['last_name'] ?? null)
             ->where('email', $validated['email'] ?? null)
-            ->where('phone', $validated['phone'] ?? null)
+            ->when(
+                $phoneVariants,
+                fn($q) => $q->whereIn('phone', $phoneVariants),
+                fn($q) => $q->whereNull('phone'),
+            )
             ->first();
 
         if ($existingLead) {

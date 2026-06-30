@@ -73,11 +73,8 @@ class LeadAppointmentController extends Controller
             return response()->json(['message' => 'Invalid phone number'], 422);
         }
 
-        // 🔍 Look up the lead by phone, scoped to the token's company —
-        // never matches a lead belonging to a different company.
-        $lead = Lead::where('company_id', $company->id)
-            ->where('phone', $normalizedPhone)
-            ->first();
+        // findByPhone matches both old and new Brazilian mobile formats.
+        $lead = Lead::findByPhone($company->id, $normalizedPhone);
 
         $leadWasCreated = false;
 

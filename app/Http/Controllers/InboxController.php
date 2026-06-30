@@ -94,9 +94,11 @@ class InboxController extends Controller
         }
 
         // 3️⃣ Find or create lead (inbound only)
-        $lead = Lead::where('company_id', $companyId)
-            ->where('phone', $phoneNumber)
-            ->first();
+        // findByPhone matches both old and new Brazilian mobile formats so a
+        // lead created from a web form (new 9-digit number) is correctly
+        // associated when the same person messages from a WhatsApp account
+        // registered under the older 8-digit format, and vice-versa.
+        $lead = Lead::findByPhone($companyId, $phoneNumber);
 
         $leadCreated = false;
         if (!$lead && $isInbound) {

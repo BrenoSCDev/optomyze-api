@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use App\Models\User;
 use App\Support\CompanyCurrencyCache;
+use App\Support\PhoneNormalizer;
 
 class Lead extends Model
 {
@@ -380,6 +381,29 @@ class Lead extends Model
         }
         
         return "Lead #{$this->id}";
+    }
+
+    /**
+     * Look up a lead by phone number within a company, matching both the
+     * old and new Brazilian mobile formats (8-digit vs 9-digit subscriber).
+     *
+     * Pass the raw phone string as received — it will be normalized to digits
+     * before the lookup. Returns null if $rawPhone is blank or no lead exists.
+     *
+     * Use this everywhere a phone-based lead lookup is needed so that the
+     * Brazil 9-digit transition is handled consistently across webhooks, API
+     * integrations, imports, and any other entry point.
+     */
+    public static function findByPhone(int $companyId, string $rawPhone): ?self
+    {
+        $digits = PhoneNormalizer::normalize($rawPhone);
+        if ($digits === '') {
+            return null;
+        }
+
+        return static::where('company_id', $companyId)
+            ->whereIn('phone', PhoneNormalizer::variants($digits))
+            ->first();
     }
 
     /**
