@@ -532,3 +532,37 @@ test('outbound docx document message (fromMe=true) with Long-style fileLength is
     expect($message->media_size)->toBe(8533);
     expect($message->text)->toBe('COLD CALL SCRIPT BAD WEBSITE.docx');
 });
+
+test('webhook with @lid remoteJid and no remoteJidAlt is skipped without creating a lead', function () {
+    // Evolution sometimes fires a second webhook event for the same message
+    // using only the internal @lid identifier and no remoteJidAlt. Without a
+    // real phone number we cannot associate the message to a contact, so the
+    // event must be dropped silently (200 OK so Evolution doesn't retry) rather
+    // than creating a garbage lead whose name/phone are the raw @lid string.
+    $instance = makeWhatsAppInstanceForMediaTest();
+
+    $payload = [
+        'event' => 'messages.upsert',
+        'instance' => $instance->instance_name,
+        'data' => [
+            'key' => [
+                'remoteJid' => '256482629148725@lid',
+                // remoteJidAlt intentionally absent
+                'fromMe' => false,
+                'id' => 'AAAABBBBCCCCDDDD',
+                'addressingMode' => 'lid',
+            ],
+            'pushName' => '',
+            'message' => ['conversation' => 'hello'],
+            'messageType' => 'conversation',
+            'messageTimestamp' => time(),
+        ],
+    ];
+
+    $leadsBefore = \App\Models\Lead::where('company_id', $instance->company_id)->count();
+
+    $response = $this->postJson('/api/whatsapp-evo-chat', $payload);
+
+    $response->assertOk();
+    expect(\App\Models\Lead::where('company_id', $instance->company_id)->count())->toBe($leadsBefore);
+});

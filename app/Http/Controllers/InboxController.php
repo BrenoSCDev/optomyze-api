@@ -55,9 +55,19 @@ class InboxController extends Controller
         $rawRemoteJid = $payload['data']['key']['remoteJid'] ?? null;
         $remoteJidAlt = $payload['data']['key']['remoteJidAlt'] ?? null;
 
-        $remoteJid = (is_string($rawRemoteJid) && str_ends_with($rawRemoteJid, '@lid'))
-            ? ($remoteJidAlt ?? $rawRemoteJid)
-            : $rawRemoteJid;
+        if (is_string($rawRemoteJid) && str_ends_with($rawRemoteJid, '@lid')) {
+            if (!$remoteJidAlt) {
+                // @lid with no resolvable alt — Evolution sometimes fires a
+                // second webhook event for the same message using only the
+                // internal lid identifier. There is no usable phone number here,
+                // so skip it silently (200 so the webhook doesn't retry) rather
+                // than creating a garbage lead with "@lid" as the phone.
+                return response()->json(['message' => 'unresolvable @lid jid, skipped'], 200);
+            }
+            $remoteJid = $remoteJidAlt;
+        } else {
+            $remoteJid = $rawRemoteJid;
+        }
 
         if (!$remoteJid) {
             return response()->json(['message' => 'remoteJid not found'], 422);
