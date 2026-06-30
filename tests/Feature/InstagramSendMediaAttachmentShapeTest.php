@@ -212,10 +212,10 @@ test('a tampered signed media url is rejected', function () {
     $response->assertForbidden();
 });
 
-test('ogg audio is sent with the correct mime and is fetchable without authentication', function () {
-    // OGG is the format Instagram receives after WebM→OGG conversion (and is
-    // also what non-Chrome browsers may send natively). Verifies the full
-    // sign → serve pipeline with a format that doesn't require ffmpeg in tests.
+test('m4a audio is sent with the correct mime and is fetchable without authentication', function () {
+    // M4A (audio/mp4) is the format Instagram receives after WebM→M4A conversion.
+    // Verifies the full sign → serve pipeline with a format that doesn't require
+    // ffmpeg in tests. OGG Opus was tried but Instagram rejects it in practice.
     Storage::fake('local');
     Http::fake([
         '*graph.instagram.com*' => Http::response(['recipient_id' => 'igsid_123', 'message_id' => 'mid.222'], 200),
@@ -228,7 +228,7 @@ test('ogg audio is sent with the correct mime and is fetchable without authentic
         [
             'chat_id' => $fixtures['chat']->id,
             'type' => 'audio',
-            'file' => UploadedFile::fake()->create('voice.ogg', 10, 'audio/ogg'),
+            'file' => UploadedFile::fake()->create('voice.m4a', 10, 'audio/mp4'),
         ]
     );
 
@@ -238,9 +238,9 @@ test('ogg audio is sent with the correct mime and is fetchable without authentic
         return true;
     });
 
-    expect($sentUrl)->toContain('mime=audio%2Fogg');
+    expect($sentUrl)->toContain('mime=audio%2Fmp4');
 
     $response = $this->get($sentUrl);
     $response->assertOk();
-    $response->assertHeader('Content-Type', 'audio/ogg');
+    $response->assertHeader('Content-Type', 'audio/mp4');
 });

@@ -1205,29 +1205,31 @@ class InboxController extends Controller
             $externalMessageId = (string) Str::uuid();
 
             if ($messageMode === 'external') {
-                // Instagram doesn't support WebM audio (error 2534080). Convert to OGG
-                // (same Opus codec, different container) via ffmpeg before sending.
-                // $filePath / $mime / $size are updated in place so the InboxMessage
-                // record written below reflects the actually-stored file.
+                // Instagram doesn't support WebM audio (error 2534080). OGG Opus
+                // also fails in practice despite the docs listing it. AAC in an
+                // M4A container (audio/mp4) is reliably accepted and uses
+                // ffmpeg's built-in aac encoder — no external library needed.
+                // $filePath / $mime / $size are updated in place so the
+                // InboxMessage record below reflects the actually-stored file.
                 if ($type === 'audio' && $mime === 'audio/webm') {
                     $absoluteInput  = Storage::disk('local')->path($filePath);
-                    $oggRelPath     = pathinfo($filePath, PATHINFO_DIRNAME) . '/' . pathinfo($filePath, PATHINFO_FILENAME) . '.ogg';
-                    $absoluteOutput = Storage::disk('local')->path($oggRelPath);
+                    $m4aRelPath     = pathinfo($filePath, PATHINFO_DIRNAME) . '/' . pathinfo($filePath, PATHINFO_FILENAME) . '.m4a';
+                    $absoluteOutput = Storage::disk('local')->path($m4aRelPath);
 
                     exec(
-                        'ffmpeg -y -i ' . escapeshellarg($absoluteInput) . ' -c:a libopus ' . escapeshellarg($absoluteOutput) . ' 2>/dev/null',
+                        'ffmpeg -y -i ' . escapeshellarg($absoluteInput) . ' -c:a aac -b:a 128k ' . escapeshellarg($absoluteOutput) . ' 2>/dev/null',
                         $_ffmpegOut,
                         $ffmpegExit
                     );
 
                     if ($ffmpegExit === 0 && file_exists($absoluteOutput)) {
                         Storage::disk('local')->delete($filePath);
-                        $filePath = $oggRelPath;
-                        $mime     = 'audio/ogg';
+                        $filePath = $m4aRelPath;
+                        $mime     = 'audio/mp4';
                         $size     = filesize($absoluteOutput);
                     } else {
                         Storage::disk('local')->delete($filePath);
-                        Log::error('Instagram audio: ffmpeg WebM→OGG conversion failed', [
+                        Log::error('Instagram audio: ffmpeg WebM→M4A conversion failed', [
                             'company_id' => $companyId,
                             'exit_code'  => $ffmpegExit,
                         ]);
