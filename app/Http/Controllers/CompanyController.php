@@ -50,6 +50,7 @@ class CompanyController extends Controller
             'settings'          => 'nullable|array',
             'timezone'          => 'nullable|string|max:255',
             'currency'          => 'nullable|string|max:10',
+            'language'          => 'nullable|in:EN,PT,ES,DE',
         ]);
 
         $limits = Company::planLimits($validated['subscription_plan']);
@@ -65,6 +66,7 @@ class CompanyController extends Controller
             'is_active'            => true,
             'timezone'             => $validated['timezone'] ?? 'UTC',
             'currency'             => $validated['currency'] ?? 'USD',
+            'language'             => $validated['language'] ?? 'EN',
             ...$limits,
         ]);
 
@@ -89,6 +91,7 @@ class CompanyController extends Controller
             'settings'          => 'nullable|array',
             'timezone'          => 'nullable|string|max:255',
             'currency'          => 'nullable|string|max:10',
+            'language'          => 'nullable|in:EN,PT,ES,DE',
         ]);
 
         // Re-apply plan limits when plan changes

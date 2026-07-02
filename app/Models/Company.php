@@ -204,6 +204,7 @@ class Company extends Model
             'subscription_plan' => 'required|in:basic,premium,enterprise',
             'is_active' => 'boolean',
             'settings' => 'nullable|array',
+            'language' => 'nullable|in:EN,PT,ES,DE',
         ];
     }
 
@@ -220,6 +221,7 @@ class Company extends Model
             'subscription_plan' => 'required|in:basic,premium,enterprise',
             'is_active' => 'boolean',
             'settings' => 'nullable|array',
+            'language' => 'nullable|in:EN,PT,ES,DE',
         ];
     }
 }
