@@ -91,6 +91,9 @@ class OpenAiProvider implements AiProviderInterface
 
             if (!$response->successful()) {
                 Log::warning('OpenAiProvider: transcription failed', [
+                    'file' => basename($absolutePath),
+                    'mime' => $mime,
+                    'status' => $response->status(),
                     'error' => $response->json('error.message') ?? $response->body(),
                 ]);
 

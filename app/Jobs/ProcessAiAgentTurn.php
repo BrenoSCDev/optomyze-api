@@ -232,9 +232,11 @@ class ProcessAiAgentTurn implements ShouldQueue
                     ->delay(now()->addSeconds(max(AiAgent::MIN_RESPONSE_DELAY_SECONDS, $agent->response_delay_seconds)));
             }
         } catch (\Throwable $e) {
-            // 9. Log the failure but never disable the flag — a transient
-            //    provider error must not strand the conversation.
-            Log::error('ProcessAiAgentTurn failed', [
+            // 9. Internal failure (LLM API down, unexpected exception): the
+            //    customer must not be stranded with a silent bot — hand the
+            //    conversation to a human immediately per the CRM routing
+            //    rules (assigned user, else round-robin queue).
+            Log::error('ProcessAiAgentTurn failed — handing over to human', [
                 'chat_id' => $chat->id,
                 'agent_id' => $agent->id,
                 'error' => $e->getMessage(),
@@ -245,6 +247,17 @@ class ProcessAiAgentTurn implements ShouldQueue
                 'error' => mb_substr($e->getMessage(), 0, 2000),
                 'duration_ms' => (int) ((microtime(true) - $startedAt) * 1000),
             ]);
+
+            try {
+                if ($chat->fresh()->ai_agent_service) {
+                    \App\Services\Ai\AiHandoverService::handover($context, 'internal error: ' . mb_substr($e->getMessage(), 0, 200));
+                }
+            } catch (\Throwable $handoverError) {
+                Log::error('ProcessAiAgentTurn: failure handover also failed', [
+                    'chat_id' => $chat->id,
+                    'error' => $handoverError->getMessage(),
+                ]);
+            }
         }
     }
 

@@ -328,6 +328,29 @@ it('runs a full turn and sends the AI reply through the channel', function () {
 it('executes a tool call then sends the final reply', function () {
     $fx = aiAgentFixtures();
 
+    // A real product so the tool result must SUCCEED with data — this
+    // guards against schema drift (e.g. selecting nonexistent columns),
+    // which a call-was-made assertion alone would mask.
+    $product = \App\Models\Product::create([
+        'company_id' => $fx['company']->id,
+        'name' => 'BMW 320i',
+        'description' => 'Sedan 2.0 turbo',
+        'sku' => 'BMW320',
+        'base_price' => 250000,
+        'type' => 'product',
+        'is_active' => true,
+    ]);
+
+    \App\Models\CustomProductField::create([
+        'company_id' => $fx['company']->id,
+        'product_id' => $product->id,
+        'type' => 'product',
+        'field_type' => 'text',
+        'field_key' => 'Motor',
+        'field_value' => '2.0 Turbo 184cv',
+        'display_order' => 1,
+    ]);
+
     Http::fake([
         'api.openai.com/v1/chat/completions' => Http::sequence()
             ->push([
@@ -339,7 +362,7 @@ it('executes a tool call then sends the final reply', function () {
                             'type' => 'function',
                             'function' => [
                                 'name' => 'search_products',
-                                'arguments' => '{"query":"laptop"}',
+                                'arguments' => '{"query":"BMW"}',
                             ],
                         ]],
                     ],
@@ -357,7 +380,7 @@ it('executes a tool call then sends the final reply', function () {
         'evolution.example.com/*' => Http::response(['key' => ['id' => 'WA_MSG_2']]),
     ]);
 
-    $message = inboundMessage($fx, 'Do you sell laptops?');
+    $message = inboundMessage($fx, 'Do you sell BMWs?');
 
     (new ProcessAiAgentTurn($fx['chat']->id, $fx['agent']->id, $message->id))->handle();
 
@@ -365,9 +388,16 @@ it('executes a tool call then sends the final reply', function () {
     expect($execution->status)->toBe('completed');
     expect($execution->tool_calls)->toHaveCount(1);
     expect($execution->tool_calls[0]['tool'])->toBe('search_products');
+    expect($execution->tool_calls[0]['success'])->toBeTrue();
+
+    $returned = $execution->tool_calls[0]['payload']['products'];
+    expect($returned)->toHaveCount(1);
+    expect($returned[0]['name'])->toBe('BMW 320i');
+    expect($returned[0]['price'])->not->toBeNull();
+    expect($returned[0]['specifications']['Motor'])->toBe('2.0 Turbo 184cv');
 
     $reply = InboxMessage::where('direction', 'outgoing')->first();
-    expect($reply->text)->toContain('laptops');
+    expect($reply->text)->not->toBeNull();
 });
 
 it('hands over to a human when the model calls handover_to_human', function () {
@@ -410,6 +440,33 @@ it('hands over to a human when the model calls handover_to_human', function () {
 
     $execution = $fx['agent']->executions()->first();
     expect($execution->status)->toBe('handover');
+});
+
+it('hands over automatically when the AI turn fails internally', function () {
+    $fx = aiAgentFixtures();
+
+    $fx['agent']->update(['handover_message' => 'A specialist will continue shortly.']);
+    $fx['lead']->update(['assigned_to' => $fx['user']->id]);
+
+    Http::fake([
+        'api.openai.com/v1/chat/completions' => Http::response(['error' => ['message' => 'server exploded']], 500),
+        'evolution.example.com/*' => Http::response(['key' => ['id' => 'WA_MSG_FAIL']]),
+    ]);
+
+    $message = inboundMessage($fx, 'Hello?');
+
+    (new ProcessAiAgentTurn($fx['chat']->id, $fx['agent']->id, $message->id))->handle();
+
+    // Internal failure => transfer without asking the customer anything.
+    expect($fx['chat']->fresh()->ai_agent_service)->toBeFalse();
+
+    $handoverMessage = InboxMessage::where('direction', 'outgoing')->first();
+    expect($handoverMessage)->not->toBeNull();
+    expect($handoverMessage->text)->toBe('A specialist will continue shortly.');
+
+    $execution = $fx['agent']->executions()->first();
+    expect($execution->status)->toBe('failed');
+    expect($execution->error)->toContain('server exploded');
 });
 
 // ---------------------------------------------------------------------------

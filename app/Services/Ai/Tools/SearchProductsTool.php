@@ -22,7 +22,7 @@ class SearchProductsTool implements ToolInterface
 
     public function description(): string
     {
-        return 'Search the company\'s product catalog by name or description. Returns product names, descriptions and prices. Always use this before quoting any price — never invent product information.';
+        return 'Search the company\'s product catalog by name, description, SKU, category or specification. Returns full product details including price, categories and every custom specification field. Always use this before quoting any price or spec — never invent product information.';
     }
 
     public function parametersSchema(ToolContext $context): array
@@ -32,7 +32,7 @@ class SearchProductsTool implements ToolInterface
             'properties' => [
                 'query' => [
                     'type' => 'string',
-                    'description' => 'Search term matched against product name and description. Leave empty to list the catalog.',
+                    'description' => 'Search term matched against product name, description, SKU and specification values. Leave empty to list the catalog.',
                 ],
             ],
             'additionalProperties' => false,
@@ -51,30 +51,56 @@ class SearchProductsTool implements ToolInterface
         $products = Product::where('company_id', $context->companyId)
             ->where('is_active', true)
             ->whereNull('archived_at')
+            ->with(['categories:id,name', 'fields' => fn ($q) => $q->orderBy('display_order')])
             ->when($query !== '', function ($builder) use ($query) {
                 $builder->where(function ($q) use ($query) {
-                    $q->where('name', 'like', "%{$query}%")
-                        ->orWhere('description', 'like', "%{$query}%")
-                        ->orWhere('sku', 'like', "%{$query}%");
+                    $like = "%{$query}%";
+                    $q->where('name', 'like', $like)
+                        ->orWhere('description', 'like', $like)
+                        ->orWhere('sku', 'like', $like)
+                        ->orWhereHas('categories', fn ($c) => $c->where('name', 'like', $like))
+                        ->orWhereHas('fields', fn ($f) => $f->where('field_value', 'like', $like));
                 });
             })
             ->orderByDesc('is_favorite')
             ->limit(self::MAX_RESULTS)
-            ->get(['id', 'name', 'description', 'sku', 'base_price', 'currency', 'type']);
+            ->get();
 
         if ($products->isEmpty()) {
             return ToolResult::ok(['products' => [], 'message' => 'No products matched.']);
         }
 
         return ToolResult::ok([
-            'products' => $products->map(fn (Product $product) => [
-                'name' => $product->name,
-                'description' => $product->description,
-                'sku' => $product->sku,
-                'price' => $product->base_price,
-                'currency' => $product->currency,
-                'type' => $product->type,
-            ])->all(),
+            'products' => $products->map(fn (Product $product) => $this->formatProduct($product))->all(),
         ]);
+    }
+
+    /**
+     * Everything the CRM knows about the product: base fields, categories
+     * and all custom specification fields (e.g. engine, mileage, color for
+     * a car dealership) so the LLM can answer detailed questions.
+     */
+    private function formatProduct(Product $product): array
+    {
+        $specifications = [];
+
+        foreach ($product->fields as $field) {
+            $value = trim((string) $field->field_value);
+
+            if ($field->field_key && $value !== '') {
+                $specifications[$field->field_key] = $value;
+            }
+        }
+
+        return array_filter([
+            'name' => $product->name,
+            'description' => $product->description,
+            'sku' => $product->sku,
+            'price' => $product->base_price,
+            'type' => $product->type,
+            'categories' => $product->categories->pluck('name')->all(),
+            'specifications' => $specifications,
+            'metadata' => $product->metadata,
+        ], fn ($value) => $value !== null && $value !== [] && $value !== '');
     }
 }

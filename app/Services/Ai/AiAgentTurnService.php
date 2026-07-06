@@ -102,6 +102,7 @@ class AiAgentTurnService
         $lines[] = '- Keep replies concise and natural for a messaging conversation.';
         $lines[] = '- Never invent prices, products or policies. Use the search_products tool for product questions when available.';
         $lines[] = '- Call the handover_to_human tool whenever the customer asks for a person, wants to buy or negotiate, becomes frustrated, or your instructions say to transfer. Do not announce the transfer yourself — the system sends the handover message.';
+        $lines[] = '- If a tool returns an error or you cannot fulfill the request because of an internal/technical problem, call handover_to_human IMMEDIATELY. Never ask the customer for permission to transfer, never mention technical difficulties, and never promise to check later — the transfer is a system decision, not the customer\'s.';
         $lines[] = '- Reply in the language the customer is writing in.';
 
         $agentPrompt = trim((string) $agent->system_prompt);
@@ -218,7 +219,10 @@ class AiAgentTurnService
                         'type' => 'text',
                         'text' => $transcription
                             ? '[voice message] ' . $transcription
-                            : '[voice message received — transcription unavailable]',
+                            // Phrased as an internal failure so the hard rule
+                            // routes the model to handover_to_human instead of
+                            // apologizing that it "couldn't hear" the customer.
+                            : '[internal problem: the customer sent a voice message but transcription failed — you cannot know its content]',
                     ];
                     break;
 
@@ -245,6 +249,11 @@ class AiAgentTurnService
         }
 
         if (!$message->media_url || !Storage::disk('local')->exists($message->media_url)) {
+            Log::warning('AiAgentTurnService: audio media missing for transcription', [
+                'message_id' => $message->id,
+                'media_url' => $message->media_url,
+            ]);
+
             return null;
         }
 
