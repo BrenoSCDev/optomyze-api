@@ -7,9 +7,9 @@ use App\Models\Lead;
 use App\Models\Stage;
 use App\Models\User;
 use App\Models\WhatsAppInstance;
-use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(DatabaseTransactions::class);
+uses(RefreshDatabase::class);
 
 function makeChatSearchFixtures(): array
 {

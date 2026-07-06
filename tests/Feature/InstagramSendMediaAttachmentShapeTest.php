@@ -4,12 +4,12 @@ use App\Models\Company;
 use App\Models\InboxChat;
 use App\Models\InstagramIntegration;
 use App\Models\User;
-use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 
-uses(DatabaseTransactions::class);
+uses(RefreshDatabase::class);
 
 function makeInstagramFixtures(): array
 {

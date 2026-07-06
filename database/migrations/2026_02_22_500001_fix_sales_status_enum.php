@@ -9,7 +9,9 @@ return new class extends Migration {
         // Migrate any existing 'in_pipeline' rows to 'pending' before changing the enum
         DB::statement("UPDATE sales SET status = 'pending' WHERE status = 'in_pipeline'");
 
-        DB::statement("ALTER TABLE sales MODIFY COLUMN status ENUM('pending', 'sent', 'closed', 'lost') NOT NULL DEFAULT 'pending'");
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE sales MODIFY COLUMN status ENUM('pending', 'sent', 'closed', 'lost') NOT NULL DEFAULT 'pending'");
+        }
     }
 
     public function down(): void
@@ -17,6 +19,8 @@ return new class extends Migration {
         DB::statement("UPDATE sales SET status = 'in_pipeline' WHERE status = 'pending'");
         DB::statement("UPDATE sales SET status = 'in_pipeline' WHERE status = 'sent'");
 
-        DB::statement("ALTER TABLE sales MODIFY COLUMN status ENUM('in_pipeline', 'closed', 'lost') NOT NULL DEFAULT 'in_pipeline'");
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE sales MODIFY COLUMN status ENUM('in_pipeline', 'closed', 'lost') NOT NULL DEFAULT 'in_pipeline'");
+        }
     }
 };

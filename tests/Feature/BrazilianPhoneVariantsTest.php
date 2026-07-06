@@ -7,9 +7,9 @@ use App\Models\Lead;
 use App\Models\Stage;
 use App\Models\WhatsAppInstance;
 use App\Support\PhoneNormalizer;
-use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(DatabaseTransactions::class);
+uses(RefreshDatabase::class);
 
 // ─── PhoneNormalizer unit tests ──────────────────────────────────────────────
 

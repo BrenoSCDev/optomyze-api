@@ -10,7 +10,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        DB::statement("ALTER TABLE appointments MODIFY status ENUM('draft', 'scheduled', 'completed', 'cancelled', 'no_show') NOT NULL DEFAULT 'draft'");
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE appointments MODIFY status ENUM('draft', 'scheduled', 'completed', 'cancelled', 'no_show') NOT NULL DEFAULT 'draft'");
+        }
     }
 
     /**
@@ -19,6 +21,8 @@ return new class extends Migration
     public function down(): void
     {
         DB::statement("UPDATE appointments SET status = 'scheduled' WHERE status = 'draft'");
-        DB::statement("ALTER TABLE appointments MODIFY status ENUM('scheduled', 'completed', 'cancelled', 'no_show') NOT NULL DEFAULT 'scheduled'");
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE appointments MODIFY status ENUM('scheduled', 'completed', 'cancelled', 'no_show') NOT NULL DEFAULT 'scheduled'");
+        }
     }
 };

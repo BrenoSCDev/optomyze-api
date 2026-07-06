@@ -44,7 +44,9 @@ return new class extends Migration
         });
 
         // 5️⃣ Make company_id NOT NULL and add new scoped constraints
-        DB::statement('ALTER TABLE role_permissions MODIFY company_id BIGINT UNSIGNED NOT NULL');
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement('ALTER TABLE role_permissions MODIFY company_id BIGINT UNSIGNED NOT NULL');
+        }
 
         Schema::table('role_permissions', function (Blueprint $table) {
             $table->unique(['company_id', 'role', 'permission_key']);
