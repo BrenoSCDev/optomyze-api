@@ -21,7 +21,11 @@ use Illuminate\Support\Str;
  */
 class ChannelMessageSender
 {
-    public static function send(InboxChat $chat, ChatSession $session, string $text): ?InboxMessage
+    /**
+     * @param array $extraAttributes Extra InboxMessage attributes stamped at
+     *                               insert (e.g. ai_agent_id for AI replies).
+     */
+    public static function send(InboxChat $chat, ChatSession $session, string $text, array $extraAttributes = []): ?InboxMessage
     {
         if (!in_array($chat->channel, [InboxChat::CHANNEL_WHATSAPP, InboxChat::CHANNEL_INSTAGRAM], true)) {
             Log::info('ChannelMessageSender: automated sending not implemented for channel', [
@@ -41,7 +45,7 @@ class ChannelMessageSender
                 return null;
             }
 
-            $message = InboxMessage::create([
+            $message = InboxMessage::create(array_merge([
                 'inbox_chat_id' => $chat->id,
                 'chat_session_id' => $session->id,
                 'user_id' => null,
@@ -52,7 +56,7 @@ class ChannelMessageSender
                 'text' => $text,
                 'status' => 'sent',
                 'sent_at' => now(),
-            ]);
+            ], $extraAttributes));
 
             $chat->update(['last_message_at' => now()]);
 

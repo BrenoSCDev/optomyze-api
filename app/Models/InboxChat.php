@@ -33,8 +33,16 @@ class InboxChat extends Model
         'contact_name',
         'is_group',
         'is_archived',
+        'ai_agent_service',
         'last_message_at',
         'profile_pic_url',
+    ];
+
+    protected $casts = [
+        'is_group' => 'boolean',
+        'is_archived' => 'boolean',
+        'ai_agent_service' => 'boolean',
+        'last_message_at' => 'datetime',
     ];
 
     protected $appends = [
@@ -99,5 +107,22 @@ class InboxChat extends Model
         }
 
         return null;
+    }
+
+    /**
+     * The AI agent bound to this chat's channel account, if any.
+     */
+    public function boundAiAgent(): ?AiAgent
+    {
+        if (!$this->channelable_type || !$this->channelable_id) {
+            return null;
+        }
+
+        $binding = AiAgentChannelBinding::where('channelable_type', $this->channelable_type)
+            ->where('channelable_id', $this->channelable_id)
+            ->where('company_id', $this->company_id)
+            ->first();
+
+        return $binding?->agent;
     }
 }

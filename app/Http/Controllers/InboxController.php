@@ -13,10 +13,12 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
+use App\Events\InboxChatUpdated;
 use App\Events\InboxMessagesCleared;
 use App\Events\InboxMessageReceived;
 use App\Events\InboxMessageUpdated;
 use App\Events\LeadLiveUpdate;
+use App\Services\Ai\AiAgentDispatcher;
 use App\Services\ChatSessionService;
 use App\Services\LeadQueueAssignmentService;
 use Illuminate\Support\Facades\DB;
@@ -476,6 +478,12 @@ class InboxController extends Controller
             if ($isInbound && $chatSession) {
                 ChatSessionService::sendWelcomeMessageIfEnabled($chat, $chatSession);
             }
+
+            // Queue a debounced AI agent turn for inbound messages on
+            // AI-owned chats (no-op when no enabled agent is bound).
+            if ($isInbound && $message->wasRecentlyCreated) {
+                AiAgentDispatcher::onInboundMessage($chat, $message, $chatSession);
+            }
         }
 
         return response()->json(['status' => 'ok'], 200);
@@ -524,9 +532,14 @@ class InboxController extends Controller
                 $q->where('contact_name', 'like', $like)
                     ->orWhere('external_contact_id', 'like', $like)
                     ->orWhereHas('lead', function ($leadQuery) use ($like) {
+                        // sqlite (tests) has no CONCAT() — use its || operator
+                        $fullName = DB::getDriverName() === 'sqlite'
+                            ? "first_name || ' ' || last_name"
+                            : "CONCAT(first_name, ' ', last_name)";
+
                         $leadQuery->where('first_name', 'like', $like)
                             ->orWhere('last_name', 'like', $like)
-                            ->orWhereRaw("CONCAT(first_name, ' ', last_name) LIKE ?", [$like])
+                            ->orWhereRaw("{$fullName} LIKE ?", [$like])
                             ->orWhere('phone', 'like', $like);
                     });
             });
@@ -534,14 +547,30 @@ class InboxController extends Controller
 
         $paginator = $query->paginate($perPage, ['*'], 'page', $page);
 
+        // Company AI agent bindings (few rows) so each chat can expose
+        // whether an agent handles its channel account — no per-chat query.
+        $agentBindings = \App\Models\AiAgentChannelBinding::where('company_id', $companyId)
+            ->with('agent:id,name,status')
+            ->get();
+
         // Map: expose latestMessage as messages array for frontend compatibility
-        $chats = $paginator->getCollection()->map(function ($chat) {
+        $chats = $paginator->getCollection()->map(function ($chat) use ($agentBindings) {
             $latest = $chat->latestMessage;
             if ($latest) {
                 $latest->setRelation('chat', $chat);
             }
             $chat->setRelation('messages', $latest ? collect([$latest]) : collect([]));
             unset($chat->latest_message);
+
+            $binding = $agentBindings->first(fn ($b) => $b->channelable_type === $chat->channelable_type
+                && $b->channelable_id === $chat->channelable_id);
+
+            $chat->setAttribute('bound_agent', $binding?->agent ? [
+                'id' => $binding->agent->id,
+                'name' => $binding->agent->name,
+                'status' => $binding->agent->status,
+            ] : null);
+
             return $chat;
         });
 
@@ -554,6 +583,67 @@ class InboxController extends Controller
                 'total'        => $paginator->total(),
             ],
         ], 200);
+    }
+
+    /**
+     * Manually toggle AI ownership of a conversation. Re-enabling with
+     * unanswered inbound messages queues a fresh AI turn so the agent
+     * resumes cleanly.
+     */
+    public function updateAiAgentService(Request $request, $chatId)
+    {
+        $user = Auth::user();
+
+        if (!$user || !$user->company_id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $request->validate([
+            'enabled' => 'required|boolean',
+        ]);
+
+        $chat = InboxChat::where('id', $chatId)
+            ->where('company_id', $user->company_id)
+            ->firstOrFail();
+
+        $enabled = $request->boolean('enabled');
+
+        $chat->update(['ai_agent_service' => $enabled]);
+
+        broadcast(new InboxChatUpdated($chat))->toOthers();
+
+        if ($enabled) {
+            $agent = $chat->boundAiAgent();
+            $session = $chat->activeChatSession;
+
+            if ($agent && $agent->isEnabled() && $session && AiAgentDispatcher::providerUsable($agent)) {
+                $latestInboundId = $chat->messages()
+                    ->where('direction', 'incoming')
+                    ->where('message_mode', 'external')
+                    ->max('id');
+
+                $latestOutgoingId = $chat->messages()
+                    ->where('direction', 'outgoing')
+                    ->where('message_mode', 'external')
+                    ->max('id');
+
+                if ($latestInboundId && $latestInboundId > ($latestOutgoingId ?? 0)) {
+                    \App\Jobs\ProcessAiAgentTurn::dispatch($chat->id, $agent->id, $latestInboundId)
+                        ->delay(now()->addSeconds(max(
+                            \App\Models\AiAgent::MIN_RESPONSE_DELAY_SECONDS,
+                            $agent->response_delay_seconds
+                        )));
+                }
+            }
+        }
+
+        return response()->json([
+            'message' => 'AI agent service updated.',
+            'chat' => [
+                'id' => $chat->id,
+                'ai_agent_service' => $chat->ai_agent_service,
+            ],
+        ]);
     }
 
     public function getChatMessages(Request $request, $chatId)
@@ -700,6 +790,12 @@ class InboxController extends Controller
 
             // 7️⃣ Broadcast real-time update
             broadcast(new InboxMessageReceived($message))->toOthers();
+
+            // Human takeover: a customer-visible message from a CRM user
+            // immediately revokes AI ownership of the conversation.
+            if ($messageMode === 'external') {
+                AiAgentDispatcher::onHumanExternalSend($chat);
+            }
 
             $chat->load('company:id,timezone');
             $message->setRelation('chat', $chat);
@@ -1018,6 +1114,12 @@ class InboxController extends Controller
             // 8️⃣ Broadcast real-time update to other participants
             broadcast(new InboxMessageReceived($message))->toOthers();
 
+            // Human takeover: a customer-visible message from a CRM user
+            // immediately revokes AI ownership of the conversation.
+            if ($messageMode === 'external') {
+                AiAgentDispatcher::onHumanExternalSend($chat);
+            }
+
             $chat->load('company:id,timezone');
             $message->setRelation('chat', $chat);
 
@@ -1142,6 +1244,12 @@ class InboxController extends Controller
             $chat->update(['last_message_at' => now()]);
 
             broadcast(new InboxMessageReceived($message))->toOthers();
+
+            // Human takeover: a customer-visible message from a CRM user
+            // immediately revokes AI ownership of the conversation.
+            if ($messageMode === 'external') {
+                AiAgentDispatcher::onHumanExternalSend($chat);
+            }
 
             $chat->load('company:id,timezone');
             $message->setRelation('chat', $chat);
@@ -1360,6 +1468,12 @@ class InboxController extends Controller
             $chat->update(['last_message_at' => now()]);
 
             broadcast(new InboxMessageReceived($message))->toOthers();
+
+            // Human takeover: a customer-visible message from a CRM user
+            // immediately revokes AI ownership of the conversation.
+            if ($messageMode === 'external') {
+                AiAgentDispatcher::onHumanExternalSend($chat);
+            }
 
             $chat->load('company:id,timezone');
             $message->setRelation('chat', $chat);

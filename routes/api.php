@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\LeadDocumentController;
+use App\Http\Controllers\AiAgentController;
 use App\Http\Controllers\AllowedOriginController;
 use App\Http\Controllers\ApiTokenController;
 use App\Http\Controllers\ApiRequestLogController;
@@ -29,6 +30,7 @@ use App\Http\Controllers\MetaAdsIntegrationController;
 use App\Http\Controllers\MetricsController;
 use App\Http\Controllers\N8nAgentController;
 use App\Http\Controllers\N8nIntegrationController;
+use App\Http\Controllers\OpenAiIntegrationController;
 use App\Http\Controllers\ProductImageController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\StageController;
@@ -303,6 +305,23 @@ Route::middleware('auth:sanctum')->group(function () {
 
     /*
     |--------------------------------------------------------------------------
+    | AI Agents Routes
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('ai-agents')->group(function () {
+        Route::get('/', [AiAgentController::class, 'index']);
+        Route::post('/', [AiAgentController::class, 'store']);
+        Route::get('/tools', [AiAgentController::class, 'tools']);
+        Route::get('/channel-accounts', [AiAgentController::class, 'channelAccounts']);
+        Route::put('/{id}', [AiAgentController::class, 'update']);
+        Route::put('/{id}/status', [AiAgentController::class, 'updateStatus']);
+        Route::put('/{id}/channels', [AiAgentController::class, 'syncChannels']);
+        Route::get('/{id}/executions', [AiAgentController::class, 'executions']);
+        Route::delete('/{id}', [AiAgentController::class, 'destroy']);
+    });
+
+    /*
+    |--------------------------------------------------------------------------
     | Integrations Routes
     |--------------------------------------------------------------------------
     */
@@ -361,6 +380,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/instagram/disconnect', [InstagramIntegrationController::class, 'disconnectAccount']);
         Route::put('/instagram/funnel', [InstagramIntegrationController::class, 'updateFunnel']);
 
+        // OpenAI (ChatGPT) Integration
+        Route::post('/openai', [OpenAiIntegrationController::class, 'createIntegration']);
+        Route::get('/openai', [OpenAiIntegrationController::class, 'show']);
+        Route::put('/openai/configure', [OpenAiIntegrationController::class, 'configure']);
+        Route::post('/openai/test-connection', [OpenAiIntegrationController::class, 'testConnection']);
+        Route::get('/openai/models', [OpenAiIntegrationController::class, 'listModels']);
+        Route::post('/openai/disconnect', [OpenAiIntegrationController::class, 'disconnect']);
+
         // Facebook Messenger Integration (Facebook Graph API, Page access token)
         Route::post('/facebook', [FacebookMessengerIntegrationController::class, 'createIntegration']);
         Route::get('/facebook', [FacebookMessengerIntegrationController::class, 'show']);
@@ -379,6 +406,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('inbox')->group(function () {
         Route::get('/chats', [InboxController::class, 'getCompanyChats']);
         Route::get('/chats/{chat}/messages', [InboxController::class, 'getChatMessages']);
+        Route::put('/chats/{chat}/ai-agent-service', [InboxController::class, 'updateAiAgentService']);
         Route::delete('/chats/{chat}/messages', [InboxController::class, 'clearMessages']);
         Route::post('/instances/{instanceId}/messages', [InboxController::class, 'sendTextMessage']);
         Route::post('/instances/{instanceId}/media', [InboxController::class, 'sendMediaMessage']);

@@ -7,6 +7,7 @@ use App\Models\GoogleAdsIntegration;
 use App\Models\InstagramIntegration;
 use App\Models\MetaAdsIntegration;
 use App\Models\N8nIntegration;
+use App\Models\OpenAiIntegration;
 use App\Models\WhatsAppEvoIntegration;
 use App\Models\WhatsAppInstance;
 use Illuminate\Http\Request;
@@ -38,6 +39,7 @@ class IntegrationController extends Controller
             'optomyze_erp'   => OptomyzeErpIntegration::class,
             'instagram' => InstagramIntegration::class,
             'facebook' => FacebookMessengerIntegration::class,
+            'openai' => OpenAiIntegration::class,
         ];
 
         $availability = [];

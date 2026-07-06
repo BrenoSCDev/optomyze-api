@@ -15,6 +15,7 @@ use App\Models\InboxMessage;
 use App\Models\InstagramIntegration;
 use App\Models\Lead;
 use App\Models\Record;
+use App\Services\Ai\AiAgentDispatcher;
 use App\Services\ChatSessionService;
 use App\Services\LeadQueueAssignmentService;
 use Carbon\Carbon;
@@ -502,6 +503,12 @@ class InstagramIntegrationController extends Controller
         // clients receive them in the right order too (not just the DB rows).
         if (!$isEcho && $chatSession) {
             ChatSessionService::sendWelcomeMessageIfEnabled($chat, $chatSession);
+        }
+
+        // Queue a debounced AI agent turn for inbound messages on AI-owned
+        // chats (echoes are CRM-sent messages, never AI triggers).
+        if (!$isEcho && $inboxMessage->wasRecentlyCreated) {
+            AiAgentDispatcher::onInboundMessage($chat, $inboxMessage, $chatSession);
         }
     }
 

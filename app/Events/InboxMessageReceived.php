@@ -63,6 +63,7 @@ class InboxMessageReceived implements ShouldBroadcastNow
                 'id'                  => $this->message->id,
                 'inbox_chat_id'       => $this->message->inbox_chat_id,
                 'user_id'             => $this->message->user_id,
+                'ai_agent_id'         => $this->message->ai_agent_id,
                 'external_message_id' => $this->message->external_message_id,
                 'direction'           => $this->message->direction,
                 'message_mode'        => $this->message->message_mode,

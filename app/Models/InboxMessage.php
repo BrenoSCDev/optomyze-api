@@ -14,6 +14,7 @@ class InboxMessage extends Model
         'inbox_chat_id',
         'chat_session_id',
         'user_id',
+        'ai_agent_id',
         'external_message_id',
         'direction',
         'message_mode',
@@ -66,6 +67,11 @@ class InboxMessage extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function aiAgent(): BelongsTo
+    {
+        return $this->belongsTo(AiAgent::class);
     }
 
     public function replyToMessage(): BelongsTo
