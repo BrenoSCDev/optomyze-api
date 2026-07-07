@@ -241,6 +241,12 @@ class InboxController extends Controller
                 'direction'       => $msgDirection,
                 'message_mode'    => 'external',
                 'user_id'         => null,
+                // Inbound = the customer; an outbound (fromMe) event that
+                // reaches here is a message sent from the connected phone
+                // outside the CRM (CRM sends are deduped by external id).
+                'source'          => $isInbound
+                    ? InboxMessage::SOURCE_CONTACT
+                    : InboxMessage::SOURCE_EXTERNAL,
                 'status'          => 'delivered',
                 'sent_at'         => now(),
                 'chat_session_id' => $chatSession?->id,
@@ -663,7 +669,7 @@ class InboxController extends Controller
         $perPage = 50;
 
         $paginator = $chat->messages()
-            ->with('user:id,name,profile_pic')
+            ->with(['user:id,name,profile_pic', 'aiAgent:id,name'])
             // `sent_at` alone isn't a deterministic sort: messages created in
             // the same second (e.g. an inbound message and the welcome reply
             // it triggers) tie, and MySQL doesn't guarantee tie order. `id`
@@ -774,6 +780,7 @@ class InboxController extends Controller
                 'inbox_chat_id'       => $chat->id,
                 'chat_session_id'     => $chatSession?->id,
                 'user_id'             => $user->id,
+                'source'              => InboxMessage::SOURCE_USER,
                 'external_message_id' => $waMessageId,
                 'direction'           => 'outgoing',
                 'message_mode'        => $messageMode,
@@ -1097,6 +1104,7 @@ class InboxController extends Controller
                 'inbox_chat_id'       => $chat->id,
                 'chat_session_id'     => $chatSession?->id,
                 'user_id'             => $user->id,
+                'source'              => InboxMessage::SOURCE_USER,
                 'external_message_id' => $waMessageId,
                 'direction'           => 'outgoing',
                 'message_mode'        => $messageMode,
@@ -1226,6 +1234,7 @@ class InboxController extends Controller
                 'inbox_chat_id'       => $chat->id,
                 'chat_session_id'     => $chatSession?->id,
                 'user_id'             => $user->id,
+                'source'              => InboxMessage::SOURCE_USER,
                 'external_message_id' => $externalMessageId,
                 'direction'           => 'outgoing',
                 'message_mode'        => $messageMode,
@@ -1448,6 +1457,7 @@ class InboxController extends Controller
                 'inbox_chat_id'       => $chat->id,
                 'chat_session_id'     => $chatSession?->id,
                 'user_id'             => $user->id,
+                'source'              => InboxMessage::SOURCE_USER,
                 'external_message_id' => $externalMessageId,
                 'direction'           => 'outgoing',
                 'message_mode'        => $messageMode,

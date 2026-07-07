@@ -416,6 +416,11 @@ class InstagramIntegrationController extends Controller
             'direction'       => $isEcho ? 'outgoing' : 'incoming',
             'message_mode'    => 'external',
             'user_id'         => null,
+            // An echo that reaches here was sent from the connected IG
+            // account outside the CRM (CRM sends are deduped by mid).
+            'source'          => $isEcho
+                ? InboxMessage::SOURCE_EXTERNAL
+                : InboxMessage::SOURCE_CONTACT,
             'status'          => $isEcho ? 'sent' : 'delivered',
             'sent_at'         => now(),
             'chat_session_id' => $chatSession?->id,

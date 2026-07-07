@@ -313,6 +313,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/', [AiAgentController::class, 'store']);
         Route::get('/tools', [AiAgentController::class, 'tools']);
         Route::get('/channel-accounts', [AiAgentController::class, 'channelAccounts']);
+        Route::post('/preview-chat', [AiAgentController::class, 'previewChat']);
         Route::put('/{id}', [AiAgentController::class, 'update']);
         Route::put('/{id}/status', [AiAgentController::class, 'updateStatus']);
         Route::put('/{id}/channels', [AiAgentController::class, 'syncChannels']);

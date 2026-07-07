@@ -10,11 +10,19 @@ class InboxMessage extends Model
 {
     use HasCompanyTimezone;
 
+    // Message origin — how the message entered the CRM.
+    public const SOURCE_CONTACT = 'contact';      // inbound from the customer
+    public const SOURCE_USER = 'user';            // human agent via the CRM
+    public const SOURCE_AI_AGENT = 'ai_agent';    // native AI agent
+    public const SOURCE_AUTOMATION = 'automation'; // CRM system (welcome/closing/...)
+    public const SOURCE_EXTERNAL = 'external';     // sent from the connected account outside the CRM
+
     protected $fillable = [
         'inbox_chat_id',
         'chat_session_id',
         'user_id',
         'ai_agent_id',
+        'source',
         'external_message_id',
         'direction',
         'message_mode',

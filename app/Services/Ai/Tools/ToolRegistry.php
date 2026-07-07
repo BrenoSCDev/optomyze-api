@@ -14,11 +14,9 @@ class ToolRegistry
 {
     /** @var array<class-string<ToolInterface>> */
     protected static array $tools = [
-        UpdateLeadInfoTool::class,
         ChangeLeadStageTool::class,
         AddLeadNoteTool::class,
         ManageLeadTagsTool::class,
-        AssignConversationTool::class,
         SearchProductsTool::class,
         HandoverToHumanTool::class,
     ];

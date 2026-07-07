@@ -53,9 +53,10 @@ class AiAgentTurnService
 
     /**
      * Agent-authored prompt + generated runtime context block. The runtime
-     * block gives the model the CRM facts it must not invent.
+     * block gives the model the CRM facts it must not invent. Public so the
+     * preview sandbox uses the exact same prompt as production.
      */
-    private function systemPrompt(AiAgent $agent, InboxChat $chat, ToolContext $context): string
+    public function systemPrompt(AiAgent $agent, InboxChat $chat, ToolContext $context): string
     {
         $lead = $context->lead;
         $company = $chat->company;

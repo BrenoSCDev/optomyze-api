@@ -45,10 +45,17 @@ class ChannelMessageSender
                 return null;
             }
 
+            // This sender serves both CRM automations (welcome/closing) and
+            // the AI agent (which passes ai_agent_id via $extraAttributes).
+            $source = isset($extraAttributes['ai_agent_id'])
+                ? InboxMessage::SOURCE_AI_AGENT
+                : InboxMessage::SOURCE_AUTOMATION;
+
             $message = InboxMessage::create(array_merge([
                 'inbox_chat_id' => $chat->id,
                 'chat_session_id' => $session->id,
                 'user_id' => null,
+                'source' => $source,
                 'external_message_id' => $externalMessageId,
                 'direction' => 'outgoing',
                 'message_mode' => 'external',

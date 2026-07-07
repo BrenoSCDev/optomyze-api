@@ -224,6 +224,45 @@ class AiAgentController extends Controller
         return response()->json(ToolRegistry::catalog());
     }
 
+    /**
+     * Sandbox chat: test the agent config currently in the form (saved or
+     * not) against the real provider. Read-only tools run for real,
+     * mutating tools are simulated — nothing reaches a customer.
+     */
+    public function previewChat(Request $request)
+    {
+        $user = Auth::user();
+
+        $validated = $request->validate([
+            'config' => ['required', 'array'],
+            'config.provider' => ['required', Rule::in([AiAgent::PROVIDER_OPENAI])],
+            'config.model' => ['required', 'string', 'max:100'],
+            'config.temperature' => ['required', 'numeric', 'min:0', 'max:2'],
+            'config.max_tokens' => ['required', 'integer', 'min:64', 'max:16000'],
+            'config.system_prompt' => ['nullable', 'string', 'max:100000'],
+            'config.enabled_tools' => ['nullable', 'array'],
+            'config.enabled_tools.*' => [Rule::in(ToolRegistry::keys())],
+            'config.handover_message' => ['nullable', 'string', 'max:2000'],
+            'messages' => ['required', 'array', 'min:1', 'max:40'],
+            'messages.*.role' => ['required', Rule::in(['user', 'assistant'])],
+            'messages.*.content' => ['required', 'string', 'max:4000'],
+        ]);
+
+        try {
+            $result = app(\App\Services\Ai\AiAgentPreviewService::class)->chat(
+                $user->company_id,
+                $validated['config'],
+                $validated['messages'],
+            );
+
+            return response()->json($result);
+        } catch (\App\Services\Ai\AiProviderException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
+
     public function executions(Request $request, $id)
     {
         $user = Auth::user();

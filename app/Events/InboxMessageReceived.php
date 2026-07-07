@@ -27,6 +27,7 @@ class InboxMessageReceived implements ShouldBroadcastNow
             'chat.lead.funnel:id,name',
             'chat.lead.stage:id,name',
             'user:id,name,profile_pic',
+            'aiAgent:id,name',
         ]);
 
         $this->companyId = $message->chat->company_id;
@@ -64,6 +65,7 @@ class InboxMessageReceived implements ShouldBroadcastNow
                 'inbox_chat_id'       => $this->message->inbox_chat_id,
                 'user_id'             => $this->message->user_id,
                 'ai_agent_id'         => $this->message->ai_agent_id,
+                'source'              => $this->message->source,
                 'external_message_id' => $this->message->external_message_id,
                 'direction'           => $this->message->direction,
                 'message_mode'        => $this->message->message_mode,
@@ -94,6 +96,12 @@ class InboxMessageReceived implements ShouldBroadcastNow
                         'id'          => $this->message->user->id,
                         'name'        => $this->message->user->name,
                         'profile_pic' => $this->message->user->profile_pic,
+                    ]
+                    : null,
+                'ai_agent'            => $this->message->aiAgent
+                    ? [
+                        'id'   => $this->message->aiAgent->id,
+                        'name' => $this->message->aiAgent->name,
                     ]
                     : null,
             ],

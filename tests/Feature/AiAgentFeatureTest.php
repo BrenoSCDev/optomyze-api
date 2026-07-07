@@ -316,6 +316,7 @@ it('runs a full turn and sends the AI reply through the channel', function () {
     expect($reply->text)->toBe('Hi John! How can I help you today?');
     expect($reply->user_id)->toBeNull();
     expect($reply->ai_agent_id)->toBe($fx['agent']->id);
+    expect($reply->source)->toBe('ai_agent');
     expect($reply->message_mode)->toBe('external');
 
     $execution = $fx['agent']->executions()->first();
@@ -467,6 +468,117 @@ it('hands over automatically when the AI turn fails internally', function () {
     $execution = $fx['agent']->executions()->first();
     expect($execution->status)->toBe('failed');
     expect($execution->error)->toContain('server exploded');
+});
+
+// ---------------------------------------------------------------------------
+// Preview sandbox
+// ---------------------------------------------------------------------------
+
+it('runs a preview chat with real product reads and simulated mutations', function () {
+    $fx = aiAgentFixtures();
+
+    \App\Models\Product::create([
+        'company_id' => $fx['company']->id,
+        'name' => 'BMW X5',
+        'sku' => 'BMWX5',
+        'base_price' => 300000,
+        'type' => 'product',
+        'is_active' => true,
+    ]);
+
+    Http::fake([
+        'api.openai.com/v1/chat/completions' => Http::sequence()
+            ->push([
+                'choices' => [[
+                    'message' => [
+                        'content' => null,
+                        'tool_calls' => [
+                            [
+                                'id' => 'call_search',
+                                'type' => 'function',
+                                'function' => ['name' => 'search_products', 'arguments' => '{"query":"BMW"}'],
+                            ],
+                            [
+                                'id' => 'call_stage',
+                                'type' => 'function',
+                                'function' => ['name' => 'change_lead_stage', 'arguments' => '{"stage_id":1}'],
+                            ],
+                        ],
+                    ],
+                    'finish_reason' => 'tool_calls',
+                ]],
+            ])
+            ->push([
+                'choices' => [[
+                    'message' => ['content' => 'We have the BMW X5 available!'],
+                    'finish_reason' => 'stop',
+                ]],
+            ]),
+    ]);
+
+    $response = $this->actingAs($fx['user'])->postJson('/api/ai-agents/preview-chat', [
+        'config' => [
+            'provider' => 'openai',
+            'model' => 'gpt-4o-mini',
+            'temperature' => 0.7,
+            'max_tokens' => 512,
+            'system_prompt' => 'You are a car dealership assistant.',
+            'enabled_tools' => ['search_products', 'change_lead_stage'],
+        ],
+        'messages' => [
+            ['role' => 'user', 'content' => 'Do you have any BMW?'],
+        ],
+    ]);
+
+    $response->assertOk();
+    expect($response->json('reply'))->toBe('We have the BMW X5 available!');
+    expect($response->json('handover'))->toBeFalse();
+
+    $calls = collect($response->json('tool_calls'));
+    expect($calls->firstWhere('tool', 'search_products')['simulated'])->toBeFalse();
+    expect($calls->firstWhere('tool', 'change_lead_stage')['simulated'])->toBeTrue();
+
+    // Simulated mutation must not touch data: the fixture lead keeps its stage.
+    expect($fx['lead']->fresh()->stage_id)->toBe($fx['stage']->id);
+});
+
+it('reports a simulated handover in preview chat', function () {
+    $fx = aiAgentFixtures();
+
+    Http::fake([
+        'api.openai.com/v1/chat/completions' => Http::response([
+            'choices' => [[
+                'message' => [
+                    'content' => null,
+                    'tool_calls' => [[
+                        'id' => 'call_h',
+                        'type' => 'function',
+                        'function' => ['name' => 'handover_to_human', 'arguments' => '{"reason":"wants a person"}'],
+                    ]],
+                ],
+                'finish_reason' => 'tool_calls',
+            ]],
+        ]),
+    ]);
+
+    $response = $this->actingAs($fx['user'])->postJson('/api/ai-agents/preview-chat', [
+        'config' => [
+            'provider' => 'openai',
+            'model' => 'gpt-4o-mini',
+            'temperature' => 0.7,
+            'max_tokens' => 512,
+            'handover_message' => 'A specialist will continue!',
+        ],
+        'messages' => [
+            ['role' => 'user', 'content' => 'I want to talk to a human'],
+        ],
+    ]);
+
+    $response->assertOk();
+    expect($response->json('handover'))->toBeTrue();
+    expect($response->json('handover_message'))->toBe('A specialist will continue!');
+    // Preview never flips real chat flags.
+    expect($fx['chat']->fresh()->ai_agent_service)->toBeTrue();
 });
 
 // ---------------------------------------------------------------------------
