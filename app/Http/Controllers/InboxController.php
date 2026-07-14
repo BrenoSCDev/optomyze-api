@@ -141,23 +141,18 @@ class InboxController extends Controller
         // message. An outbound message (fromMe=true) with no existing chat
         // has nothing to attach to yet, so it's dropped instead of
         // fabricating an empty chat.
-        $chatAttributes = [
-            'company_id'        => $companyId,
-            'channel'           => InboxChat::CHANNEL_WHATSAPP,
-            'channelable_type'  => WhatsAppInstance::class,
-            'channelable_id'    => $instance->id,
-            'external_chat_id'  => $remoteJid,
-        ];
-
+        //
+        // Lookups match across Brazilian 8-/9-digit phone formats so an
+        // inbound message (WhatsApp-provided JID) and an outbound reply sent
+        // from the CRM (JID rebuilt from lead.phone) converge on the SAME
+        // chat instead of splitting into two. See InboxChat::findWhatsApp.
         if ($isInbound) {
-            $chat = InboxChat::firstOrCreate($chatAttributes, [
-                'lead_id'             => $lead?->id,
-                'external_contact_id' => $phoneNumber,
-                'is_group'            => false,
-                'last_message_at'     => now(),
+            $chat = InboxChat::firstOrCreateWhatsApp($companyId, $instance, $phoneNumber, [
+                'lead_id'         => $lead?->id,
+                'last_message_at' => now(),
             ]);
         } else {
-            $chat = InboxChat::where($chatAttributes)->first();
+            $chat = InboxChat::findWhatsApp($companyId, $instance, $phoneNumber);
 
             if (!$chat) {
                 return response()->json(['message' => 'No existing chat for outbound message'], 200);
@@ -723,23 +718,17 @@ class InboxController extends Controller
             ->firstOrFail();
 
         $phoneNumber = $lead->phone;
-        $remoteJid   = $phoneNumber . '@s.whatsapp.net';
 
-        // 3️⃣ Find or create chat
-        $chat = InboxChat::firstOrCreate(
-            [
-                'company_id'       => $companyId,
-                'channel'          => InboxChat::CHANNEL_WHATSAPP,
-                'channelable_type' => WhatsAppInstance::class,
-                'channelable_id'   => $instance->id,
-                'external_chat_id' => $remoteJid,
-            ],
-            [
-                'lead_id'             => $lead->id,
-                'external_contact_id' => $phoneNumber,
-                'is_group'            => false,
-            ]
-        );
+        // 3️⃣ Find or create chat — matched across Brazilian phone-format
+        // variants so replying never spawns a duplicate of the inbound chat.
+        $chat = InboxChat::firstOrCreateWhatsApp($companyId, $instance, $phoneNumber, [
+            'lead_id' => $lead->id,
+        ]);
+
+        // Backfill the lead if the chat was started lead-less.
+        if (!$chat->lead_id) {
+            $chat->update(['lead_id' => $lead->id]);
+        }
 
         try {
             $waMessageId = Str::uuid();
@@ -1029,23 +1018,17 @@ class InboxController extends Controller
             ->firstOrFail();
 
         $phoneNumber = $lead->phone;
-        $remoteJid   = $phoneNumber . '@s.whatsapp.net';
 
-        // 3️⃣ Find or create chat
-        $chat = InboxChat::firstOrCreate(
-            [
-                'company_id'       => $companyId,
-                'channel'          => InboxChat::CHANNEL_WHATSAPP,
-                'channelable_type' => WhatsAppInstance::class,
-                'channelable_id'   => $instance->id,
-                'external_chat_id' => $remoteJid,
-            ],
-            [
-                'lead_id'             => $lead->id,
-                'external_contact_id' => $phoneNumber,
-                'is_group'            => false,
-            ]
-        );
+        // 3️⃣ Find or create chat — matched across Brazilian phone-format
+        // variants so replying never spawns a duplicate of the inbound chat.
+        $chat = InboxChat::firstOrCreateWhatsApp($companyId, $instance, $phoneNumber, [
+            'lead_id' => $lead->id,
+        ]);
+
+        // Backfill the lead if the chat was started lead-less.
+        if (!$chat->lead_id) {
+            $chat->update(['lead_id' => $lead->id]);
+        }
 
         // 4️⃣ Store file locally
         $uploadedFile = $request->file('file');

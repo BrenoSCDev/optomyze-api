@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\PhoneNormalizer;
 use App\Traits\HasCompanyTimezone;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -107,6 +108,69 @@ class InboxChat extends Model
         }
 
         return null;
+    }
+
+    /**
+     * Find the WhatsApp InboxChat for a phone number, matching across the
+     * Brazilian 8-/9-digit format variants (see PhoneNormalizer::variants).
+     *
+     * WhatsApp delivers the remoteJid using whichever format the contact's
+     * account is registered under (often the old 8-digit form), while a lead
+     * created from a web form typically stores the new 9-digit form. An exact
+     * string match on external_chat_id therefore misses the existing chat and
+     * fabricates a duplicate. Matching across variants — mirroring
+     * Lead::findByPhone — keeps inbound and outbound on a single chat.
+     */
+    public static function findWhatsApp(int $companyId, WhatsAppInstance $instance, string $phone): ?self
+    {
+        $digits = PhoneNormalizer::normalize($phone);
+        if ($digits === '') {
+            return null;
+        }
+
+        $jidVariants = array_map(
+            fn (string $d) => $d . '@s.whatsapp.net',
+            PhoneNormalizer::variants($digits)
+        );
+
+        return static::where([
+            'company_id'       => $companyId,
+            'channel'          => self::CHANNEL_WHATSAPP,
+            'channelable_type' => WhatsAppInstance::class,
+            'channelable_id'   => $instance->id,
+        ])
+            ->whereIn('external_chat_id', $jidVariants)
+            ->first();
+    }
+
+    /**
+     * Find-or-create the WhatsApp InboxChat for a phone number. Existing chats
+     * are matched across Brazilian format variants (see findWhatsApp); a new
+     * chat, when needed, is created under the normalized number. $createValues
+     * (lead_id, last_message_at, …) are applied only on creation.
+     */
+    public static function firstOrCreateWhatsApp(
+        int $companyId,
+        WhatsAppInstance $instance,
+        string $phone,
+        array $createValues = []
+    ): self {
+        $existing = self::findWhatsApp($companyId, $instance, $phone);
+        if ($existing) {
+            return $existing;
+        }
+
+        $digits = PhoneNormalizer::normalize($phone);
+
+        return self::create(array_merge([
+            'company_id'          => $companyId,
+            'channel'             => self::CHANNEL_WHATSAPP,
+            'channelable_type'    => WhatsAppInstance::class,
+            'channelable_id'      => $instance->id,
+            'external_chat_id'    => $digits . '@s.whatsapp.net',
+            'external_contact_id' => $digits,
+            'is_group'            => false,
+        ], $createValues));
     }
 
     /**
