@@ -1533,6 +1533,70 @@ class InboxController extends Controller
         return response()->json($leads);
     }
 
+    /**
+     * Reply to a website chat conversation.
+     *
+     * Website Chat has no third-party API to call: storing the message is the
+     * delivery, and the visitor's widget picks it up on its next poll. The
+     * rest of the lifecycle (chat session, broadcast, AI handover) is
+     * identical to every other channel.
+     */
+    public function sendWebsiteChatMessage(Request $request, InboxChat $chat)
+    {
+        $user = Auth::user();
+
+        if (!$user || $user->company_id !== $chat->company_id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        if ($chat->channel !== InboxChat::CHANNEL_WEBSITE) {
+            return response()->json(['message' => 'This conversation is not a website chat.'], 422);
+        }
+
+        $data = $request->validate([
+            'text'         => 'required|string|max:4000',
+            'message_mode' => 'sometimes|in:external,internal',
+        ]);
+
+        $messageMode = $data['message_mode'] ?? 'external';
+
+        $chatSession = $chat->lead_id
+            ? ChatSessionService::startOrGetActive($chat)
+            : $chat->activeChatSession;
+
+        $message = InboxMessage::create([
+            'inbox_chat_id'       => $chat->id,
+            'chat_session_id'     => $chatSession?->id,
+            'user_id'             => $user->id,
+            'source'              => InboxMessage::SOURCE_USER,
+            'external_message_id' => (string) Str::uuid(),
+            'direction'           => 'outgoing',
+            'message_mode'        => $messageMode,
+            'type'                => 'text',
+            'text'                => $data['text'],
+            'status'              => 'sent',
+            'sent_at'             => now(),
+        ]);
+
+        $chat->update(['last_message_at' => now()]);
+
+        broadcast(new InboxMessageReceived($message))->toOthers();
+
+        // A customer-visible reply from a human revokes AI ownership, exactly
+        // as it does on WhatsApp and Instagram.
+        if ($messageMode === 'external') {
+            AiAgentDispatcher::onHumanExternalSend($chat);
+        }
+
+        $chat->load('company:id,timezone');
+        $message->setRelation('chat', $chat);
+
+        return response()->json([
+            'status'  => 'sent',
+            'message' => $message->load('user:id,name,profile_pic'),
+        ], 200);
+    }
+
     public function clearMessages(InboxChat $chat)
     {
         $user = Auth::user();

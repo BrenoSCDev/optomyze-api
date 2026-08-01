@@ -53,6 +53,9 @@ use App\Http\Controllers\InboxController;
 use App\Http\Controllers\WelcomeMessageConfigController;
 use App\Http\Controllers\WhatsAppEvoIntegrationController;
 use App\Http\Controllers\WhatsAppInstanceController;
+use App\Http\Controllers\WidgetController;
+use App\Http\Controllers\PublicWidgetController;
+use App\Http\Controllers\PublicWidgetChatController;
 use App\Http\Controllers\NotificationSettingController;
 use App\Http\Controllers\OptomyzeErpIntegrationController;
 use App\Http\Controllers\AppointmentController;
@@ -85,6 +88,30 @@ Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword']);
 Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
 
 Route::post('/users/manager', [UserController::class, 'storeManager']);
+
+/*
+|--------------------------------------------------------------------------
+| Public Widget Routes (embed script — no authentication)
+|--------------------------------------------------------------------------
+| Hit directly by visitors' browsers on customer websites. Access is bounded
+| by the widget's own allowed-domain list plus per-IP rate limiting.
+*/
+Route::prefix('public/widgets')->group(function () {
+    Route::get('/{publicId}', [PublicWidgetController::class, 'config'])
+        ->middleware('throttle:60,1');
+    Route::post('/{publicId}/submit', [PublicWidgetController::class, 'submit'])
+        ->middleware('throttle:10,1');
+
+    // Website chat widget
+    Route::post('/{publicId}/chat/session', [PublicWidgetChatController::class, 'session'])
+        ->middleware('throttle:30,1');
+    Route::post('/{publicId}/chat/identify', [PublicWidgetChatController::class, 'identify'])
+        ->middleware('throttle:20,1');
+    Route::post('/{publicId}/chat/messages', [PublicWidgetChatController::class, 'send'])
+        ->middleware('throttle:30,1');
+    Route::get('/{publicId}/chat/messages', [PublicWidgetChatController::class, 'messages'])
+        ->middleware('throttle:240,1');
+});
 
 /*
 |--------------------------------------------------------------------------
@@ -274,6 +301,21 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/tags/{id}', [TagController::class, 'update']);
     Route::delete('/tags/{id}', [TagController::class, 'destroy']);
 
+    /*
+    |--------------------------------------------------------------------------
+    | Embeddable Widgets (management side)
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/widgets/options', [WidgetController::class, 'options']);
+    Route::get('/widgets', [WidgetController::class, 'index']);
+    Route::post('/widgets', [WidgetController::class, 'store']);
+    Route::get('/widgets/{id}', [WidgetController::class, 'show']);
+    Route::put('/widgets/{id}', [WidgetController::class, 'update']);
+    Route::delete('/widgets/{id}', [WidgetController::class, 'destroy']);
+    Route::post('/widgets/{id}/duplicate', [WidgetController::class, 'duplicate']);
+    Route::patch('/widgets/{id}/status', [WidgetController::class, 'updateStatus']);
+    Route::post('/widgets/{id}/regenerate-public-id', [WidgetController::class, 'regeneratePublicId']);
+
     Route::get('/tokens', [ApiTokenController::class, 'index']);
     Route::post('/tokens', [ApiTokenController::class, 'generate']);
     Route::put('/tokens/{id}', [ApiTokenController::class, 'update']);
@@ -366,7 +408,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/whatsapp-evo-instances', [WhatsAppInstanceController::class, 'index']);
         Route::post('/whatsapp-evo-instances', [WhatsAppInstanceController::class, 'createInstance']);
         Route::delete('/whatsapp-evo-instances/{instanceId}', [WhatsAppInstanceController::class, 'deleteInstance']);
-        Route::delete('/whatsapp-evo-instances/{instanceId}', [WhatsAppInstanceController::class, 'deleteInstance']);
+        Route::get('/whatsapp-evo-instances/connection-status', [WhatsAppInstanceController::class, 'connectionStatusAll']);
+        Route::get('/whatsapp-evo-instances/connection-status/{instanceId}', [WhatsAppInstanceController::class, 'connectionStatus']);
         Route::get('/whatsapp-evo-instances/qrcode/{instanceId}', [WhatsAppInstanceController::class, 'generateQrCode']);
         Route::post('/whatsapp-evo-instances/send-message/{instanceId}', [WhatsAppInstanceController::class, 'sendMessage']);
         Route::post('/whatsapp-evo-instances/disconnect/{instanceId}', [WhatsAppInstanceController::class, 'disconnectInstance']);
@@ -409,6 +452,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/chats/{chat}/messages', [InboxController::class, 'getChatMessages']);
         Route::put('/chats/{chat}/ai-agent-service', [InboxController::class, 'updateAiAgentService']);
         Route::delete('/chats/{chat}/messages', [InboxController::class, 'clearMessages']);
+        Route::post('/chats/{chat}/website-messages', [InboxController::class, 'sendWebsiteChatMessage']);
         Route::post('/instances/{instanceId}/messages', [InboxController::class, 'sendTextMessage']);
         Route::post('/instances/{instanceId}/media', [InboxController::class, 'sendMediaMessage']);
         Route::post('/messages/{message}/reaction', [InboxController::class, 'sendReaction']);

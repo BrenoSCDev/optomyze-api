@@ -183,3 +183,41 @@ test('omitting search returns all company chats', function () {
     expect($ids)->toContain($fixtures['chatBruno']->id);
     expect($ids)->toContain($fixtures['chatLeadless']->id);
 });
+
+test('meta.total counts every matching chat, not just the returned page', function () {
+    $fixtures = makeChatSearchFixtures();
+    $chat = $fixtures['chatAnna'];
+
+    // Page size is 20, so 25 chats forces a second page.
+    foreach (range(1, 22) as $i) {
+        InboxChat::create([
+            'company_id' => $chat->company_id,
+            'channel' => InboxChat::CHANNEL_WHATSAPP,
+            'channelable_type' => $chat->channelable_type,
+            'channelable_id' => $chat->channelable_id,
+            'lead_id' => null,
+            'contact_name' => "Filler {$i}",
+            'external_chat_id' => "5562999{$i}@s.whatsapp.net",
+            'external_contact_id' => "5562999{$i}",
+            'last_message_at' => now()->subMinutes($i),
+        ]);
+    }
+
+    $response = $this->actingAs($fixtures['user'])->getJson('/api/inbox/chats');
+
+    $response->assertOk();
+    // 3 fixture chats + 22 filler = 25 total, capped at 20 per page.
+    expect($response->json('data'))->toHaveCount(20);
+    expect($response->json('meta.total'))->toBe(25);
+    expect($response->json('meta.last_page'))->toBe(2);
+});
+
+test('meta.total reflects the active search filter', function () {
+    $fixtures = makeChatSearchFixtures();
+
+    $response = $this->actingAs($fixtures['user'])
+        ->getJson('/api/inbox/chats?search=Anna');
+
+    $response->assertOk();
+    expect($response->json('meta.total'))->toBe(1);
+});

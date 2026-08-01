@@ -22,6 +22,8 @@ class InboxChat extends Model
     const CHANNEL_INSTAGRAM = 'instagram';
     const CHANNEL_MESSENGER = 'messenger';
     const CHANNEL_SMS = 'sms';
+    /** Live chat from a website chat widget (channelable = Widget). */
+    const CHANNEL_WEBSITE = 'website';
 
     protected $fillable = [
         'company_id',

@@ -15,10 +15,21 @@ class WhatsAppInstance extends Model
         'whats_app_evo_integration_id',
         'instance_name',
         'label',
+        'profile_name',
+        'profile_pic_url',
+        'phone_number',
+        'owner_jid',
         'status',
         'metadata',
         'connected_at',
+        'status_checked_at',
         'funnel_id',
+    ];
+
+    protected $casts = [
+        'metadata' => 'array',
+        'connected_at' => 'datetime',
+        'status_checked_at' => 'datetime',
     ];
 
     /**

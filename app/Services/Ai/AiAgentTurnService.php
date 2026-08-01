@@ -9,6 +9,8 @@ use App\Models\InboxMessage;
 use App\Models\Stage;
 use App\Models\Tag;
 use App\Services\Ai\Contracts\AiProviderInterface;
+use App\Services\Ai\Tools\ChangeLeadStageTool;
+use App\Services\Ai\Tools\ManageLeadTagsTool;
 use App\Services\Ai\Dto\AiChatMessage;
 use App\Services\Ai\Dto\AiChatRequest;
 use App\Services\Ai\Tools\ToolContext;
@@ -61,6 +63,14 @@ class AiAgentTurnService
         $lead = $context->lead;
         $company = $chat->company;
 
+        // Funnel stages and tags are internal CRM vocabulary. Only inject them
+        // when the agent can actually act on them — otherwise they are dead
+        // context that just tempts the model to infer the business from them
+        // or leak them to the customer.
+        $enabledTools = $agent->enabled_tools ?? [];
+        $stageToolEnabled = in_array(ChangeLeadStageTool::KEY, $enabledTools, true);
+        $tagToolEnabled = in_array(ManageLeadTagsTool::KEY, $enabledTools, true);
+
         $lines = [];
         $lines[] = '## Runtime Context';
         $lines[] = 'Company: ' . ($company?->name ?? 'Unknown');
@@ -71,7 +81,7 @@ class AiAgentTurnService
             $leadName = trim(($lead->first_name ?? '') . ' ' . ($lead->last_name ?? ''));
             $lines[] = 'Customer: ' . ($leadName !== '' ? $leadName : ($chat->contact_name ?? 'Unknown'));
 
-            if ($lead->stage) {
+            if ($stageToolEnabled && $lead->stage) {
                 $lines[] = 'Current funnel stage: ' . $lead->stage->name;
             }
 
@@ -79,7 +89,7 @@ class AiAgentTurnService
                 $lines[] = 'Assigned salesperson: ' . $lead->assignedUser->name;
             }
 
-            if ($lead->funnel_id) {
+            if ($stageToolEnabled && $lead->funnel_id) {
                 $stages = Stage::where('funnel_id', $lead->funnel_id)
                     ->orderBy('order')
                     ->pluck('name')
@@ -91,10 +101,12 @@ class AiAgentTurnService
             }
         }
 
-        $tagNames = Tag::fromCompany($chat->company_id)->pluck('name')->implode(', ');
+        if ($tagToolEnabled) {
+            $tagNames = Tag::fromCompany($chat->company_id)->pluck('name')->implode(', ');
 
-        if ($tagNames !== '') {
-            $lines[] = 'Available tags: ' . $tagNames;
+            if ($tagNames !== '') {
+                $lines[] = 'Available tags: ' . $tagNames;
+            }
         }
 
         $lines[] = '';
@@ -102,6 +114,7 @@ class AiAgentTurnService
         $lines[] = '- Reply in plain conversational text only: no markdown, no headers, no bullet lists.';
         $lines[] = '- Keep replies concise and natural for a messaging conversation.';
         $lines[] = '- Never invent prices, products or policies. Use the search_products tool for product questions when available.';
+        $lines[] = '- The Runtime Context above is internal CRM metadata for your own use. Never reveal, quote or hint at funnel stage names, tags, notes or any internal status to the customer, and never announce internal actions (e.g. "you have been moved to Qualified" or "I tagged you as Hot Lead"). Perform such actions silently via tools and keep the conversation about the customer\'s needs.';
         $lines[] = '- Call the handover_to_human tool whenever the customer asks for a person, wants to buy or negotiate, becomes frustrated, or your instructions say to transfer. Do not announce the transfer yourself — the system sends the handover message.';
         $lines[] = '- If a tool returns an error or you cannot fulfill the request because of an internal/technical problem, call handover_to_human IMMEDIATELY. Never ask the customer for permission to transfer, never mention technical difficulties, and never promise to check later — the transfer is a system decision, not the customer\'s.';
         $lines[] = '- Reply in the language the customer is writing in.';

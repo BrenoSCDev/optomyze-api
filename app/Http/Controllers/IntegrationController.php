@@ -96,7 +96,8 @@ class IntegrationController extends Controller
                     $integration->id
                 )
                 ->select(
-                    'instance_name', 'id', 'created_at', 'funnel_id', 'status'
+                    'instance_name', 'id', 'created_at', 'funnel_id', 'status',
+                    'profile_name', 'profile_pic_url', 'phone_number'
                 )
                 ->with(
                     'funnel:id,name'

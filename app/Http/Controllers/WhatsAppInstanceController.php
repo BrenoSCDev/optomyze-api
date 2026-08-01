@@ -18,7 +18,7 @@ class WhatsAppInstanceController extends Controller
         $companyId = Auth::user()->company_id;
 
         $instances = WhatsAppInstance::where('company_id', $companyId)
-            ->select('id', 'instance_name', 'status')
+            ->select('id', 'instance_name', 'status', 'profile_name', 'profile_pic_url', 'phone_number')
             ->get();
 
         return response()->json($instances);
@@ -181,6 +181,193 @@ class WhatsAppInstanceController extends Controller
         }
     }
 
+    /**
+     * Ask Evolution for the live connection state of a single instance and
+     * persist it. This is the canonical way to know whether an instance is
+     * connected — sending a test message is no longer required.
+     */
+    public function connectionStatus($instanceId)
+    {
+        $companyId = Auth::user()->company_id;
+
+        $instance = WhatsAppInstance::where('id', $instanceId)
+            ->where('company_id', $companyId)
+            ->firstOrFail();
+
+        $integration = WhatsAppEvoIntegration::where('id', $instance->whats_app_evo_integration_id)
+            ->where('company_id', $companyId)
+            ->firstOrFail();
+
+        try {
+            return response()->json($this->syncConnectionState($instance, $integration), 200);
+        } catch (\Throwable $e) {
+            Log::error('WhatsApp connection status check failed', [
+                'instance_id' => $instance->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to check WhatsApp connection status',
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Same check for every instance of the company, so the integrations panel
+     * can show live statuses in a single round trip instead of one per card.
+     */
+    public function connectionStatusAll()
+    {
+        $companyId = Auth::user()->company_id;
+
+        $instances = WhatsAppInstance::where('company_id', $companyId)->get();
+        $integrations = WhatsAppEvoIntegration::where('company_id', $companyId)->get()->keyBy('id');
+
+        $results = [];
+
+        foreach ($instances as $instance) {
+            $integration = $integrations->get($instance->whats_app_evo_integration_id);
+
+            if (!$integration) {
+                continue;
+            }
+
+            try {
+                $results[] = $this->syncConnectionState($instance, $integration);
+            } catch (\Throwable $e) {
+                Log::warning('WhatsApp connection status check failed', [
+                    'instance_id' => $instance->id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                $results[] = $this->statePayload($instance, false, 'Failed to reach Evolution API');
+            }
+        }
+
+        return response()->json(['instances' => $results], 200);
+    }
+
+    /**
+     * Hit /instance/connectionState, map Evolution's state onto our own status
+     * and, when the instance is connected, enrich it with the WhatsApp account
+     * profile (name / picture / number) from /instance/fetchInstances.
+     */
+    private function syncConnectionState(WhatsAppInstance $instance, WhatsAppEvoIntegration $integration): array
+    {
+        $response = Http::withHeaders([
+            'apikey' => $integration->api_key,
+        ])->get(
+            rtrim($integration->base_url, '/') . '/instance/connectionState/' . $instance->instance_name
+        );
+
+        if (!$response->successful()) {
+            // A missing instance on Evolution's side means the local record is
+            // pointing at something that no longer exists.
+            $status = $response->status() === 404 ? 'error' : $instance->status;
+
+            $instance->update([
+                'status' => $status,
+                'status_checked_at' => now(),
+            ]);
+
+            return $this->statePayload(
+                $instance->fresh(),
+                false,
+                $response->status() === 404
+                    ? 'Instance not found in Evolution API'
+                    : 'Failed to read connection state from Evolution API'
+            );
+        }
+
+        $state = $response->json('instance.state');
+        $connected = $state === 'open';
+
+        $attributes = [
+            'status' => match ($state) {
+                'open' => 'connected',
+                'connecting' => 'qrcode',
+                default => 'disconnected',
+            },
+            'status_checked_at' => now(),
+        ];
+
+        if ($connected) {
+            if ($instance->status !== 'connected' || !$instance->connected_at) {
+                $attributes['connected_at'] = now();
+            }
+
+            $attributes = array_merge($attributes, $this->fetchProfile($instance, $integration));
+        }
+
+        $instance->update($attributes);
+
+        return $this->statePayload($instance->fresh(), $connected);
+    }
+
+    /**
+     * Profile of the WhatsApp account currently paired with the instance.
+     * Failures here are non-fatal: the connection state is still valid even if
+     * the profile lookup fails, so we simply keep whatever we had before.
+     */
+    private function fetchProfile(WhatsAppInstance $instance, WhatsAppEvoIntegration $integration): array
+    {
+        try {
+            $response = Http::withHeaders([
+                'apikey' => $integration->api_key,
+            ])->get(
+                rtrim($integration->base_url, '/') . '/instance/fetchInstances',
+                ['instanceName' => $instance->instance_name]
+            );
+
+            if (!$response->successful()) {
+                return [];
+            }
+
+            $payload = $response->json();
+            // Evolution returns an array of matching instances.
+            $data = is_array($payload) && array_is_list($payload) ? ($payload[0] ?? null) : $payload;
+
+            if (!is_array($data)) {
+                return [];
+            }
+
+            $ownerJid = $data['ownerJid'] ?? null;
+
+            return array_filter([
+                'profile_name' => $data['profileName'] ?? null,
+                'profile_pic_url' => $data['profilePicUrl'] ?? null,
+                'owner_jid' => $ownerJid,
+                'phone_number' => $ownerJid ? Str::before($ownerJid, '@') : ($data['number'] ?? null),
+            ], fn ($value) => $value !== null);
+        } catch (\Throwable $e) {
+            Log::warning('WhatsApp profile fetch failed', [
+                'instance_id' => $instance->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+    }
+
+    private function statePayload(WhatsAppInstance $instance, bool $connected, ?string $message = null): array
+    {
+        return [
+            'id' => $instance->id,
+            'instance_name' => $instance->instance_name,
+            'status' => $instance->status,
+            'connected' => $connected,
+            'profile' => $connected ? [
+                'name' => $instance->profile_name,
+                'picture_url' => $instance->profile_pic_url,
+                'phone_number' => $instance->phone_number,
+            ] : null,
+            'connected_at' => $instance->connected_at,
+            'checked_at' => $instance->status_checked_at,
+            'message' => $message,
+        ];
+    }
+
     public function generateQrCode($instanceId)
     {
         $user = Auth::user();
@@ -286,7 +473,15 @@ class WhatsAppInstanceController extends Controller
                 ], 422);
             }
 
-            $instance->update(['status' => 'disconnected']);
+            // The session is gone, so the paired account profile no longer applies.
+            $instance->update([
+                'status' => 'disconnected',
+                'profile_name' => null,
+                'profile_pic_url' => null,
+                'owner_jid' => null,
+                'phone_number' => null,
+                'status_checked_at' => now(),
+            ]);
 
             $reassignment = null;
 

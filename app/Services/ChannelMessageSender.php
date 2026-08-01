@@ -27,7 +27,13 @@ class ChannelMessageSender
      */
     public static function send(InboxChat $chat, ChatSession $session, string $text, array $extraAttributes = []): ?InboxMessage
     {
-        if (!in_array($chat->channel, [InboxChat::CHANNEL_WHATSAPP, InboxChat::CHANNEL_INSTAGRAM], true)) {
+        $supported = [
+            InboxChat::CHANNEL_WHATSAPP,
+            InboxChat::CHANNEL_INSTAGRAM,
+            InboxChat::CHANNEL_WEBSITE,
+        ];
+
+        if (!in_array($chat->channel, $supported, true)) {
             Log::info('ChannelMessageSender: automated sending not implemented for channel', [
                 'channel' => $chat->channel,
                 'chat_id' => $chat->id,
@@ -37,9 +43,14 @@ class ChannelMessageSender
         }
 
         try {
-            $externalMessageId = $chat->channel === InboxChat::CHANNEL_WHATSAPP
-                ? self::sendWhatsApp($chat, $text)
-                : self::sendInstagram($chat, $text);
+            $externalMessageId = match ($chat->channel) {
+                InboxChat::CHANNEL_WHATSAPP => self::sendWhatsApp($chat, $text),
+                InboxChat::CHANNEL_INSTAGRAM => self::sendInstagram($chat, $text),
+                // Website chat has no third-party API: storing the message is
+                // the delivery — the visitor's widget picks it up on its next
+                // poll. Welcome messages and AI replies therefore work as-is.
+                default => (string) Str::uuid(),
+            };
 
             if ($externalMessageId === null) {
                 return null;

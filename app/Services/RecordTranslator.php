@@ -336,6 +336,18 @@ class RecordTranslator
                 'ES' => 'Lead creado mediante integración externa',
                 'DE' => 'Lead über externe Integration erstellt',
             ],
+            'Lead.creation.created.via_form_widget' => [
+                'EN' => "Lead created from the website form '{widgetName}'",
+                'PT' => "Lead criado pelo formulário do site '{widgetName}'",
+                'ES' => "Lead creado desde el formulario del sitio web '{widgetName}'",
+                'DE' => "Lead über das Website-Formular '{widgetName}' erstellt",
+            ],
+            'Lead.creation.created.via_chat_widget' => [
+                'EN' => "Lead created from the website chat '{widgetName}'",
+                'PT' => "Lead criado pelo chat do site '{widgetName}'",
+                'ES' => "Lead creado desde el chat del sitio web '{widgetName}'",
+                'DE' => "Lead über den Website-Chat '{widgetName}' erstellt",
+            ],
             'Lead.creation.created.via_api_named' => [
                 'EN' => "Lead created via external integration using API token '{apiTokenName}'",
                 'PT' => "Lead criado via integração externa usando o token de API '{apiTokenName}'",
