@@ -30,12 +30,47 @@ class FunnelController extends Controller
     /**
      * Display a listing of funnels for the authenticated user's company.
      */
+    /**
+     * Funnels the signed-in user should see in their navigation.
+     *
+     * Mirrors the login payload so the frontend can refresh the menu after a
+     * funnel is activated/deactivated, or after contact-pipeline management is
+     * switched on or off — without forcing a re-login.
+     *
+     * Contact funnels are withheld entirely when the company has contact
+     * pipelines disabled; deal funnels are always included.
+     */
+    public function navigationFunnels(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user?->company_id) {
+            return response()->json(['message' => 'User does not belong to a company'], 403);
+        }
+
+        $types = ['deal'];
+        if ($user->company?->contact_pipeline_enabled) {
+            $types[] = 'contact';
+        }
+
+        $funnels = Funnel::where('company_id', $user->company_id)
+            ->where('is_active', true)
+            ->whereIn('type', $types)
+            ->get()
+            ->map(function ($funnel) {
+                $funnel->nleads = $funnel->totalLeadsCount();
+                return $funnel;
+            });
+
+        return response()->json(['data' => $funnels]);
+    }
+
     public function index()
     {
         $user = Auth::user();
 
         $funnels = Funnel::fromCompany($user->company_id)
-            ->whereIn('type', ['sale', 'deal'])
+            ->whereIn('type', ['contact', 'deal'])
             ->get() // get results first
             ->map(function ($funnel) {
                 $funnel->nleads = $funnel->type === 'deal'
@@ -60,7 +95,7 @@ class FunnelController extends Controller
             'is_active'       => 'boolean',
             'settings'        => 'nullable|array',
             'model_funnel_id' => 'nullable|exists:funnels,id',
-            'type'            => 'nullable|in:sale,deal,model',
+            'type'            => 'nullable|in:contact,deal,model',
         ]);
 
         $funnel = Funnel::create([
@@ -70,7 +105,7 @@ class FunnelController extends Controller
             'is_active'   => $validated['is_active'] ?? true,
             'created_by'  => $user->id,
             'settings'    => $validated['settings'] ?? null,
-            'type'        => $validated['type'] ?? 'sale',
+            'type'        => $validated['type'] ?? 'contact',
         ]);
 
         if (!empty($validated['model_funnel_id'])) {
@@ -159,17 +194,23 @@ class FunnelController extends Controller
         return response()->json(['message' => 'Funnel deleted successfully']);
     }
 
-    public function leadsByStages($id)
+    public function leadsByStages(Request $request, $id)
     {
         $user = Auth::user();
 
+        // 'active' (default) | 'archived' | 'all'. Archived leads stay hidden
+        // unless asked for; the relation is aliased so the rest of this method
+        // (and the frontend) keeps reading `activeLeads`.
+        $archiveMode = $request->query('archived');
+
         $funnel = Funnel::with([
-            'stages' => function ($query) use ($user) {
+            'stages' => function ($query) use ($user, $archiveMode) {
                 $query->where('is_active', true)
                     ->with([
-                        'activeLeads' => function ($query) use ($user) {
+                        'activeLeads' => function ($query) use ($user, $archiveMode) {
                             $query->orderBy('created_at', 'desc')
                                 ->visibleToUser($user)
+                                ->archiveFilter($archiveMode)
                                 ->with([
                                     'assignedUser:id,name,profile_pic',
                                     'whatsappInboxChat:id,lead_id,profile_pic_url',
@@ -317,7 +358,7 @@ class FunnelController extends Controller
         $validated = $request->validate([
             'name'        => 'required|string|max:255',
             'description' => 'nullable|string',
-            'type'        => 'nullable|in:sale,deal',
+            'type'        => 'nullable|in:contact,deal',
             'is_active'   => 'boolean',
         ]);
 
@@ -326,7 +367,7 @@ class FunnelController extends Controller
             'name'        => $validated['name'],
             'description' => $validated['description'] ?? null,
             'is_active'   => $validated['is_active'] ?? true,
-            'type'        => $validated['type'] ?? 'sale',
+            'type'        => $validated['type'] ?? 'contact',
         ]);
 
         return response()->json([

@@ -249,6 +249,41 @@ class Lead extends Model
     }
 
     /**
+     * Archiving.
+     *
+     * `is_active` was carrying no meaning — every row was true and the scope
+     * above was never called — so it now backs archive/unarchive:
+     * is_active = false means archived.
+     *
+     * Archived leads are hidden everywhere by default (contacts, funnels,
+     * global inbox); callers opt in explicitly.
+     */
+    public function scopeNotArchived(Builder $query): Builder
+    {
+        return $query->where('is_active', true);
+    }
+
+    public function scopeArchived(Builder $query): Builder
+    {
+        return $query->where('is_active', false);
+    }
+
+    /**
+     * Applies an archive filter from a request value.
+     *   'active' (default) → only live leads
+     *   'archived'         → only archived
+     *   'all'              → both
+     */
+    public function scopeArchiveFilter(Builder $query, ?string $mode): Builder
+    {
+        return match ($mode) {
+            'archived' => $query->archived(),
+            'all'      => $query,
+            default    => $query->notArchived(),
+        };
+    }
+
+    /**
      * Scope a query to only include leads from the same company.
      */
     public function scopeFromCompany(Builder $query, int $companyId): Builder
@@ -609,8 +644,10 @@ class Lead extends Model
     {
         return [
             'company_id' => 'required|exists:companies,id',
-            'funnel_id' => 'required|exists:funnels,id',
-            'stage_id' => 'required|exists:stages,id',
+            // Optional: a lead is a contact first. Pipeline membership is a
+            // per-company choice (companies.contact_pipeline_enabled).
+            'funnel_id' => 'nullable|exists:funnels,id',
+            'stage_id' => 'nullable|exists:stages,id',
             'assigned_to' => 'nullable|exists:users,id',
             'external_id' => 'nullable|string|max:255',
             'source_platform' => 'string|max:50',

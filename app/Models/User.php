@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use App\Models\Sale;
 use App\Models\Team;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -51,6 +52,29 @@ class User extends Authenticatable
         'last_login_at' => 'datetime',
         'settings' => 'array',
     ];
+
+    /**
+     * Give every new user a preferences row.
+     *
+     * Placed on the model rather than in the controllers because users are
+     * created from four different call sites (UserController has three,
+     * ManagerUserController one) plus factories and seeders. A hook here covers
+     * all of them and cannot be forgotten when a fifth is added.
+     */
+    protected static function booted(): void
+    {
+        static::created(function (User $user) {
+            $user->preferences()->create(UserPreference::DEFAULTS);
+        });
+    }
+
+    /**
+     * The user's own preferences (theme, language, search target, ...).
+     */
+    public function preferences(): HasOne
+    {
+        return $this->hasOne(UserPreference::class);
+    }
 
     /**
      * Get the company that owns the user.

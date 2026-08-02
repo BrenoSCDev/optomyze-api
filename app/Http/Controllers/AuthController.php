@@ -47,9 +47,16 @@ class AuthController extends Controller
         $user->setAttribute('company_name', $user->company ? $user->company->name : null);
 
         // Fetch funnels related to the user's company
+        // Same rule as FunnelController@navigationFunnels: contact funnels are
+        // only navigable when the company runs contact pipelines.
+        $navTypes = ['deal'];
+        if ($user->company?->contact_pipeline_enabled) {
+            $navTypes[] = 'contact';
+        }
+
         $funnels = Funnel::where('company_id', $user->company_id)
             ->where(['is_active' => true])
-            ->whereIn('type', ['sale', 'deal'])
+            ->whereIn('type', $navTypes)
             ->get()
             ->map(function ($funnel) {
                 $funnel->nleads = $funnel->totalLeadsCount();

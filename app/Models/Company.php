@@ -20,10 +20,12 @@ class Company extends Model
         'email',
         'phone',
         'website',
+        'logo_path',
         'subscription_plan',
         'is_active',
         'settings',
         'product_module',
+        'contact_pipeline_enabled',
         'leads_limit',
         'users_limit',
         'storage_limit_gb',
@@ -49,6 +51,7 @@ class Company extends Model
      */
     protected $casts = [
         'is_active'              => 'boolean',
+        'contact_pipeline_enabled' => 'boolean',
         'settings'               => 'array',
         'api_requests_reset_at'  => 'datetime',
     ];

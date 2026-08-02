@@ -38,7 +38,7 @@ class AppointmentController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'lead_id'              => 'required|exists:leads,id',
+            'lead_id'              => 'nullable|exists:leads,id',
             'appointment_type_id'  => 'nullable|exists:appointment_types,id',
             'title'                => 'required|string|max:255',
             'scheduled_at'         => 'required|date',
@@ -56,7 +56,9 @@ class AppointmentController extends Controller
         $data['timezone']   = $data['timezone'] ?? $user->company?->timezone ?? 'UTC';
 
         if ($request->has('lead_timezone')) {
-            Lead::where('id', $data['lead_id'])->update(['timezone' => $request->lead_timezone]);
+            if (!empty($data['lead_id'])) {
+                Lead::where('id', $data['lead_id'])->update(['timezone' => $request->lead_timezone]);
+            }
         }
 
         $productIds = $data['product_ids'] ?? [];
@@ -207,11 +209,15 @@ class AppointmentController extends Controller
         $company = $request->get('company');
         if (!$company) return response()->json(['message' => 'Unauthorized'], 401);
 
-        $lead = Lead::where('company_id', $company->id)->find($request->lead_id);
-        if (!$lead) return response()->json(['message' => 'Lead not found'], 404);
+        // A lead is optional now, but when one is supplied it must belong to
+        // the calling company — otherwise this would leak cross-tenant ids.
+        if ($request->filled('lead_id')) {
+            $lead = Lead::where('company_id', $company->id)->find($request->lead_id);
+            if (!$lead) return response()->json(['message' => 'Lead not found'], 404);
+        }
 
         $validated = $request->validate([
-            'lead_id'              => 'required|exists:leads,id',
+            'lead_id'              => 'nullable|exists:leads,id',
             'appointment_type_id'  => 'nullable|exists:appointment_types,id',
             'title'                => 'required|string|max:255',
             'scheduled_at'         => 'required|date',

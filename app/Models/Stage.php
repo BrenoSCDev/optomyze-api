@@ -204,9 +204,18 @@ class Stage extends Model
     /**
      * Get active leads in this stage.
      */
+    /**
+     * Leads in this stage.
+     *
+     * Deliberately unfiltered: `is_active` now means "not archived", and the
+     * archive filter is a per-request choice (active / archived / all). The
+     * single caller — FunnelController@leadsByStages — applies it via
+     * Lead::scopeArchiveFilter. The name is kept so the API response shape
+     * (and the frontend) stay unchanged.
+     */
     public function activeLeads(): HasMany
     {
-        return $this->leads()->where('is_active', true);
+        return $this->leads();
     }
 
     /**

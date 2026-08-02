@@ -776,7 +776,7 @@ class MetricsController extends Controller
      */
     private function getLeadsByFunnelStage(int $companyId, User $user, ?Carbon $startDate = null, ?Carbon $endDate = null): array
     {
-        $funnels = Funnel::where(['company_id' => $companyId, 'type' => 'sale'])
+        $funnels = Funnel::where(['company_id' => $companyId, 'type' => 'contact'])
             ->with('stages')
             ->get();
 
@@ -904,7 +904,7 @@ class MetricsController extends Controller
         $companyId = $company->id;
 
         // Get all funnels with their stages and leads (with products)
-        $funnels = Funnel::where(['company_id' => $companyId, 'type' => 'sale'])
+        $funnels = Funnel::where(['company_id' => $companyId, 'type' => 'contact'])
             ->with(['stages' => fn($q) => $q->with(['leads' => fn($q) => $q->visibleToUser($user)->with('products')])])
             ->get();
 
@@ -1139,7 +1139,7 @@ class MetricsController extends Controller
         |--------------------------------------------------------------------------
         */
         $salesFunnelsUsed = \App\Models\Funnel::where('company_id', $company->id)
-            ->where('type', 'sale')
+            ->where('type', 'contact')
             ->count();
 
         /*

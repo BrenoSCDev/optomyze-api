@@ -13,9 +13,12 @@ class CompanySeeder extends Seeder
      */
     public function run(): void
     {
-        DB::table('companies')->insert([
-            'name' => 'Optomyze',
+        // Keyed on the unique email so re-seeding an existing database
+        // updates the row instead of failing on a duplicate key.
+        DB::table('companies')->updateOrInsert([
             'email' => 'optomyze@optomyze.io',
+        ], [
+            'name' => 'Optomyze',
             'phone' => '+1-555-0101',
             'website' => 'https://optomyze.com',
             'subscription_plan' => 'premium',

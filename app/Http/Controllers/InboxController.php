@@ -491,6 +491,50 @@ class InboxController extends Controller
     }
 
 
+    /**
+     * The most recent conversation for one lead, in the same shape the inbox
+     * list returns.
+     *
+     * The Contacts quick-chat modal can't rely on the paginated inbox list —
+     * a lead's chat may sit on page 5, or the inbox may never have been
+     * opened this session. Returns 204 when the lead has no conversation.
+     */
+    public function getLeadChat(Request $request, $leadId)
+    {
+        $user = Auth::user();
+
+        if (!$user || !$user->company_id) {
+            return response()->json(['message' => 'User does not belong to a company'], 403);
+        }
+
+        $chat = InboxChat::where('company_id', $user->company_id)
+            ->where('lead_id', $leadId)
+            ->with([
+                'company:id,timezone',
+                'channelable',
+                'lead:id,company_id,first_name,last_name,phone,username,funnel_id,stage_id',
+                'lead.funnel:id,name',
+                'lead.stage:id,name',
+                'latestMessage' => fn ($q) => $q->with('user:id,name,profile_pic'),
+            ])
+            ->orderByDesc('last_message_at')
+            ->first();
+
+        if (!$chat) {
+            return response()->json(['data' => null], 200);
+        }
+
+        // Match the list shape: expose latestMessage as a messages array.
+        $latest = $chat->latestMessage;
+        if ($latest) {
+            $latest->setRelation('chat', $chat);
+        }
+        $chat->setRelation('messages', $latest ? collect([$latest]) : collect([]));
+        unset($chat->latest_message);
+
+        return response()->json(['data' => $chat], 200);
+    }
+
     public function getCompanyChats(Request $request)
     {
         $user = Auth::user();
@@ -519,6 +563,13 @@ class InboxController extends Controller
                 'latestMessage' => fn($q) => $q->with('user:id,name,profile_pic'),
             ])
             ->orderByDesc('last_message_at');
+
+        // Archiving a lead takes its conversation out of the inbox too.
+        // Lead-less chats (an unknown number messaging in) are unaffected.
+        $query->where(function ($q) {
+            $q->whereNull('lead_id')
+                ->orWhereHas('lead', fn ($l) => $l->where('is_active', true));
+        });
 
         if ($channel) {
             $query->channel($channel);

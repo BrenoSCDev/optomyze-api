@@ -18,7 +18,18 @@ class Tag extends Model
         'company_id',
         'name',
         'color',
+        'scopes',
     ];
+
+    protected $casts = [
+        'scopes' => 'array',
+    ];
+
+    /**
+     * What a tag can be attached to. Each value maps to one pivot table:
+     * lead -> lead_tag, deal -> sale_tag, task -> task_tag.
+     */
+    public const SCOPES = ['lead', 'deal', 'task'];
 
     /**
      * Validation rules for tag creation.
@@ -30,6 +41,8 @@ class Tag extends Model
             'company_id' => 'required|exists:companies,id',
             'name' => 'nullable|string|max:100',
             'color' => 'nullable|regex:/^#[0-9A-Fa-f]{6}$/',
+            'scopes' => 'nullable|array',
+            'scopes.*' => 'in:' . implode(',', self::SCOPES),
         ];
     }
 
@@ -41,7 +54,34 @@ class Tag extends Model
         return [
             'name' => 'nullable|string|max:100',
             'color' => 'nullable|regex:/^#[0-9A-Fa-f]{6}$/',
+            'scopes' => 'nullable|array',
+            'scopes.*' => 'in:' . implode(',', self::SCOPES),
         ];
+    }
+
+    /**
+     * Restrict to tags usable on a given entity.
+     *
+     * A null `scopes` means "everywhere" — that is what tags meant before they
+     * were scoped, and treating null as an empty set would make a tag created
+     * by an older client vanish from every picker.
+     */
+    public function scopeForUsage($query, ?string $scope)
+    {
+        if (!$scope || !in_array($scope, self::SCOPES, true)) {
+            return $query;
+        }
+
+        return $query->where(function ($q) use ($scope) {
+            $q->whereNull('scopes')
+              ->orWhereJsonContains('scopes', $scope);
+        });
+    }
+
+    /** True when this tag may be attached to the given entity. */
+    public function appliesTo(string $scope): bool
+    {
+        return $this->scopes === null || in_array($scope, $this->scopes, true);
     }
 
     /**
@@ -76,5 +116,13 @@ class Tag extends Model
     public function sales()
     {
         return $this->belongsToMany(Sale::class, 'sale_tag');
+    }
+
+    /**
+     * Get the tasks tagged with this tag.
+     */
+    public function tasks()
+    {
+        return $this->belongsToMany(Task::class, 'task_tag');
     }
 }

@@ -13,11 +13,18 @@ class TagController extends Controller
      */
     public function index(Request $request)
     {
-        // Get the authenticated user via Sanctum
         $user = Auth::user();
 
-        // Assuming user has company_id column
-        $tags = Tag::where('company_id', $user->company_id)->get();
+        $tags = Tag::where('company_id', $user->company_id)
+            // `?scope=lead|deal|task` narrows the list to tags usable on that
+            // entity, so a picker asks for what it can actually attach rather
+            // than filtering a flat list client-side.
+            ->forUsage($request->query('scope'))
+            // Counts back the management screen; skipped for pickers, which
+            // only need names and colours.
+            ->when($request->boolean('with_counts'), fn ($q) => $q->withCount(['leads', 'sales', 'tasks']))
+            ->orderBy('name')
+            ->get();
 
         return response()->json([
             'data' => $tags
@@ -36,6 +43,10 @@ class TagController extends Controller
                 'message' => 'This tag already exists.'
             ], 422); // Unprocessable Entity
         }
+
+        // A tag scoped to nothing would be invisible in every picker, which
+        // reads as a bug rather than a choice. Default to all entities.
+        $validated['scopes'] = $validated['scopes'] ?? Tag::SCOPES;
 
         $tag = Tag::create($validated);
 

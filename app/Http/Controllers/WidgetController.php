@@ -140,7 +140,7 @@ class WidgetController extends Controller
     public function options()
     {
         $funnels = Funnel::where('company_id', Auth::user()->company_id)
-            ->where('type', 'sale')
+            ->where('type', 'contact')
             ->where('is_active', true)
             ->with(['stages' => fn ($query) => $query->select('id', 'funnel_id', 'name', 'type', 'order')])
             ->get(['id', 'name'])

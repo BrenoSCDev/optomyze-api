@@ -10,6 +10,9 @@ use App\Http\Controllers\FunnelController;
 use App\Http\Controllers\FunnelManagerQueueController;
 use App\Http\Controllers\LostReasonController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BusinessProfileController;
+use App\Http\Controllers\ContactController;
+use App\Http\Controllers\LeadArchiveController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\ManagerUserController;
 use App\Http\Controllers\ConversationReportController;
@@ -18,7 +21,6 @@ use App\Http\Controllers\CustomProductFieldGroupController;
 use App\Http\Controllers\ProductCategoryController;
 use App\Http\Controllers\LeadCustomFieldController;
 use App\Http\Controllers\EntryRequirementController;
-use App\Http\Controllers\EventController;
 use App\Http\Controllers\FacebookMessengerIntegrationController;
 use App\Http\Controllers\GoogleAdsIntegrationController;
 use App\Http\Controllers\IntegrationController;
@@ -35,7 +37,11 @@ use App\Http\Controllers\ProductImageController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\StageController;
 use App\Http\Controllers\TagController;
+use App\Http\Controllers\TaskActivityController;
 use App\Http\Controllers\TaskController;
+use App\Http\Controllers\TaskListController;
+use App\Http\Controllers\TaskSpaceController;
+use App\Http\Controllers\UserPreferenceController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\LeadProductController;
 use App\Http\Controllers\ObservationController;
@@ -154,6 +160,16 @@ Route::middleware('auth:sanctum')->group(function () {
     | User Management Routes
     |--------------------------------------------------------------------------
     */
+    /*
+    |--------------------------------------------------------------------------
+    | User Preferences — a singleton for the authenticated user
+    |--------------------------------------------------------------------------
+    | Declared before /users/{id} so the wildcard cannot swallow it.
+    */
+    Route::get('/user/preferences', [UserPreferenceController::class, 'show']);
+    Route::put('/user/preferences', [UserPreferenceController::class, 'update']);
+    Route::delete('/user/preferences', [UserPreferenceController::class, 'destroy']);
+
     Route::get('/users', [UserController::class, 'index']);
     Route::get('/users/search', [UserController::class, 'search']);
     Route::get('/users/{id}/performance', [UserController::class, 'performance']);
@@ -204,6 +220,9 @@ Route::middleware('auth:sanctum')->group(function () {
     | Funnels & Stages Routes
     |--------------------------------------------------------------------------
     */
+    // Funnels for the sidebar/menu — respects is_active and the company's
+    // contact-pipeline switch.
+    Route::get('/funnels/navigation', [FunnelController::class, 'navigationFunnels']);
     Route::get('/funnels', [FunnelController::class, 'index']);
     Route::get('/funnels/templates', [FunnelController::class, 'templates']);
     Route::get('/funnels/deals', [FunnelController::class, 'deals']);
@@ -230,6 +249,20 @@ Route::middleware('auth:sanctum')->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::get('/leads', [LeadController::class, 'index']);
+    /*
+    |--------------------------------------------------------------------------
+    | Lead archiving & bulk actions
+    |--------------------------------------------------------------------------
+    | Declared before the /leads/{lead}/... routes: a wildcard segment would
+    | otherwise match the literal "bulk" and shadow these.
+    | Archived leads (is_active = false) are hidden by default everywhere.
+    */
+    Route::post('/leads/bulk/archive', [LeadArchiveController::class, 'bulkArchive']);
+    Route::post('/leads/bulk/assign', [LeadArchiveController::class, 'bulkAssign']);
+    Route::post('/leads/bulk/tag', [LeadArchiveController::class, 'bulkTag']);
+    Route::patch('/leads/{id}/archive', [LeadArchiveController::class, 'archive']);
+    Route::patch('/leads/{id}/unarchive', [LeadArchiveController::class, 'unarchive']);
+
     Route::post('/leads', [LeadController::class, 'store']);
     Route::get('/leads/search/{products?}', [LeadController::class, 'search']);
     Route::get('/leads/{lead}', [LeadController::class, 'show']);
@@ -449,6 +482,7 @@ Route::middleware('auth:sanctum')->group(function () {
     */
     Route::prefix('inbox')->group(function () {
         Route::get('/chats', [InboxController::class, 'getCompanyChats']);
+        Route::get('/leads/{lead}/chat', [InboxController::class, 'getLeadChat']);
         Route::get('/chats/{chat}/messages', [InboxController::class, 'getChatMessages']);
         Route::put('/chats/{chat}/ai-agent-service', [InboxController::class, 'updateAiAgentService']);
         Route::delete('/chats/{chat}/messages', [InboxController::class, 'clearMessages']);
@@ -501,12 +535,64 @@ Route::middleware('auth:sanctum')->group(function () {
     | Tasks Routes
     |--------------------------------------------------------------------------
     */
+    // `GET /tasks` keeps its original unpaginated contract — the reports
+    // dashboard and the lead-details panel both read it. The workspace's own
+    // paginated feed lives at /tasks/feed.
     Route::get('/tasks', [TaskController::class, 'companyTasks']);
+
+    // Static segments must be declared before /tasks/{task}, or the wildcard
+    // swallows them and every one of these 404s.
+    Route::get('/tasks/feed', [TaskController::class, 'index']);
+    Route::get('/tasks/board', [TaskController::class, 'board']);
+    Route::get('/tasks/calendar', [TaskController::class, 'calendar']);
+    Route::get('/tasks/summary', [TaskController::class, 'summary']);
     Route::get('/tasks/search', [TaskController::class, 'search']);
+    Route::post('/tasks/bulk', [TaskController::class, 'bulk']);
+
     Route::post('/tasks', [TaskController::class, 'store']);
     Route::get('/tasks/{task}', [TaskController::class, 'show']);
     Route::put('/tasks/{task}', [TaskController::class, 'update']);
+    Route::patch('/tasks/{task}/move', [TaskController::class, 'move']);
+    Route::patch('/tasks/{task}/archive', [TaskController::class, 'archive']);
     Route::delete('/tasks/{task}', [TaskController::class, 'destroy']);
+
+    // Comments, checklist and watch state on a single task.
+    Route::get('/tasks/{task}/comments', [TaskActivityController::class, 'comments']);
+    Route::post('/tasks/{task}/comments', [TaskActivityController::class, 'storeComment']);
+    Route::put('/tasks/{task}/comments/{comment}', [TaskActivityController::class, 'updateComment']);
+    Route::delete('/tasks/{task}/comments/{comment}', [TaskActivityController::class, 'destroyComment']);
+
+    Route::post('/tasks/{task}/checklist', [TaskActivityController::class, 'storeChecklistItem']);
+    Route::put('/tasks/{task}/checklist/reorder', [TaskActivityController::class, 'reorderChecklist']);
+    Route::put('/tasks/{task}/checklist/{item}', [TaskActivityController::class, 'updateChecklistItem']);
+    Route::delete('/tasks/{task}/checklist/{item}', [TaskActivityController::class, 'destroyChecklistItem']);
+
+    Route::post('/tasks/{task}/watch', [TaskActivityController::class, 'toggleWatch']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Task Workspace — Spaces, Lists, Statuses
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/task-spaces', [TaskSpaceController::class, 'index']);
+    Route::post('/task-spaces', [TaskSpaceController::class, 'store']);
+    Route::put('/task-spaces/reorder', [TaskSpaceController::class, 'reorder']);
+    Route::get('/task-spaces/{space}', [TaskSpaceController::class, 'show']);
+    Route::put('/task-spaces/{space}', [TaskSpaceController::class, 'update']);
+    Route::patch('/task-spaces/{space}/archive', [TaskSpaceController::class, 'archive']);
+    Route::delete('/task-spaces/{space}', [TaskSpaceController::class, 'destroy']);
+
+    Route::post('/task-lists', [TaskListController::class, 'store']);
+    Route::put('/task-lists/reorder', [TaskListController::class, 'reorder']);
+    Route::get('/task-lists/{list}', [TaskListController::class, 'show']);
+    Route::put('/task-lists/{list}', [TaskListController::class, 'update']);
+    Route::patch('/task-lists/{list}/archive', [TaskListController::class, 'archive']);
+    Route::delete('/task-lists/{list}', [TaskListController::class, 'destroy']);
+
+    Route::post('/task-lists/{list}/statuses', [TaskListController::class, 'storeStatus']);
+    Route::put('/task-lists/{list}/statuses/reorder', [TaskListController::class, 'reorderStatuses']);
+    Route::put('/task-lists/{list}/statuses/{status}', [TaskListController::class, 'updateStatus']);
+    Route::delete('/task-lists/{list}/statuses/{status}', [TaskListController::class, 'destroyStatus']);
 
 
     /*
@@ -604,17 +690,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
     /*
     |--------------------------------------------------------------------------
-    | Calendar Events Routes
-    |--------------------------------------------------------------------------
-    */
-    Route::get('/events', [EventController::class, 'index']);
-    Route::get('/events/{event}', [EventController::class, 'show']);
-    Route::post('/events', [EventController::class, 'store']);
-    Route::put('/events/{event}', [EventController::class, 'update']);
-    Route::delete('/events/{event}', [EventController::class, 'destroy']);
-
-    /*
-    |--------------------------------------------------------------------------
     | Internal Chat
     |--------------------------------------------------------------------------
     */
@@ -638,6 +713,26 @@ Route::middleware('auth:sanctum')->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::get('/files/{path}', [FileController::class, 'serve'])->where('path', '.*');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Business Profile (the signed-in user's own company)
+    |--------------------------------------------------------------------------
+    | Tenant-facing. Distinct from the manager-key /manager/companies routes,
+    | and never exposes plan, product module or the settings JSON.
+    */
+    /*
+    |--------------------------------------------------------------------------
+    | Contacts — every lead, pipeline membership optional
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/contacts', [ContactController::class, 'index']);
+
+
+    Route::get('/business-profile', [BusinessProfileController::class, 'show']);
+    Route::put('/business-profile', [BusinessProfileController::class, 'update']);
+    Route::post('/business-profile/logo', [BusinessProfileController::class, 'uploadLogo']);
+    Route::delete('/business-profile/logo', [BusinessProfileController::class, 'deleteLogo']);
 });
 
 /*
@@ -706,16 +801,6 @@ Route::middleware(['verify.api.token', 'log.api.requests'])->prefix('v1')->group
     Route::delete('/products/{id}', [ProductController::class, 'apiDestroy']);
     Route::get('/product-categories', [ProductCategoryController::class, 'apiIndex']);
 
-    /*
-    |--------------------------------------------------------------------------
-    | Events
-    |--------------------------------------------------------------------------
-    */
-    Route::get('/events', [EventController::class, 'apiIndex']);
-    Route::post('/events', [EventController::class, 'apiStore']);
-    Route::get('/events/{id}', [EventController::class, 'apiShow']);
-    Route::put('/events/{id}', [EventController::class, 'apiUpdate']);
-    Route::delete('/events/{id}', [EventController::class, 'apiDestroy']);
 
     /*
     |--------------------------------------------------------------------------
