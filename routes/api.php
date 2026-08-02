@@ -233,6 +233,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/funnels/{id}/toggle-status', [FunnelController::class, 'toggleStatus']);
     Route::delete('/funnels/{id}', [FunnelController::class, 'destroy']);
 
+    // Infinite scroll: one page of leads/deals for a single board column.
+    Route::get('/funnels/{id}/stages/{stageId}/leads', [FunnelController::class, 'stageLeads']);
+    Route::get('/funnels/{id}/stages/{stageId}/deals', [FunnelController::class, 'stageDeals']);
+
     Route::get('/funnels/{funnelId}/stages', [StageController::class, 'index']);
     Route::post('/funnels/{funnelId}/stages', [StageController::class, 'store']);
     Route::get('/funnels/{funnelId}/stages/{stageId}', [StageController::class, 'show']);

@@ -4,14 +4,61 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Models\Funnel;
+use App\Models\Lead;
+use App\Models\Sale;
 use App\Models\Stage;
 use App\Models\Tag;
+use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class FunnelController extends Controller
 {
+    /**
+     * How many leads a stage returns per request. The contact board loads one
+     * page per column up front and pulls the rest as the column is scrolled,
+     * so a funnel with thousands of leads no longer ships in a single payload.
+     */
+    private const LEADS_PER_STAGE = 10;
+
+    /** Relations every lead card on the board renders. */
+    private const LEAD_CARD_RELATIONS = [
+        'assignedUser:id,name,profile_pic',
+        'whatsappInboxChat:id,lead_id,profile_pic_url',
+        'products:id,name,base_price',
+        'tags',
+    ];
+
+    /**
+     * A lead's estimated value is the sum of its interested products. Kept as
+     * raw SQL so it can be filtered on without loading the rows.
+     */
+    private const LEAD_VALUE_SQL = '(select coalesce(sum(lp.total_price), 0) from lead_product lp where lp.lead_id = leads.id)';
+
+    /** Relations every deal card on the board renders. */
+    private const DEAL_CARD_RELATIONS = [
+        'lead:id,first_name,last_name,email,phone,stage_id,funnel_id,assigned_to',
+        'lead.assignedUser:id,name,profile_pic',
+        'lead.stage:id,name,color',
+        'lead.funnel:id,name',
+        'user:id,name,profile_pic',
+        'items:id,sale_id,product_name,quantity,total_price',
+        'charges',
+        'discounts',
+        'tags',
+    ];
+
+    /**
+     * SQL mirror of Sale::getFinalTotalAttribute() — subtotal less discounts
+     * plus charges. The accessor needs the charges relation loaded, which a
+     * paginated board cannot afford for the rows it is only counting.
+     */
+    private const DEAL_VALUE_SQL = '(sales.subtotal - sales.discount_total + (select coalesce(sum(sc.calculated_amount), 0) from sale_charges sc where sc.sale_id = sales.id))';
+
     /**
      * List template funnels (type = model) with their stages.
      */
@@ -194,72 +241,45 @@ class FunnelController extends Controller
         return response()->json(['message' => 'Funnel deleted successfully']);
     }
 
+    /**
+     * The contact board: every active stage with its first page of leads.
+     *
+     * Leads are paginated per stage (see self::LEADS_PER_STAGE) and every
+     * filter is resolved in SQL, so the board no longer has to hold the whole
+     * funnel in memory to search it. Subsequent pages come from @see stageLeads.
+     */
     public function leadsByStages(Request $request, $id)
     {
         $user = Auth::user();
 
-        // 'active' (default) | 'archived' | 'all'. Archived leads stay hidden
-        // unless asked for; the relation is aliased so the rest of this method
-        // (and the frontend) keeps reading `activeLeads`.
-        $archiveMode = $request->query('archived');
-
         $funnel = Funnel::with([
-            'stages' => function ($query) use ($user, $archiveMode) {
-                $query->where('is_active', true)
-                    ->with([
-                        'activeLeads' => function ($query) use ($user, $archiveMode) {
-                            $query->orderBy('created_at', 'desc')
-                                ->visibleToUser($user)
-                                ->archiveFilter($archiveMode)
-                                ->with([
-                                    'assignedUser:id,name,profile_pic',
-                                    'whatsappInboxChat:id,lead_id,profile_pic_url',
-                                    'products:id,name,base_price',
-                                    'tags',
-                                ]);
-                        }
-                    ]);
-            }
+            'stages' => fn ($query) => $query->where('is_active', true)->orderBy('order'),
         ])->findOrFail($id);
 
-        // 🔢 Funnel total value
-        $funnelTotal = 0;
+        if ($funnel->company_id !== $user->company_id) {
+            throw ValidationException::withMessages(['funnel' => 'Funnel not found.']);
+        }
 
-        $funnel->stages->transform(function ($stage) use (&$funnelTotal) {
+        $perPage     = $this->resolvePerPage($request);
+        $funnelTotal = 0.0;
 
-            $stageTotal = 0;
+        $funnel->stages->each(function (Stage $stage) use ($request, $user, $perPage, &$funnelTotal) {
+            $query = $this->stageLeadsQuery($stage, $request, $user);
 
-            $stage->activeLeads->transform(function ($lead) use (&$stageTotal, &$funnelTotal) {
+            // Stage and funnel totals cover every matching lead, not just the
+            // page that was loaded — otherwise the figures would climb as the
+            // user scrolls a column.
+            $stageTotal = $this->sumEstimatedValue($query);
+            $funnelTotal += $stageTotal;
 
-                // Lead estimated value
-                $leadValue = $lead->products->sum(function ($product) {
-                    return (float) $product->pivot->total_price;
-                });
-
-                // Attach to lead
-                $lead->value_estimated = $leadValue;
-
-                // Accumulate
-                $stageTotal += $leadValue;
-                $funnelTotal += $leadValue;
-
-                return $lead;
-            });
-
-            // Attach stage total
             $stage->value_estimated = $stageTotal;
 
-            return $stage;
+            $this->attachLeadsPage($stage, $query, $perPage, 1);
         });
 
-        // Attach funnel total
         $funnel->value_estimated = $funnelTotal;
 
         $tags = Tag::fromCompany($user->company_id)->get();
-
-        if($funnel->company_id !== $user->company_id) {
-            throw ValidationException::withMessages(['funnel' => 'Funnel not found.']);
-        }
 
         return response()->json([
             'funnel' => $funnel,
@@ -267,36 +287,245 @@ class FunnelController extends Controller
         ]);
     }
 
-    public function dealsByStages($id)
+    /**
+     * One page of leads for a single stage — what the board's infinite scroll
+     * asks for. Accepts the same filter/sort parameters as @see leadsByStages.
+     */
+    public function stageLeads(Request $request, $id, $stageId)
+    {
+        $user = Auth::user();
+
+        $funnel = Funnel::fromCompany($user->company_id)->findOrFail($id);
+        $stage  = Stage::where('funnel_id', $funnel->id)->findOrFail($stageId);
+
+        $perPage = $this->resolvePerPage($request) ?? self::LEADS_PER_STAGE;
+        $page    = max(1, (int) $request->query('page', 1));
+
+        $query = $this->stageLeadsQuery($stage, $request, $user);
+
+        $paginator = (clone $query)
+            ->with(self::LEAD_CARD_RELATIONS)
+            ->paginate($perPage, ['*'], 'page', $page);
+
+        $leads = $paginator->getCollection();
+        $this->attachLeadValues($leads);
+
+        return response()->json([
+            'data' => $leads->values(),
+            'meta' => [
+                'current_page'    => $paginator->currentPage(),
+                'last_page'       => max(1, $paginator->lastPage()),
+                'per_page'        => (int) $paginator->perPage(),
+                'total'           => $paginator->total(),
+                'has_more'        => $paginator->currentPage() < $paginator->lastPage(),
+                'value_estimated' => $this->sumEstimatedValue($query),
+            ],
+        ]);
+    }
+
+    /**
+     * Base query for the leads of one stage: visibility, archive mode, and
+     * every board filter, ordered so pagination is stable.
+     */
+    private function stageLeadsQuery(Stage $stage, Request $request, User $user): Builder
+    {
+        // 'active' (default) | 'archived' | 'all'. Archived leads stay hidden
+        // unless asked for.
+        $query = Lead::query()
+            ->where('stage_id', $stage->id)
+            ->visibleToUser($user)
+            ->archiveFilter($request->query('archived'));
+
+        // A stage filter narrows the board to a single column; the others come
+        // back empty rather than unfiltered.
+        $stageFilter = $request->query('stage_id');
+        if ($stageFilter !== null && $stageFilter !== '' && (int) $stageFilter !== (int) $stage->id) {
+            $query->whereRaw('1 = 0');
+        }
+
+        $this->applyLeadFilters($query, $request);
+
+        $direction = $request->query('sort') === 'oldest' ? 'asc' : 'desc';
+
+        return $query->orderBy('created_at', $direction)->orderBy('id', $direction);
+    }
+
+    /**
+     * Board filters, all resolved in SQL. Silently ignores anything absent so
+     * the same helper serves the first page and the infinite-scroll pages.
+     */
+    private function applyLeadFilters(Builder $query, Request $request): void
+    {
+        foreach (['first_name', 'last_name', 'email'] as $field) {
+            $value = trim((string) $request->query($field, ''));
+            if ($value !== '') {
+                $query->where($field, 'like', '%' . $this->escapeLike($value) . '%');
+            }
+        }
+
+        // Phones are stored digits-only, so both filters compare digits.
+        $phone = preg_replace('/\D/', '', (string) $request->query('phone', ''));
+        if ($phone !== '') {
+            $query->where('phone', 'like', '%' . $phone . '%');
+        }
+
+        $ddi = preg_replace('/\D/', '', (string) $request->query('ddi', ''));
+        if ($ddi !== '') {
+            $query->where('phone', 'like', $ddi . '%');
+        }
+
+        $platform = trim((string) $request->query('source_platform', ''));
+        if ($platform !== '') {
+            $query->where('source_platform', $platform);
+        }
+
+        $assignedTo = $request->query('assigned_to');
+        if ($assignedTo !== null && $assignedTo !== '') {
+            $query->where('assigned_to', (int) $assignedTo);
+        }
+
+        $tags = array_values(array_filter(
+            (array) $request->query('tags', []),
+            fn ($tag) => is_string($tag) && trim($tag) !== ''
+        ));
+        if ($tags) {
+            $query->whereHas('tags', fn ($q) => $q->whereIn('tags.name', $tags));
+        }
+
+        // A missing ai_score reads as 0, matching how the card renders it.
+        $scoreMin = $request->query('score_min');
+        if (is_numeric($scoreMin)) {
+            $query->whereRaw('coalesce(ai_score, 0) >= ?', [(float) $scoreMin]);
+        }
+
+        $scoreMax = $request->query('score_max');
+        if (is_numeric($scoreMax)) {
+            $query->whereRaw('coalesce(ai_score, 0) <= ?', [(float) $scoreMax]);
+        }
+
+        $valueMin = $request->query('value_min');
+        if (is_numeric($valueMin)) {
+            $query->whereRaw(self::LEAD_VALUE_SQL . ' >= ?', [(float) $valueMin]);
+        }
+
+        $valueMax = $request->query('value_max');
+        if (is_numeric($valueMax)) {
+            $query->whereRaw(self::LEAD_VALUE_SQL . ' <= ?', [(float) $valueMax]);
+        }
+    }
+
+    /**
+     * Loads one page of leads onto a stage, along with the counters the board
+     * needs to know whether to keep scrolling.
+     *
+     * A null $perPage means "no pagination" — the export path needs every
+     * matching lead, not the first page.
+     */
+    private function attachLeadsPage(Stage $stage, Builder $query, ?int $perPage, int $page): void
+    {
+        if ($perPage === null) {
+            $leads = (clone $query)->with(self::LEAD_CARD_RELATIONS)->get();
+            $this->attachLeadValues($leads);
+
+            $stage->setRelation('activeLeads', $leads);
+            $stage->leads_total        = $leads->count();
+            $stage->leads_per_page     = $leads->count();
+            $stage->leads_current_page = 1;
+            $stage->leads_last_page    = 1;
+            $stage->leads_has_more     = false;
+
+            return;
+        }
+
+        $paginator = (clone $query)
+            ->with(self::LEAD_CARD_RELATIONS)
+            ->paginate($perPage, ['*'], 'page', $page);
+
+        $leads = $paginator->getCollection();
+        $this->attachLeadValues($leads);
+
+        // The relation is named activeLeads so the payload keeps its
+        // `active_leads` key, which the frontend has always read.
+        $stage->setRelation('activeLeads', $leads);
+        $stage->leads_total        = $paginator->total();
+        $stage->leads_per_page     = (int) $paginator->perPage();
+        $stage->leads_current_page = $paginator->currentPage();
+        $stage->leads_last_page    = max(1, $paginator->lastPage());
+        $stage->leads_has_more     = $paginator->currentPage() < $paginator->lastPage();
+    }
+
+    /** Sets `value_estimated` on each loaded lead from its products. */
+    private function attachLeadValues(Collection $leads): void
+    {
+        $leads->each(function (Lead $lead) {
+            $lead->value_estimated = (float) $lead->products
+                ->sum(fn ($product) => (float) $product->pivot->total_price);
+        });
+    }
+
+    /** Estimated value of every lead a query matches, without loading them. */
+    private function sumEstimatedValue(Builder $query): float
+    {
+        $ids = (clone $query)->reorder()->select('leads.id')->getQuery();
+
+        return (float) DB::table('lead_product')->whereIn('lead_id', $ids)->sum('total_price');
+    }
+
+    /** Page size for a board request; null means "everything" (export). */
+    private function resolvePerPage(Request $request): ?int
+    {
+        $perPage = $request->query('per_page');
+
+        if ($perPage === 'all') {
+            return null;
+        }
+
+        $perPage = (int) $perPage;
+
+        return $perPage > 0 ? min($perPage, 100) : self::LEADS_PER_STAGE;
+    }
+
+    /** Escapes LIKE wildcards so a literal % or _ in a filter stays literal. */
+    private function escapeLike(string $value): string
+    {
+        return str_replace(['\\', '%', '_'], ['\\\\', '\%', '\_'], $value);
+    }
+
+    /**
+     * The deal board: every active stage with its first page of deals.
+     *
+     * Paginated and filtered the same way as @see leadsByStages; subsequent
+     * pages come from @see stageDeals.
+     */
+    public function dealsByStages(Request $request, $id)
     {
         $user = Auth::user();
 
         $funnel = Funnel::with([
-            'stages' => function ($query) use ($user) {
-                $query->where('is_active', true)
-                    ->with([
-                        'deals' => function ($query) use ($user) {
-                            $query->orderBy('created_at', 'desc')
-                                ->visibleToUser($user)
-                                ->with([
-                                    'lead:id,first_name,last_name,email,phone,stage_id,funnel_id,assigned_to',
-                                    'lead.assignedUser:id,name,profile_pic',
-                                    'lead.stage:id,name,color',
-                                    'lead.funnel:id,name',
-                                    'user:id,name,profile_pic',
-                                    'items:id,sale_id,product_name,quantity,total_price',
-                                    'charges',
-                                    'discounts',
-                                    'tags',
-                                ]);
-                        }
-                    ]);
-            }
+            'stages' => fn ($query) => $query->where('is_active', true)->orderBy('order'),
         ])->findOrFail($id);
 
-        if($funnel->company_id !== $user->company_id) {
+        if ($funnel->company_id !== $user->company_id) {
             throw ValidationException::withMessages(['funnel' => 'Funnel not found.']);
         }
+
+        $perPage    = $this->resolvePerPage($request);
+        $funnelTotal = 0.0;
+
+        $funnel->stages->each(function (Stage $stage) use ($request, $user, $perPage, &$funnelTotal) {
+            $query = $this->stageDealsQuery($stage, $request, $user);
+
+            // Totals span every matching deal, not the loaded page, so the
+            // header doesn't climb as the user scrolls.
+            $stageTotal = $this->sumDealValue($query);
+            $funnelTotal += $stageTotal;
+
+            $stage->deals_value_total = $stageTotal;
+
+            $this->attachDealsPage($stage, $query, $perPage, 1);
+        });
+
+        $funnel->deals_value_total = $funnelTotal;
 
         $tags = Tag::fromCompany($user->company_id)->get();
 
@@ -304,6 +533,127 @@ class FunnelController extends Controller
             'funnel' => $funnel,
             'tags'   => $tags,
         ]);
+    }
+
+    /**
+     * One page of deals for a single stage — the deal board's infinite scroll.
+     */
+    public function stageDeals(Request $request, $id, $stageId)
+    {
+        $user = Auth::user();
+
+        $funnel = Funnel::fromCompany($user->company_id)->findOrFail($id);
+        $stage  = Stage::where('funnel_id', $funnel->id)->findOrFail($stageId);
+
+        $perPage = $this->resolvePerPage($request) ?? self::LEADS_PER_STAGE;
+        $page    = max(1, (int) $request->query('page', 1));
+
+        $query = $this->stageDealsQuery($stage, $request, $user);
+
+        $paginator = (clone $query)
+            ->with(self::DEAL_CARD_RELATIONS)
+            ->paginate($perPage, ['*'], 'page', $page);
+
+        return response()->json([
+            'data' => $paginator->getCollection()->values(),
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page'    => max(1, $paginator->lastPage()),
+                'per_page'     => (int) $paginator->perPage(),
+                'total'        => $paginator->total(),
+                'has_more'     => $paginator->currentPage() < $paginator->lastPage(),
+                'value_total'  => $this->sumDealValue($query),
+            ],
+        ]);
+    }
+
+    /**
+     * Base query for the deals of one stage: visibility plus every board
+     * filter, ordered so pagination is stable.
+     */
+    private function stageDealsQuery(Stage $stage, Request $request, User $user): Builder
+    {
+        $query = Sale::query()
+            ->where('stage_id', $stage->id)
+            ->visibleToUser($user);
+
+        // A stage filter narrows the board to a single column.
+        $stageFilter = $request->query('stage_id');
+        if ($stageFilter !== null && $stageFilter !== '' && (int) $stageFilter !== (int) $stage->id) {
+            $query->whereRaw('1 = 0');
+        }
+
+        $name = trim((string) $request->query('name', ''));
+        if ($name !== '') {
+            $query->where('sales.name', 'like', '%' . $this->escapeLike($name) . '%');
+        }
+
+        // The deal's contact, matched across first and last name together so
+        // "Ana Ribeiro" finds the deal that "Ana" and "Ribeiro" both would.
+        $leadName = trim((string) $request->query('lead_name', ''));
+        if ($leadName !== '') {
+            $escaped = '%' . $this->escapeLike($leadName) . '%';
+            $query->whereHas('lead', fn ($q) => $q->whereRaw(
+                "concat(coalesce(first_name, ''), ' ', coalesce(last_name, '')) like ?",
+                [$escaped]
+            ));
+        }
+
+        $valueMin = $request->query('value_min');
+        if (is_numeric($valueMin)) {
+            $query->whereRaw(self::DEAL_VALUE_SQL . ' >= ?', [(float) $valueMin]);
+        }
+
+        $valueMax = $request->query('value_max');
+        if (is_numeric($valueMax)) {
+            $query->whereRaw(self::DEAL_VALUE_SQL . ' <= ?', [(float) $valueMax]);
+        }
+
+        $direction = $request->query('sort') === 'oldest' ? 'asc' : 'desc';
+
+        return $query->orderBy('sales.created_at', $direction)->orderBy('sales.id', $direction);
+    }
+
+    /**
+     * Loads one page of deals onto a stage, with the counters the board needs
+     * to decide whether to keep scrolling. A null $perPage means "everything".
+     */
+    private function attachDealsPage(Stage $stage, Builder $query, ?int $perPage, int $page): void
+    {
+        if ($perPage === null) {
+            $deals = (clone $query)->with(self::DEAL_CARD_RELATIONS)->get();
+
+            $stage->setRelation('deals', $deals);
+            $stage->deals_total        = $deals->count();
+            $stage->deals_per_page     = $deals->count();
+            $stage->deals_current_page = 1;
+            $stage->deals_last_page    = 1;
+            $stage->deals_has_more     = false;
+
+            return;
+        }
+
+        $paginator = (clone $query)
+            ->with(self::DEAL_CARD_RELATIONS)
+            ->paginate($perPage, ['*'], 'page', $page);
+
+        $stage->setRelation('deals', $paginator->getCollection());
+        $stage->deals_total        = $paginator->total();
+        $stage->deals_per_page     = (int) $paginator->perPage();
+        $stage->deals_current_page = $paginator->currentPage();
+        $stage->deals_last_page    = max(1, $paginator->lastPage());
+        $stage->deals_has_more     = $paginator->currentPage() < $paginator->lastPage();
+    }
+
+    /** Final total of every deal a query matches, without loading them. */
+    private function sumDealValue(Builder $query): float
+    {
+        $sum = (clone $query)
+            ->reorder()
+            ->selectRaw('coalesce(sum(' . self::DEAL_VALUE_SQL . '), 0) as aggregate')
+            ->value('aggregate');
+
+        return (float) $sum;
     }
 
     //////////////////// INTERNAL CRM API METHODS //////////////////////////
