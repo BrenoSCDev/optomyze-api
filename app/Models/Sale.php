@@ -20,6 +20,7 @@ class Sale extends Model
         'company_id',
         'user_id',
         'status',
+        'is_active',
         'pricing_model',
         'commission_type',
         'commission_value',
@@ -41,7 +42,18 @@ class Sale extends Model
         'final_total',
     ];
 
+    /**
+     * Mirrors the column default so a freshly created instance already knows
+     * it is unarchived. Without this, `Sale::create(...)->is_active` is null
+     * until the row is re-read — and null reads as archived to anything
+     * checking the flag, including a broadcast built from the new model.
+     */
+    protected $attributes = [
+        'is_active' => true,
+    ];
+
     protected $casts = [
+        'is_active' => 'boolean',
         'total'     => 'decimal:2',
         'closed_at' => 'datetime',
         'lost_at'   => 'datetime',
@@ -132,6 +144,30 @@ class Sale extends Model
         }
 
         return 0;
+    }
+
+    public function scopeNotArchived(Builder $query): Builder
+    {
+        return $query->where('sales.is_active', true);
+    }
+
+    public function scopeArchived(Builder $query): Builder
+    {
+        return $query->where('sales.is_active', false);
+    }
+
+    /**
+     * Applies an archive filter from a request value: 'archived', 'all', or
+     * anything else (including null) for the default active-only view.
+     * Mirrors Lead::scopeArchiveFilter so both boards read the same param.
+     */
+    public function scopeArchiveFilter(Builder $query, ?string $mode): Builder
+    {
+        return match ($mode) {
+            'archived' => $query->archived(),
+            'all'      => $query,
+            default    => $query->notArchived(),
+        };
     }
 
     /**

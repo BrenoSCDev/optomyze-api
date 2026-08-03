@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CompanyFile;
+use App\Services\Storage\CompanyStorage;
+
 use App\Models\Lead;
 use App\Models\InboxChat;
 use App\Models\InboxMessage;
@@ -1176,6 +1179,8 @@ class InboxController extends Controller
         $mime         = $uploadedFile->getMimeType();
         $size         = $uploadedFile->getSize();
 
+        CompanyStorage::record($companyId, $filePath, CompanyFile::CATEGORY_WHATSAPP_MEDIA, mime: $mime);
+
         try {
             $waMessageId = Str::uuid();
 
@@ -1207,6 +1212,7 @@ class InboxController extends Controller
 
                 if (!$response->successful()) {
                     Storage::disk('local')->delete($filePath);
+                    CompanyStorage::forget($filePath);
                     return response()->json([
                         'message' => 'Failed to send media via Evolution API',
                         'error'   => $response->json() ?? $response->body(),
@@ -1260,6 +1266,7 @@ class InboxController extends Controller
 
         } catch (\Throwable $e) {
             Storage::disk('local')->delete($filePath);
+            CompanyStorage::forget($filePath);
             return response()->json([
                 'message' => 'Failed to send WhatsApp media',
                 'error'   => $e->getMessage(),
@@ -1444,6 +1451,7 @@ class InboxController extends Controller
 
         $uploadedFile = $request->file('file');
         $filePath     = $uploadedFile->store("instagram/outbound/{$companyId}", 'local');
+        CompanyStorage::record($companyId, $filePath, CompanyFile::CATEGORY_INSTAGRAM_MEDIA, mime: $uploadedFile->getMimeType());
         $mime         = $uploadedFile->getMimeType();
         // getMimeType() inspects magic bytes: WebM containers always resolve to
         // video/webm even when they only carry audio tracks.
@@ -1475,11 +1483,13 @@ class InboxController extends Controller
 
                     if ($ffmpegExit === 0 && file_exists($absoluteOutput)) {
                         Storage::disk('local')->delete($filePath);
+                        CompanyStorage::forget($filePath);
                         $filePath = $m4aRelPath;
                         $mime     = 'audio/mp4';
                         $size     = filesize($absoluteOutput);
                     } else {
                         Storage::disk('local')->delete($filePath);
+                        CompanyStorage::forget($filePath);
                         Log::error('Instagram audio: ffmpeg WebM→M4A conversion failed', [
                             'company_id' => $companyId,
                             'exit_code'  => $ffmpegExit,
@@ -1546,6 +1556,7 @@ class InboxController extends Controller
 
                 if (!$response->successful()) {
                     Storage::disk('local')->delete($filePath);
+                    CompanyStorage::forget($filePath);
 
                     if ($this->isInstagramWindowExpired($response)) {
                         return response()->json(['message' => 'instagram_window_expired'], 422);
@@ -1617,6 +1628,7 @@ class InboxController extends Controller
 
         } catch (\Throwable $e) {
             Storage::disk('local')->delete($filePath);
+            CompanyStorage::forget($filePath);
             return response()->json([
                 'message' => 'Failed to send Instagram media',
                 'error'   => $e->getMessage(),
@@ -1812,6 +1824,15 @@ class InboxController extends Controller
             $storedName = 'whatsapp_' . time() . '_' . uniqid() . '.' . $extension;
 
             Storage::disk('local')->put($folder . '/' . $storedName, base64_decode($base64));
+
+            // Inbound media is the largest storage consumer in practice: it
+            // arrives unattended, per message, for as long as a chat runs.
+            CompanyStorage::record(
+                $companyId,
+                $folder . '/' . $storedName,
+                CompanyFile::CATEGORY_WHATSAPP_MEDIA,
+                mime: $mimeType,
+            );
 
             return $folder . '/' . $storedName;
 
@@ -2130,6 +2151,13 @@ class InboxController extends Controller
             $fileName    = 'profile_' . $phoneNumber . '_' . time() . '.' . $extension;
 
             Storage::disk('local')->put($folder . '/' . $fileName, $imageResponse->body());
+
+            CompanyStorage::record(
+                $companyId,
+                $folder . '/' . $fileName,
+                CompanyFile::CATEGORY_PROFILE_PICTURE,
+                mime: $contentType,
+            );
 
             return $folder . '/' . $fileName;
 

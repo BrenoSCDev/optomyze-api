@@ -32,6 +32,7 @@ class Task extends Model
 
     protected $fillable = [
         'company_id',
+        'calendar_id',
         'task_list_id',
         'task_status_id',
         'parent_task_id',
@@ -100,6 +101,16 @@ class Task extends Model
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
+    }
+
+    /**
+     * The calendar this task appears on when it has a due date. Tasks are
+     * scheduling records on the calendar grid, so they are filterable by
+     * calendar like appointments are.
+     */
+    public function calendar(): BelongsTo
+    {
+        return $this->belongsTo(Calendar::class);
     }
 
     public function list(): BelongsTo
@@ -311,6 +322,7 @@ class Task extends Model
             'parent_task_id' => 'nullable|integer',
             'lead_id'        => 'nullable|integer',
             'sale_id'        => 'nullable|integer',
+            'calendar_id'    => 'nullable|integer',
             'priority'       => 'nullable|in:low,medium,high,urgent',
             'due_date'       => 'nullable|date',
             'start_date'     => 'nullable|date',

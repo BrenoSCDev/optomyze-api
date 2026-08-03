@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Storage\CompanyStorage;
+
 use App\Http\Controllers\Controller;
 use App\Models\Funnel;
 use App\Models\Lead;
@@ -1093,7 +1095,11 @@ class MetricsController extends Controller
         | STORAGE (GB)
         |--------------------------------------------------------------------------
         */
-        $storageUsed = $company->storage_use ?? 0;
+        // Was `$company->storage_use` — a column that has never existed, so
+        // this metric silently reported 0 for every company since launch.
+        // Bytes are the stored unit; the limit is written in GB.
+        $storageBytes = (int) ($company->storage_used_bytes ?? 0);
+        $storageUsed  = CompanyStorage::bytesToGb($storageBytes);
 
         /*
         |--------------------------------------------------------------------------
@@ -1255,7 +1261,15 @@ class MetricsController extends Controller
             'leads'          => $calculate($leadsUsed, $company->leads_limit),
             'users'          => $calculate($usersUsed, $company->users_limit),
             'products'       => $calculate($productsUsed, $company->products_limit),
-            'storage'        => $calculate($storageUsed, $company->storage_limit_gb),
+            // Usage in GB against the plan limit, plus the raw bytes and the
+            // per-category breakdown — "you are near your limit" is only
+            // actionable alongside "and it is mostly WhatsApp media".
+            'storage'        => [
+                ...$calculate($storageUsed, $company->storage_limit_gb),
+                'used_bytes'  => $storageBytes,
+                'by_category' => CompanyStorage::usage($company)['by_category'],
+                'files'       => CompanyStorage::usage($company)['files'],
+            ],
             'active_deals'   => $calculate($activeDealsUsed, $company->active_deals_limit),
             'tasks'          => $calculate($tasksUsed, $company->tasks_limit),
             'integrations'   => $calculate($integrationsUsed, $company->integrations_limit),

@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Models\ProductImage;
+use App\Models\CompanyFile;
+use App\Services\Storage\CompanyStorage;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Storage;
@@ -62,6 +64,14 @@ class ProductImageController extends Controller
             'width'         => $width,
             'height'        => $height,
         ]);
+
+        CompanyStorage::record(
+            $request->user()->company_id,
+            $path,
+            CompanyFile::CATEGORY_PRODUCT_IMAGE,
+            owner: $image,
+            mime: $file->getMimeType(),
+        );
 
         return response()->json($image, 201);
     }

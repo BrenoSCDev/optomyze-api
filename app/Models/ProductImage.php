@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Services\Storage\CompanyStorage;
+
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
@@ -60,6 +62,7 @@ class ProductImage extends Model
     {
         if (Storage::disk('local')->exists($this->storage_path)) {
             Storage::disk('local')->delete($this->storage_path);
+            CompanyStorage::forget($this->storage_path);
         }
     }
 

@@ -573,9 +573,12 @@ class FunnelController extends Controller
      */
     private function stageDealsQuery(Stage $stage, Request $request, User $user): Builder
     {
+        // 'active' (default) | 'archived' | 'all'. Archived deals stay hidden
+        // unless asked for, same as the lead board.
         $query = Sale::query()
             ->where('stage_id', $stage->id)
-            ->visibleToUser($user);
+            ->visibleToUser($user)
+            ->archiveFilter($request->query('archived'));
 
         // A stage filter narrows the board to a single column.
         $stageFilter = $request->query('stage_id');

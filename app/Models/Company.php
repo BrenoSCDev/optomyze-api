@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Company extends Model
 {
@@ -29,6 +30,7 @@ class Company extends Model
         'leads_limit',
         'users_limit',
         'storage_limit_gb',
+        'storage_used_bytes',
         'active_deals_limit',
         'tasks_limit',
         'integrations_limit',
@@ -55,6 +57,54 @@ class Company extends Model
         'settings'               => 'array',
         'api_requests_reset_at'  => 'datetime',
     ];
+
+    /**
+     * Give every new company its Quickstart checklist.
+     *
+     * On the model rather than in the registration controller because
+     * companies are also created by seeders, factories and the admin path;
+     * a hook here covers all of them.
+     */
+    protected static function booted(): void
+    {
+        static::created(function (Company $company) {
+            $company->quickstart()->create();
+
+            // Every company always has exactly one default calendar. Created
+            // here so seeders, factories and the admin path all get one.
+            $company->calendars()->create([
+                'name'        => 'Company Calendar',
+                'description' => 'The default calendar for ' . $company->name . '.',
+                'type'        => 'company',
+                'visibility'  => 'company',
+                'timezone'    => $company->timezone,
+                'is_default'  => true,
+                'is_active'   => true,
+            ]);
+        });
+    }
+
+    public function quickstart(): HasOne
+    {
+        return $this->hasOne(CompanyQuickstart::class);
+    }
+
+    public function calendars(): HasMany
+    {
+        return $this->hasMany(Calendar::class);
+    }
+
+    /** Ledger of every file stored for this company. */
+    public function files(): HasMany
+    {
+        return $this->hasMany(CompanyFile::class);
+    }
+
+    /** This company's default calendar; created if it has gone missing. */
+    public function defaultCalendar(): Calendar
+    {
+        return Calendar::defaultFor($this->id);
+    }
 
     public static function planLimits(string $plan): array
     {

@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CompanyFile;
+use App\Services\Storage\CompanyStorage;
+
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -108,6 +111,13 @@ class BusinessProfileController extends Controller
         $this->deleteExistingLogo($company->logo_path);
 
         $company->logo_path = $request->file('logo')->store('company_logos/' . $company->id, 'local');
+
+        CompanyStorage::record(
+            $company->id,
+            $company->logo_path,
+            CompanyFile::CATEGORY_COMPANY_BRANDING,
+            owner: $company,
+        );
         $company->save();
 
         return response()->json(['data' => $this->present($company)]);
@@ -138,6 +148,7 @@ class BusinessProfileController extends Controller
     {
         if ($path && Storage::disk('local')->exists($path)) {
             Storage::disk('local')->delete($path);
+            CompanyStorage::forget($path);
         }
     }
 

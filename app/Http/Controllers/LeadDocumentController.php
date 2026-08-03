@@ -8,6 +8,8 @@ use App\Models\LeadDocument;
 use App\Models\Record;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use App\Models\CompanyFile;
+use App\Services\Storage\CompanyStorage;
 
 class LeadDocumentController extends Controller
 {
@@ -33,6 +35,14 @@ class LeadDocumentController extends Controller
             'path' => $path,
         ]);
 
+        CompanyStorage::record(
+            $request->user()->company_id,
+            $path,
+            CompanyFile::CATEGORY_LEAD_DOCUMENT,
+            owner: $document,
+            mime: $file->getClientMimeType(),
+        );
+
         $lead = Lead::find($validated['lead_id']);
         if ($lead) {
             Record::createLeadDocumentAdded($document, $lead, $request->user());
@@ -51,6 +61,7 @@ class LeadDocumentController extends Controller
     {
         if ($leadDocument->path) {
             Storage::disk('local')->delete($leadDocument->path);
+            CompanyStorage::forget($leadDocument->path);
         }
 
         $leadDocument->delete();

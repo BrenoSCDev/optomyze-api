@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CompanyFile;
+use App\Services\Storage\CompanyStorage;
+
 use App\Models\LeadCompany;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -61,6 +64,19 @@ class LeadCompanyController extends Controller
             'company_id' => Auth::user()->company_id,
         ]);
 
+        // These logos land in a shared `lead-companies/logos` folder on the
+        // public disk rather than a per-company one, so the ledger is the only
+        // thing that knows whose bytes they are.
+        if (!empty($validated['logo_path'])) {
+            CompanyStorage::record(
+                $leadCompany->company_id,
+                $validated['logo_path'],
+                CompanyFile::CATEGORY_COMPANY_BRANDING,
+                disk: 'public',
+                owner: $leadCompany,
+            );
+        }
+
         return response()->json($leadCompany, 201);
     }
 
@@ -110,6 +126,7 @@ class LeadCompanyController extends Controller
         if ($request->hasFile('logo')) {
             if ($leadCompany->logo_path) {
                 Storage::disk('public')->delete($leadCompany->logo_path);
+                CompanyStorage::forget($leadCompany->logo_path, 'public');
             }
 
             $validated['logo_path'] = $request->file('logo')
@@ -117,6 +134,16 @@ class LeadCompanyController extends Controller
         }
 
         $leadCompany->update($validated);
+
+        if (!empty($validated['logo_path'])) {
+            CompanyStorage::record(
+                $leadCompany->company_id,
+                $validated['logo_path'],
+                CompanyFile::CATEGORY_COMPANY_BRANDING,
+                disk: 'public',
+                owner: $leadCompany,
+            );
+        }
 
         return response()->json($leadCompany);
     }

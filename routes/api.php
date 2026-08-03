@@ -42,6 +42,8 @@ use App\Http\Controllers\TaskActivityController;
 use App\Http\Controllers\TaskController;
 use App\Http\Controllers\TaskListController;
 use App\Http\Controllers\TaskSpaceController;
+use App\Http\Controllers\CalendarController;
+use App\Http\Controllers\QuickstartController;
 use App\Http\Controllers\UserPreferenceController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\LeadProductController;
@@ -180,6 +182,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/user/preferences', [UserPreferenceController::class, 'update']);
     Route::delete('/user/preferences', [UserPreferenceController::class, 'destroy']);
 
+    // Quickstart onboarding checklist — one per company, resolved from the
+    // authenticated user's company rather than an id in the path.
+    Route::get('/quickstart', [QuickstartController::class, 'show']);
+    Route::patch('/quickstart/steps/{step}', [QuickstartController::class, 'updateStep']);
+    Route::post('/quickstart/dismiss', [QuickstartController::class, 'dismiss']);
+
     Route::get('/users', [UserController::class, 'index']);
     Route::get('/users/search', [UserController::class, 'search']);
     Route::get('/users/{id}/performance', [UserController::class, 'performance']);
@@ -303,6 +311,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/sales/{sale}', [SaleController::class, 'update']);
     Route::put('/sales/{sale}/tags', [SaleController::class, 'updateTags']);
     Route::post('/sales/{sale}/assign', [SaleController::class, 'assignUser']);
+    // Archiving hides a deal from the board without the cascade that
+    // deleting one performs; move-funnel lands it on the target's entry stage.
+    Route::patch('/sales/{sale}/archive', [SaleController::class, 'setArchived']);
+    Route::post('/sales/{sale}/move-funnel', [SaleController::class, 'moveToFunnel']);
     Route::put('/sales/{sale}/status', [SaleController::class, 'updateStatus']);
     Route::patch('/sales/{sale}/move-stage', [SaleController::class, 'moveToStage']);
     Route::get('/deals-activity/transactions', [SaleController::class, 'dealTransactions']);
@@ -324,6 +336,14 @@ Route::middleware('auth:sanctum')->group(function () {
     | Appointment Types Routes
     |--------------------------------------------------------------------------
     */
+    // Calendars — a company owns many; managed from the Calendar screen.
+    Route::get('/calendars', [CalendarController::class, 'index']);
+    Route::post('/calendars', [CalendarController::class, 'store']);
+    Route::get('/calendars/{calendar}', [CalendarController::class, 'show']);
+    Route::put('/calendars/{calendar}', [CalendarController::class, 'update']);
+    Route::patch('/calendars/{calendar}/default', [CalendarController::class, 'setDefault']);
+    Route::delete('/calendars/{calendar}', [CalendarController::class, 'destroy']);
+
     Route::get('/appointment-types', [AppointmentTypeController::class, 'index']);
     Route::post('/appointment-types', [AppointmentTypeController::class, 'store']);
     Route::put('/appointment-types/{appointmentType}', [AppointmentTypeController::class, 'update']);

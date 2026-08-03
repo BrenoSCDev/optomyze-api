@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CompanyFile;
+use App\Services\Storage\CompanyStorage;
+
 use App\Http\Controllers\Controller;
 use App\Models\Funnel;
 use App\Models\Identity;
@@ -281,9 +284,11 @@ class AuthController extends Controller
         if ($request->hasFile('profile_pic')) {
             if ($user->profile_pic && Storage::disk('local')->exists($user->profile_pic)) {
                 Storage::disk('local')->delete($user->profile_pic);
+                CompanyStorage::forget($user->profile_pic);
             }
 
             $path = $request->file('profile_pic')->store('profile_pics/' . $user->company_id, 'local');
+            CompanyStorage::record($user->company_id, $path, CompanyFile::CATEGORY_PROFILE_PICTURE, owner: $user);
 
             $user->profile_pic = $path;
         }
@@ -292,9 +297,11 @@ class AuthController extends Controller
         if ($request->hasFile('bg_pic')) {
             if ($user->bg_pic && Storage::disk('local')->exists($user->bg_pic)) {
                 Storage::disk('local')->delete($user->bg_pic);
+                CompanyStorage::forget($user->bg_pic);
             }
 
             $bg_path = $request->file('bg_pic')->store('bg_pics/' . $user->company_id, 'local');
+            CompanyStorage::record($user->company_id, $bg_path, CompanyFile::CATEGORY_PROFILE_PICTURE, owner: $user);
 
             $user->bg_pic = $bg_path;
         }

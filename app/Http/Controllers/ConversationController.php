@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CompanyFile;
+use App\Services\Storage\CompanyStorage;
+
 use App\Events\ConversationRead;
 use App\Events\GroupCreated;
 use App\Events\GroupDeleted;
@@ -116,6 +119,7 @@ class ConversationController extends Controller
         if ($request->hasFile('cover_image')) {
             $coverImagePath = $request->file('cover_image')
                 ->store('chat/groups/' . $user->company_id, 'local');
+            CompanyStorage::record($user->company_id, $coverImagePath, CompanyFile::CATEGORY_CHAT_ATTACHMENT);
         }
 
         $conversation = Conversation::create([
@@ -166,6 +170,11 @@ class ConversationController extends Controller
             Storage::disk('local')->exists($coverImage)
                 ? Storage::disk('local')->delete($coverImage)
                 : Storage::disk('public')->delete($coverImage);
+
+            // Forgotten on both disks: the file only ever exists on one, and
+            // a path that was never recorded is ignored.
+            CompanyStorage::forget($coverImage);
+            CompanyStorage::forget($coverImage, 'public');
         }
 
         if (!empty($messagePaths)) {
@@ -173,6 +182,9 @@ class ConversationController extends Controller
             $publicPaths = array_values(array_diff($messagePaths, $localPaths));
             if (!empty($localPaths))  Storage::disk('local')->delete(array_values($localPaths));
             if (!empty($publicPaths)) Storage::disk('public')->delete($publicPaths);
+
+            CompanyStorage::forget(array_values($localPaths));
+            CompanyStorage::forget($publicPaths, 'public');
         }
 
         broadcast(new GroupDeleted($groupId, $groupName, $companyId));

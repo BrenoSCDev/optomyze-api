@@ -7,6 +7,8 @@ use App\Models\Sale;
 use App\Models\SaleDoc;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use App\Models\CompanyFile;
+use App\Services\Storage\CompanyStorage;
 
 class SaleDocController extends Controller
 {
@@ -26,6 +28,14 @@ class SaleDocController extends Controller
             'file_size' => $file->getSize(),
         ]);
 
+        CompanyStorage::record(
+            $request->user()->company_id,
+            $path,
+            CompanyFile::CATEGORY_DEAL_DOCUMENT,
+            owner: $doc,
+            mime: $file->getClientMimeType(),
+        );
+
         Record::createDealDocumentAdded($doc, $sale, $request->user());
 
         return response()->json($doc, 201);
@@ -34,6 +44,7 @@ class SaleDocController extends Controller
     public function destroy(SaleDoc $doc)
     {
         Storage::disk('local')->delete($doc->storage_path);
+        CompanyStorage::forget($doc->storage_path);
         $doc->delete();
 
         return response()->json(['message' => 'Document deleted']);

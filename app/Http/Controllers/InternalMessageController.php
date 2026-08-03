@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CompanyFile;
+use App\Services\Storage\CompanyStorage;
+
 use App\Events\InternalMessageSent;
 use App\Events\MessagesDeleted;
 use App\Events\PrivateMessageNotification;
@@ -89,6 +92,16 @@ class InternalMessageController extends Controller
             'body'            => $validated['body'] ?? null,
             'file_path'       => $filePath,
         ]);
+
+        if ($filePath) {
+            CompanyStorage::record(
+                $user->company_id,
+                $filePath,
+                CompanyFile::CATEGORY_CHAT_ATTACHMENT,
+                owner: $message,
+                mime: $request->file('file')?->getMimeType(),
+            );
+        }
 
         $conversation->update(['last_message_at' => now()]);
 

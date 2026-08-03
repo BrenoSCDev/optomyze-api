@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 use App\Events\AppointmentLiveUpdate;
 use App\Jobs\FireIntegrationWebhook;
 use App\Models\Appointment;
+use App\Models\Calendar;
 use App\Models\Lead;
 use App\Models\Product;
 use App\Models\Record;
@@ -27,10 +28,24 @@ class AppointmentController extends Controller
     public function companyIndex(Request $request)
     {
         $companyId = Auth::user()->company_id;
+
         $appointments = Appointment::where('company_id', $companyId)
+            // Scoping to one calendar is what makes switching mean anything.
+            // Omitting the filter returns the whole company, which is both the
+            // old behaviour and what an overlay view will want.
+            ->when($request->filled('calendar_id'), function ($query) use ($request, $companyId) {
+                $ids = array_filter((array) $request->query('calendar_id'));
+
+                // Verified against this company before use: an id from the
+                // query string must never reach another tenant's calendar.
+                $ownIds = Calendar::fromCompany($companyId)->whereIn('id', $ids)->pluck('id');
+
+                $query->whereIn('calendar_id', $ownIds);
+            })
             ->with(['appointmentType', 'user:id,name,email', 'lead:id,first_name,last_name', 'products:id,name,sku,base_price,type'])
             ->orderBy('scheduled_at')
             ->get();
+
         return response()->json($appointments);
     }
 
@@ -39,6 +54,7 @@ class AppointmentController extends Controller
     {
         $data = $request->validate([
             'lead_id'              => 'nullable|exists:leads,id',
+            'calendar_id'          => 'nullable|integer',
             'appointment_type_id'  => 'nullable|exists:appointment_types,id',
             'title'                => 'required|string|max:255',
             'scheduled_at'         => 'required|date',
@@ -54,6 +70,11 @@ class AppointmentController extends Controller
         $data['company_id'] = $user->company_id;
         $data['user_id']    = Auth::id();
         $data['timezone']   = $data['timezone'] ?? $user->company?->timezone ?? 'UTC';
+
+        // Always lands on a calendar: the one asked for when it belongs to this
+        // company, the company default otherwise. Callers that predate
+        // calendars therefore keep working unchanged.
+        $data['calendar_id'] = $this->resolveCalendarId($data['calendar_id'] ?? null, $user->company_id);
 
         if ($request->has('lead_timezone')) {
             if (!empty($data['lead_id'])) {
@@ -117,6 +138,7 @@ class AppointmentController extends Controller
     {
         $data = $request->validate([
             'title'               => 'sometimes|string|max:255',
+            'calendar_id'         => 'sometimes|nullable|integer',
             'appointment_type_id' => 'nullable|exists:appointment_types,id',
             'scheduled_at'        => 'sometimes|date',
             'end_at'              => 'nullable|date|after_or_equal:scheduled_at',
@@ -128,6 +150,12 @@ class AppointmentController extends Controller
         ]);
 
         $wasCompleted = $appointment->status === 'completed';
+
+        // Moving between calendars is an ordinary edit, but the target still
+        // has to belong to this appointment's company.
+        if (array_key_exists('calendar_id', $data)) {
+            $data['calendar_id'] = $this->resolveCalendarId($data['calendar_id'], $appointment->company_id);
+        }
 
         if (array_key_exists('product_ids', $data)) {
             $appointment->products()->sync($data['product_ids']);
@@ -218,6 +246,7 @@ class AppointmentController extends Controller
 
         $validated = $request->validate([
             'lead_id'              => 'nullable|exists:leads,id',
+            'calendar_id'          => 'nullable|integer',
             'appointment_type_id'  => 'nullable|exists:appointment_types,id',
             'title'                => 'required|string|max:255',
             'scheduled_at'         => 'required|date',
@@ -232,9 +261,10 @@ class AppointmentController extends Controller
         $productIds  = $validated['product_ids'] ?? [];
         $appointment = Appointment::create([
             ...collect($validated)->except('product_ids')->toArray(),
-            'company_id' => $company->id,
-            'status'     => $validated['status'] ?? 'draft',
-            'timezone'   => $validated['timezone'] ?? $company->timezone ?? 'UTC',
+            'company_id'  => $company->id,
+            'status'      => $validated['status'] ?? 'draft',
+            'timezone'    => $validated['timezone'] ?? $company->timezone ?? 'UTC',
+            'calendar_id' => $this->resolveCalendarId($validated['calendar_id'] ?? null, $company->id),
         ]);
 
         if (!empty($productIds)) {
@@ -279,6 +309,7 @@ class AppointmentController extends Controller
 
         $validated = $request->validate([
             'title'               => 'sometimes|string|max:255',
+            'calendar_id'         => 'sometimes|nullable|integer',
             'appointment_type_id' => 'nullable|exists:appointment_types,id',
             'scheduled_at'        => 'sometimes|date',
             'end_at'              => 'nullable|date|after_or_equal:scheduled_at',
@@ -290,6 +321,10 @@ class AppointmentController extends Controller
         ]);
 
         $wasCompleted = $appointment->status === 'completed';
+
+        if (array_key_exists('calendar_id', $validated)) {
+            $validated['calendar_id'] = $this->resolveCalendarId($validated['calendar_id'], $appointment->company_id);
+        }
 
         if (array_key_exists('product_ids', $validated)) {
             $appointment->products()->sync($validated['product_ids']);
@@ -345,5 +380,27 @@ class AppointmentController extends Controller
 
         $appointment->delete();
         return response()->json(['message' => 'Appointment deleted successfully']);
+    }
+
+    /**
+     * The calendar an appointment belongs on.
+     *
+     * A requested calendar is honoured only when it belongs to the same
+     * company; anything else — null, an unknown id, another tenant's id —
+     * falls back to that company's default calendar. Falling back rather than
+     * failing keeps every non-UI creation path (webhooks, the public API,
+     * automations) working without knowing calendars exist.
+     */
+    private function resolveCalendarId(?int $requested, int $companyId): int
+    {
+        if ($requested) {
+            $owned = Calendar::fromCompany($companyId)->whereKey($requested)->value('id');
+
+            if ($owned) {
+                return $owned;
+            }
+        }
+
+        return Calendar::defaultFor($companyId)->id;
     }
 }

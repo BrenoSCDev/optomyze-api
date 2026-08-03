@@ -24,10 +24,20 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Models that own polymorphic rows. The file-owning entries exist so
+        // company_files can point back at what a stored file belongs to;
+        // without them getMorphClass() throws under the enforced map.
         Relation::enforceMorphMap([
-            'Lead' => Lead::class,
-            'Sale' => Sale::class,
-            'User' => User::class,
+            'Lead'            => Lead::class,
+            'Sale'            => Sale::class,
+            'User'            => User::class,
+            'Company'         => \App\Models\Company::class,
+            'LeadCompany'     => \App\Models\LeadCompany::class,
+            'LeadDocument'    => \App\Models\LeadDocument::class,
+            'SaleDoc'         => \App\Models\SaleDoc::class,
+            'ProductImage'    => \App\Models\ProductImage::class,
+            'InternalMessage' => \App\Models\InternalMessage::class,
+            'InboxMessage'    => \App\Models\InboxMessage::class,
         ]);
 
         // Prod sits behind a TLS-terminating reverse proxy that forwards

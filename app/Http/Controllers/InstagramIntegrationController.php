@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CompanyFile;
+use App\Services\Storage\CompanyStorage;
+
 use App\Events\InboxMessageReceived;
 use App\Events\InboxMessageUpdated;
 use App\Events\LeadLiveUpdate;
@@ -466,10 +469,29 @@ class InstagramIntegrationController extends Controller
                     $messageValues['type']     = 'shared_post';
                     $messageValues['metadata'] = ['share' => $attachment['payload'] ?? null];
                     break;
+                case 'ephemeral':
+                    /*
+                     * Disappearing ("view once") photo or video. Meta sends the
+                     * attachment with no payload at all — there is deliberately
+                     * no URL to fetch, and there never will be.
+                     *
+                     * Recorded as a placeholder rather than dropped: before
+                     * this, the whole message returned early and nothing
+                     * reached the inbox, so an agent watching a conversation
+                     * saw silence while the customer believed they had sent
+                     * something. A row that says "sent a disappearing photo or
+                     * video" is the honest representation.
+                     */
+                    $messageValues['type']     = 'ephemeral';
+                    $messageValues['metadata'] = ['ephemeral' => true];
+                    break;
                 default:
                     Log::info('Instagram webhook: unrecognized attachment type', [
                         'integration_id'  => $integration->id,
                         'attachment_type' => $attachment['type'] ?? null,
+                        // The payload keys, not the payload: enough to identify
+                        // a new attachment shape without logging media URLs.
+                        'payload_keys'    => array_keys($attachment['payload'] ?? []),
                     ]);
                     return;
             }
@@ -795,6 +817,12 @@ class InstagramIntegrationController extends Controller
 
             Storage::disk('local')->put($folder . '/' . $fileName, $response->body());
 
+            CompanyStorage::record(
+                $companyId,
+                $folder . '/' . $fileName,
+                CompanyFile::CATEGORY_PROFILE_PICTURE,
+            );
+
             return $folder . '/' . $fileName;
         } catch (\Throwable $e) {
             Log::warning('Instagram webhook: failed to download profile picture', [
@@ -836,6 +864,14 @@ class InstagramIntegrationController extends Controller
                 'media_mime' => $mime,
                 'media_size' => strlen($response->body()),
             ]);
+
+            CompanyStorage::record(
+                $companyId,
+                $path,
+                CompanyFile::CATEGORY_INSTAGRAM_MEDIA,
+                owner: $message,
+                mime: $mime,
+            );
         } catch (\Throwable $e) {
             Log::warning('Instagram webhook: failed to download media attachment', [
                 'message_id' => $message->id,

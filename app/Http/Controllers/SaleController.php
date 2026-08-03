@@ -6,6 +6,7 @@ use App\Events\DealLiveUpdate;
 use App\Jobs\FireIntegrationWebhook;
 use App\Models\Lead;
 use App\Models\Sale;
+use App\Services\Storage\CompanyStorage;
 use App\Models\SaleItem;
 use App\Models\Record;
 use App\Models\Stage;
@@ -415,6 +416,107 @@ class SaleController extends Controller
         ]);
     }
 
+    /**
+     * Archive or restore a deal.
+     *
+     * Archived deals keep every relation and stay in their stage; they are
+     * simply hidden from the board and search. This is the reversible
+     * counterpart to `destroy()`, which cascades and cannot be undone.
+     */
+    public function setArchived(Request $request, Sale $sale): JsonResponse
+    {
+        $user = Auth::user();
+
+        $this->assertSaleAccess($sale, $user);
+
+        $validated = $request->validate([
+            'archived' => 'required|boolean',
+        ]);
+
+        $archived = $validated['archived'];
+
+        if ($sale->is_active === !$archived) {
+            return response()->json([
+                'message' => 'Deal is already in this state.',
+                'sale'    => $sale,
+            ]);
+        }
+
+        $sale->update(['is_active' => !$archived]);
+
+        // The board hides archived deals, so from every other client's point of
+        // view the card has gone — and comes back when it is restored.
+        broadcast(new DealLiveUpdate($archived ? 'deleted' : 'created', $sale->fresh()));
+
+        return response()->json([
+            'message'  => $archived ? 'Deal archived successfully' : 'Deal restored successfully',
+            'archived' => $archived,
+            'sale'     => $sale->fresh(['user:id,name,email']),
+        ]);
+    }
+
+    /**
+     * Move a deal to a different deal funnel, landing on that funnel's entry
+     * stage. Mirrors LeadController::moveToFunnel.
+     */
+    public function moveToFunnel(Request $request, Sale $sale): JsonResponse
+    {
+        $user = Auth::user();
+
+        $this->assertSaleAccess($sale, $user);
+
+        $validated = $request->validate([
+            'funnel_id' => 'required|integer',
+        ]);
+
+        // Scoped to the company *and* to deal funnels: a deal on a lead funnel
+        // would sit in stages the deal board never renders.
+        $funnel = \App\Models\Funnel::where('id', $validated['funnel_id'])
+            ->where('company_id', $sale->company_id)
+            ->where('type', 'deal')
+            ->first();
+
+        if (!$funnel) {
+            return response()->json(['message' => 'Funnel not found in this company'], 422);
+        }
+
+        if ((int) $funnel->id === (int) $sale->funnel_id) {
+            return response()->json(['message' => 'Deal is already in this funnel.'], 422);
+        }
+
+        $entryStage = Stage::where('funnel_id', $funnel->id)
+            ->where('type', 'entry')
+            ->orderBy('order')
+            ->first();
+
+        if (!$entryStage) {
+            return response()->json([
+                'message' => 'The selected funnel has no entry stage configured.',
+            ], 422);
+        }
+
+        $previousStage = $sale->stage_id ? Stage::find($sale->stage_id) : null;
+
+        // Tell the old board the card has gone before it moves.
+        broadcast(new DealLiveUpdate('deleted', $sale));
+
+        $sale->update([
+            'funnel_id' => $funnel->id,
+            'stage_id'  => $entryStage->id,
+        ]);
+
+        Record::createDealStageChange($sale, $previousStage, $entryStage, $user);
+
+        $fresh = $sale->fresh();
+
+        broadcast(new DealLiveUpdate('created', $fresh));
+
+        return response()->json([
+            'message' => 'Deal moved to funnel successfully',
+            'sale'    => $fresh,
+        ]);
+    }
+
     public function destroy(Sale $sale): JsonResponse
     {
         $user = Auth::user();
@@ -437,6 +539,7 @@ class SaleController extends Controller
                 // If files are stored
                 if ($doc->storage_path) {
                     Storage::delete($doc->storage_path);
+                    CompanyStorage::forget($doc->storage_path);
                 }
                 $doc->delete();
             }
@@ -686,6 +789,7 @@ class SaleController extends Controller
 
         $sales = Sale::where('company_id', $user->company_id)
             ->visibleToUser($user)
+            ->notArchived()
             ->where('name', 'like', "%{$query}%")
             ->select('id', 'name', 'total', 'status')
             ->orderBy('name')
@@ -942,6 +1046,7 @@ class SaleController extends Controller
             foreach ($sale->docs as $doc) {
                 if ($doc->storage_path) {
                     Storage::delete($doc->storage_path);
+                    CompanyStorage::forget($doc->storage_path);
                 }
                 $doc->delete();
             }

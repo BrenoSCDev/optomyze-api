@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ResolvesTaskScope;
+use App\Models\Calendar;
 use App\Models\Lead;
 use App\Models\Sale;
 use App\Models\Record;
@@ -150,11 +151,22 @@ class TaskController extends Controller
         }
 
         $validated = $request->validate([
-            'start' => 'required|date',
-            'end'   => 'required|date|after_or_equal:start',
+            'start'       => 'required|date',
+            'end'         => 'required|date|after_or_equal:start',
+            'calendar_id' => 'sometimes|nullable|integer',
         ]);
 
         $tasks = $this->baseQuery($request)
+            // Scoped to one calendar when asked. The id is checked against this
+            // company first, so a crafted value returns nothing rather than
+            // another tenant's tasks.
+            ->when($request->filled('calendar_id'), function ($query) {
+                $ownIds = Calendar::fromCompany($this->companyId())
+                    ->whereIn('id', array_filter((array) request()->query('calendar_id')))
+                    ->pluck('id');
+
+                $query->whereIn('tasks.calendar_id', $ownIds);
+            })
             ->whereNotNull('tasks.due_date')
             ->whereBetween('tasks.due_date', [$validated['start'], $validated['end']])
             ->with(self::ROW_RELATIONS)
@@ -266,6 +278,10 @@ class TaskController extends Controller
             $task = Task::create([
                 ...collect($validated)->except(['assignee_ids', 'watcher_ids', 'tag_ids'])->all(),
                 'company_id'     => $this->companyId(),
+                // Tasks show up on the calendar grid, so every one is filed on
+                // a calendar — the requested one when it is this company's,
+                // the company default otherwise.
+                'calendar_id'    => $this->resolveCalendarId($validated['calendar_id'] ?? null),
                 'task_list_id'   => $list?->id,
                 'task_status_id' => $statusId,
                 'position'       => $this->nextPosition($list?->id, $statusId),
@@ -827,5 +843,31 @@ class TaskController extends Controller
         }
 
         return (Task::where('task_list_id', $listId)->max('position') ?? 0) + 1000;
+    }
+
+    /**
+     * The calendar a task is filed on.
+     *
+     * Same contract as AppointmentController: honour the requested calendar
+     * when it belongs to this company, otherwise fall back to the default, so
+     * no creation path has to know calendars exist.
+     */
+    private function resolveCalendarId(?int $requested): ?int
+    {
+        $companyId = $this->companyId();
+
+        if (!$companyId) {
+            return null;
+        }
+
+        if ($requested) {
+            $owned = Calendar::fromCompany($companyId)->whereKey($requested)->value('id');
+
+            if ($owned) {
+                return $owned;
+            }
+        }
+
+        return Calendar::defaultFor($companyId)->id;
     }
 }
