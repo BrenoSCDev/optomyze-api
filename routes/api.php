@@ -12,6 +12,7 @@ use App\Http\Controllers\LostReasonController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BusinessProfileController;
 use App\Http\Controllers\ContactController;
+use App\Http\Controllers\OptusController;
 use App\Http\Controllers\LeadArchiveController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\ManagerUserController;
@@ -60,6 +61,7 @@ use App\Http\Controllers\WelcomeMessageConfigController;
 use App\Http\Controllers\WhatsAppEvoIntegrationController;
 use App\Http\Controllers\WhatsAppInstanceController;
 use App\Http\Controllers\WidgetController;
+use App\Http\Controllers\WidgetIntegrationController;
 use App\Http\Controllers\PublicWidgetController;
 use App\Http\Controllers\PublicWidgetChatController;
 use App\Http\Controllers\NotificationSettingController;
@@ -89,6 +91,9 @@ Route::options('{any}', function () {
 
 
 Route::post('/auth/login', [AuthController::class, 'login']);
+// Step two of a multi-company sign-in. Unauthenticated by design: the caller
+// holds a short-lived selection token, not a session.
+Route::post('/auth/select-company', [AuthController::class, 'selectCompany']);
 Route::post('/auth/forgot-pwd', [AuthController::class, 'forgotPassword']);
 Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword']);
 Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
@@ -153,6 +158,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/update', [AuthController::class, 'updateProfile']);
     Route::post('/auth/reset/password', [AuthController::class, 'resetPasswordAuth']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
+
+    // Multi-company sessions: the companies this person may act in, and moving
+    // the session to one of them.
+    Route::get('/auth/companies', [AuthController::class, 'companies']);
+    Route::post('/auth/switch-company', [AuthController::class, 'switchCompany']);
 
 
     /*
@@ -264,6 +274,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/leads/bulk/archive', [LeadArchiveController::class, 'bulkArchive']);
     Route::post('/leads/bulk/assign', [LeadArchiveController::class, 'bulkAssign']);
     Route::post('/leads/bulk/tag', [LeadArchiveController::class, 'bulkTag']);
+    Route::post('/leads/bulk/move-funnel', [LeadArchiveController::class, 'bulkMoveToFunnel']);
     Route::patch('/leads/{id}/archive', [LeadArchiveController::class, 'archive']);
     Route::patch('/leads/{id}/unarchive', [LeadArchiveController::class, 'unarchive']);
 
@@ -302,6 +313,8 @@ Route::middleware('auth:sanctum')->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::get('/leads/{lead}/observations', [ObservationController::class, 'index']);
+    // Notes on anything: type is 'lead' or 'deal'. Threaded replies included.
+    Route::get('/notes/{type}/{id}', [ObservationController::class, 'indexFor']);
     Route::post('/observations', [ObservationController::class, 'store']);
     Route::put('/observations/{observation}', [ObservationController::class, 'update']);
     Route::delete('/observations/{observation}', [ObservationController::class, 'destroy']);
@@ -411,6 +424,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/available', [IntegrationController::class, 'available']);
         Route::get('/available/settings', [IntegrationController::class, 'availableWithSettings']);
 
+        // Website widgets — installed per type, like every other integration.
+        Route::post('/{integrationKey}', [WidgetIntegrationController::class, 'createIntegration'])
+            ->where('integrationKey', 'form-widget|chat-widget');
+
         // N8N Integrations
         Route::post('/n8n-integrations', [N8nIntegrationController::class, 'createIntegration']);
         Route::put('/n8n-integrations/configure', [N8nIntegrationController::class, 'configure']);
@@ -489,6 +506,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/leads/{lead}/chat', [InboxController::class, 'getLeadChat']);
         Route::get('/chats/{chat}/messages', [InboxController::class, 'getChatMessages']);
         Route::put('/chats/{chat}/ai-agent-service', [InboxController::class, 'updateAiAgentService']);
+        // Read state, archiving and favouriting for a conversation.
+        Route::post('/chats/{chat}/read', [InboxController::class, 'markChatRead']);
+        Route::patch('/chats/{chat}/archived', [InboxController::class, 'setChatArchived']);
+        Route::patch('/chats/{chat}/favorite', [InboxController::class, 'setChatFavorite']);
         Route::delete('/chats/{chat}/messages', [InboxController::class, 'clearMessages']);
         Route::post('/chats/{chat}/website-messages', [InboxController::class, 'sendWebsiteChatMessage']);
         Route::post('/instances/{instanceId}/messages', [InboxController::class, 'sendTextMessage']);
@@ -706,6 +727,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('group/{conversation}', [ConversationController::class, 'destroyGroup']);
         Route::post('group/{conversation}/members', [ConversationController::class, 'addMembers']);
         Route::post('group/{conversation}/admins', [ConversationController::class, 'promoteAdmin']);
+        Route::post('{conversation}/read', [ConversationController::class, 'markRead']);
         Route::get('{conversation}/messages', [InternalMessageController::class, 'index']);
         Route::post('messages', [InternalMessageController::class, 'store']);
         Route::delete('messages', [InternalMessageController::class, 'deleteMultiple']);
@@ -731,6 +753,16 @@ Route::middleware('auth:sanctum')->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::get('/contacts', [ContactController::class, 'index']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Optus — the in-app assistant. Conversations resolve from the
+    | authenticated user, never from a client-supplied id.
+    |--------------------------------------------------------------------------
+    */
+    Route::get('/optus/conversation', [OptusController::class, 'show']);
+    Route::post('/optus/messages', [OptusController::class, 'send']);
+    Route::delete('/optus/conversation', [OptusController::class, 'clear']);
 
 
     Route::get('/business-profile', [BusinessProfileController::class, 'show']);

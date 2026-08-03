@@ -52,7 +52,10 @@ class ApiRequestLogged implements ShouldBroadcastNow
                 'response_status'    => $this->log->response_status,
                 'duration_ms'        => $this->log->duration_ms,
                 'status'             => $this->log->status,
-                'created_at'         => $this->log->created_at,
+                // Carbon serializes to UTC in a broadcast payload, which would
+                // make a live-streamed row disagree with the same row after a
+                // refresh. Match the REST format explicitly.
+                'created_at'         => $this->log->created_at?->toIso8601String(),
             ],
         ];
     }

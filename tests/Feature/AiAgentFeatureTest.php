@@ -627,3 +627,50 @@ it('rejects toggling a chat from another company', function () {
         ->putJson("/api/inbox/chats/{$fx['chat']->id}/ai-agent-service", ['enabled' => false])
         ->assertNotFound();
 });
+test('a chat widget appears as an AI agent channel and can be bound', function () {
+    $company = App\Models\Company::create(['name' => 'AI Co', 'email' => 'ai@example.test', 'is_active' => true]);
+    $admin = App\Models\User::factory()->create(['company_id' => $company->id, 'role' => 'admin', 'email' => 'ai-admin@example.test']);
+
+    $chatWidget = App\Models\Widget::create([
+        'company_id' => $company->id, 'type' => 'chat', 'name' => 'Site chat',
+        'status' => 'active', 'allowed_domains' => ['example.com'],
+        'config' => App\Services\Widgets\WidgetTypeRegistry::resolve('chat')->defaultConfig(),
+        'public_id' => Illuminate\Support\Str::uuid()->toString(),
+    ]);
+
+    // A form widget has no conversation, so it must not be offered.
+    App\Models\Widget::create([
+        'company_id' => $company->id, 'type' => 'form', 'name' => 'Contact form',
+        'status' => 'active', 'allowed_domains' => ['example.com'],
+        'config' => App\Services\Widgets\WidgetTypeRegistry::resolve('form')->defaultConfig(),
+        'public_id' => Illuminate\Support\Str::uuid()->toString(),
+    ]);
+
+    $res = test()->actingAs($admin)->getJson('/api/ai-agents/channel-accounts');
+    $res->assertOk();
+
+    $widgetAccounts = collect($res->json())->where('channel', 'website')->values();
+    expect($widgetAccounts)->toHaveCount(1)
+        ->and($widgetAccounts[0]['channelable_type'])->toBe('chat_widget')
+        ->and($widgetAccounts[0]['channelable_id'])->toBe($chatWidget->id)
+        ->and($widgetAccounts[0]['label'])->toBe('Site chat');
+
+    // Bind an agent to it, then confirm a website chat resolves that agent.
+    $agent = App\Models\AiAgent::create([
+        'company_id' => $company->id, 'name' => 'Website bot', 'status' => 'enabled',
+    ]);
+
+    test()->actingAs($admin)->putJson("/api/ai-agents/{$agent->id}/channels", [
+        'bindings' => [['channelable_type' => 'chat_widget', 'channelable_id' => $chatWidget->id]],
+    ])->assertOk();
+
+    $chat = App\Models\InboxChat::create([
+        'company_id' => $company->id, 'channel' => 'website',
+        'channelable_type' => App\Models\Widget::class, 'channelable_id' => $chatWidget->id,
+        'external_chat_id' => 'w-1', 'external_contact_id' => 'v-1',
+        'contact_name' => 'Visitor', 'last_message_at' => now(),
+    ]);
+
+    // boundAiAgent() is what the dispatcher uses to decide who answers.
+    expect($chat->boundAiAgent()?->id)->toBe($agent->id);
+});

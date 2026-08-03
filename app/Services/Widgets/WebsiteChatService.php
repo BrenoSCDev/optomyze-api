@@ -3,6 +3,7 @@
 namespace App\Services\Widgets;
 
 use App\Events\InboxMessageReceived;
+use App\Events\InboxMessagesRead;
 use App\Events\LeadLiveUpdate;
 use App\Jobs\FireIntegrationWebhook;
 use App\Models\InboxChat;
@@ -18,6 +19,7 @@ use App\Services\NotificationService;
 use App\Support\PhoneNormalizer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -146,12 +148,16 @@ class WebsiteChatService
             return [];
         }
 
-        return InboxMessage::where('inbox_chat_id', $visitor->inbox_chat_id)
+        $messages = InboxMessage::where('inbox_chat_id', $visitor->inbox_chat_id)
             ->where('message_mode', 'external')
             ->when($afterId, fn ($query) => $query->where('id', '>', $afterId))
             ->orderBy('id')
             ->limit(200)
-            ->get()
+            ->get();
+
+        $this->markDeliveredToVisitor($visitor, $messages);
+
+        return $messages
             ->map(fn (InboxMessage $message) => [
                 'id' => $message->id,
                 'direction' => $message->direction,
@@ -160,6 +166,59 @@ class WebsiteChatService
                 'sent_at' => optional($message->sent_at)->toIso8601String(),
             ])
             ->all();
+    }
+
+    /**
+     * The newest message of the visitor's own that someone in the CRM has read.
+     *
+     * A high-water mark rather than a per-message flag: everything up to it is
+     * read, so the widget can place a single "Seen" marker under the last one
+     * without the poll re-sending messages it already has.
+     */
+    public function seenUntilId(WidgetChatVisitor $visitor): ?int
+    {
+        if (!$visitor->inbox_chat_id) {
+            return null;
+        }
+
+        return InboxMessage::where('inbox_chat_id', $visitor->inbox_chat_id)
+            ->where('direction', InboxMessage::DIRECTION_INCOMING)
+            ->where('status', InboxMessage::STATUS_READ)
+            ->max('id');
+    }
+
+    /**
+     * The website channel's read receipt.
+     *
+     * WhatsApp and Instagram report receipts back over their webhooks; the
+     * website widget has no such channel, so handing the messages to the
+     * visitor's browser is the only signal there is. The widget only fetches
+     * while its panel is open, so "the visitor received these" and "the
+     * visitor is looking at these" are the same moment here.
+     *
+     * Fires the same event the CRM uses for inbound reads, with the opposite
+     * direction, so an agent watching the thread sees their ticks turn.
+     */
+    private function markDeliveredToVisitor(WidgetChatVisitor $visitor, Collection $messages): void
+    {
+        $unread = $messages
+            ->filter(fn (InboxMessage $m) => $m->direction === InboxMessage::DIRECTION_OUTGOING
+                && $m->status !== InboxMessage::STATUS_READ);
+
+        if ($unread->isEmpty()) {
+            return;
+        }
+
+        $ids = $unread->pluck('id')->all();
+
+        InboxMessage::whereIn('id', $ids)->update(['status' => InboxMessage::STATUS_READ]);
+        $unread->each(fn (InboxMessage $m) => $m->status = InboxMessage::STATUS_READ);
+
+        $chat = InboxChat::find($visitor->inbox_chat_id);
+
+        if ($chat) {
+            broadcast(new InboxMessagesRead($chat, InboxMessage::DIRECTION_OUTGOING, $ids));
+        }
     }
 
     /**

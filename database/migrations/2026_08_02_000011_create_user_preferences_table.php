@@ -27,7 +27,7 @@ return new class extends Migration
 
             $table->string('theme', 10)->default('dark');
             $table->string('language', 5)->default('en');
-            $table->boolean('optus_enabled')->default(false);
+            $table->boolean('optus_enabled')->default(true);
             $table->string('notification_sound', 40)->default('default');
             $table->string('default_search_target', 20)->default('leads');
 

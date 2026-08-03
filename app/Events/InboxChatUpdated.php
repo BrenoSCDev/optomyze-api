@@ -11,8 +11,8 @@ use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
 /**
- * Fired when chat-level state changes outside of a new message —
- * currently the AI agent ownership flag (ai_agent_service).
+ * Fired when chat-level state changes outside of a new message — the AI agent
+ * ownership flag, and whether the conversation is archived or favourited.
  */
 class InboxChatUpdated implements ShouldBroadcastNow
 {
@@ -44,6 +44,8 @@ class InboxChatUpdated implements ShouldBroadcastNow
                 'id' => $this->chat->id,
                 'lead_id' => $this->chat->lead_id,
                 'ai_agent_service' => (bool) $this->chat->ai_agent_service,
+                'is_archived' => (bool) $this->chat->is_archived,
+                'is_favorite' => (bool) $this->chat->is_favorite,
             ],
             'timestamp' => now()->toISOString(),
         ];

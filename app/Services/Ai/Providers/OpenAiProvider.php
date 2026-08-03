@@ -2,12 +2,12 @@
 
 namespace App\Services\Ai\Providers;
 
-use App\Models\OpenAiIntegration;
 use App\Services\Ai\AiProviderException;
 use App\Services\Ai\Contracts\AiProviderInterface;
 use App\Services\Ai\Dto\AiChatRequest;
 use App\Services\Ai\Dto\AiChatResponse;
 use App\Services\Ai\Dto\AiToolCall;
+use App\Services\Ai\Dto\OpenAiCredentials;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -16,7 +16,7 @@ class OpenAiProvider implements AiProviderInterface
     private const API_BASE = 'https://api.openai.com/v1';
     private const TRANSCRIPTION_MODEL = 'gpt-4o-mini-transcribe';
 
-    public function __construct(private readonly OpenAiIntegration $integration)
+    public function __construct(private readonly OpenAiCredentials $credentials)
     {
     }
 
@@ -112,11 +112,11 @@ class OpenAiProvider implements AiProviderInterface
 
     private function http()
     {
-        $request = Http::withToken($this->integration->api_key);
+        $request = Http::withToken($this->credentials->apiKey);
 
-        if ($this->integration->organization_id) {
+        if ($this->credentials->organizationId) {
             $request = $request->withHeaders([
-                'OpenAI-Organization' => $this->integration->organization_id,
+                'OpenAI-Organization' => $this->credentials->organizationId,
             ]);
         }
 

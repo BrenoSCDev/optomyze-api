@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\ConversationRead;
 use App\Events\GroupCreated;
 use App\Events\GroupDeleted;
 use App\Events\GroupMembersAdded;
@@ -252,6 +253,31 @@ class ConversationController extends Controller
             ->exists();
     }
 
+    /**
+     * Mark a conversation read for the caller.
+     *
+     * Called when the thread is opened and whenever a message lands while it
+     * is open. Idempotent and silent when there was nothing unread, so
+     * clicking through the sidebar doesn't broadcast on every row.
+     */
+    public function markRead(Request $request, Conversation $conversation): JsonResponse
+    {
+        $user = $request->user();
+
+        if ($conversation->company_id !== $user->company_id
+            || !$conversation->participants()->where('users.id', $user->id)->exists()) {
+            return response()->json(['message' => 'Conversation not found'], 404);
+        }
+
+        if (!$conversation->markReadFor($user)) {
+            return response()->json(['unread_count' => 0, 'changed' => false]);
+        }
+
+        broadcast(new ConversationRead($conversation, $user->id, now()->toISOString()));
+
+        return response()->json(['unread_count' => 0, 'changed' => true]);
+    }
+
     private function formatConversation(Conversation $conversation, User $authUser): array
     {
         $lastMessage = $conversation->lastMessage;
@@ -280,6 +306,8 @@ class ConversationController extends Controller
                 'created_at' => $lastMessage->created_at?->toISOString(),
             ] : null,
             'last_message_at' => $conversation->last_message_at?->toISOString(),
+            // Per-participant: everyone in a group has their own count.
+            'unread_count'    => $conversation->unreadCountFor($authUser),
             'created_at'      => $conversation->created_at->toISOString(),
         ];
     }

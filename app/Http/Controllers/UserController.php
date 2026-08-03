@@ -102,7 +102,7 @@ class UserController extends Controller
         // Merge company_id into the request
         $request->merge(['company_id' => $companyId])->all();
 
-        $validated = $request->validate(User::validationRules());
+        $validated = $request->validate(User::validationRules($companyId));
 
         $validated['password'] = Hash::make(Str::random(32));
 
@@ -118,7 +118,9 @@ class UserController extends Controller
      */
     public function storeManager(Request $request)
     {
-        $validated = $request->validate(User::validationRules());
+        $validated = $request->validate(
+            User::validationRules((int) $request->input('company_id') ?: null)
+        );
 
         $validated['password'] = Hash::make(Str::random(32));
 
@@ -138,7 +140,7 @@ class UserController extends Controller
 
         $user = User::where('company_id', $companyId)->findOrFail($id);
 
-        $rules = User::validationRules();
+        $rules = User::validationRules($companyId);
 
         // Adjust email unique validation for update
         $rules['email'] = [
@@ -146,7 +148,7 @@ class UserController extends Controller
             'string',
             'email',
             'max:255',
-            Rule::unique('users', 'email')->ignore($user->id),
+            User::emailUniqueRule($companyId, $user->id),
         ];
 
         // company_id is set once at creation and scoped via $companyId above —
@@ -173,6 +175,12 @@ class UserController extends Controller
         $user->is_active = !$user->is_active;
         $user->save();
 
+        // Disabling has to end the session too, or the user keeps working in
+        // this company until their token happens to expire.
+        if (!$user->is_active) {
+            $user->revokeSessions();
+        }
+
         return response()->json([
             'message' => $user->is_active ? 'User enabled' : 'User disabled',
             'user' => $user
@@ -188,6 +196,7 @@ class UserController extends Controller
 
         $user = User::where('company_id', $companyId)->findOrFail($id);
 
+        $user->revokeSessions();
         $user->delete();
 
         return response()->json(['message' => 'User deleted successfully']);
@@ -262,7 +271,7 @@ class UserController extends Controller
 
         $validated = $request->validate([
             'name'      => 'required|string|max:255',
-            'email'     => 'required|string|email|max:255|unique:users,email',
+            'email'     => ['required', 'string', 'email', 'max:255', User::emailUniqueRule($company->id)],
             'phone'     => 'nullable|string|max:20',
             'role'      => 'required|in:admin,manager,agent',
             'is_active' => 'boolean',
@@ -296,7 +305,7 @@ class UserController extends Controller
 
         $validated = $request->validate([
             'name'      => 'nullable|string|max:255',
-            'email'     => ['nullable', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
+            'email'     => ['nullable', 'string', 'email', 'max:255', User::emailUniqueRule($company->id, $user->id)],
             'phone'     => 'nullable|string|max:20',
             'role'      => 'nullable|in:admin,manager,agent',
             'is_active' => 'boolean',
@@ -322,6 +331,7 @@ class UserController extends Controller
             return response()->json(['message' => 'User not found'], 404);
         }
 
+        $user->revokeSessions();
         $user->delete();
 
         return response()->json(['message' => 'User deleted successfully']);

@@ -113,7 +113,11 @@ class InboxMessageReceived implements ShouldBroadcastNow
                 'external_chat_id'    => $chat->external_chat_id,
                 'lead_id'             => $chat->lead_id,
                 'external_contact_id' => $chat->external_contact_id,
-                'last_message_at'     => $chat->last_message_at,
+                // Same reason as sent_at above: a bare Carbon in a broadcast
+                // payload is JSON-encoded as UTC, so the chat list's timestamp
+                // jumped by the company's offset the moment a live message
+                // arrived, while the message bubble beside it stayed correct.
+                'last_message_at'     => $chat->last_message_at?->toIso8601String(),
                 'profile_pic_url'     => $chat->profile_pic_url,
                 'instance'            => $chat->instance ? [
                     'id'            => $chat->instance->id,

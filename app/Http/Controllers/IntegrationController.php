@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\WidgetIntegration;
 use App\Models\FacebookMessengerIntegration;
 use App\Models\GoogleAdsIntegration;
 use App\Models\InstagramIntegration;
@@ -46,6 +47,16 @@ class IntegrationController extends Controller
 
         foreach ($integrations as $key => $model) {
             $availability[$key . '_available'] = $model::where('company_id', $user->company_id)
+                ->active()
+                ->exists();
+        }
+
+        // Widget types live in one table keyed by type rather than a table
+        // each, so they don't fit the map above. The response keys match what
+        // the cards look for: `<key with - as _>_available`.
+        foreach (WidgetIntegration::TYPES as $type) {
+            $availability[$type . '_widget_available'] = WidgetIntegration::fromCompany($user->company_id)
+                ->ofType($type)
                 ->active()
                 ->exists();
         }

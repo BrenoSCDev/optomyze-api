@@ -67,7 +67,12 @@ class ManagerUserController extends Controller
         $validated = $request->validate([
             'company_id' => 'required|integer|exists:companies,id',
             'name'       => 'required|string|max:255',
-            'email'      => 'required|string|email|max:255|unique:users,email',
+            'email'      => [
+                'required', 'string', 'email', 'max:255',
+                // Scoped to the company being created in: the same person may
+                // already hold an account elsewhere.
+                User::emailUniqueRule((int) $request->input('company_id') ?: null),
+            ],
             'phone'      => 'nullable|string|max:20',
             'role'       => 'required|in:admin,manager,agent',
             'is_active'  => 'sometimes|boolean',
@@ -104,7 +109,7 @@ class ManagerUserController extends Controller
 
         $validated = $request->validate([
             'name'      => 'sometimes|string|max:255',
-            'email'     => ['sometimes', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
+            'email'     => ['sometimes', 'string', 'email', 'max:255', User::emailUniqueRule($user->company_id, $user->id)],
             'phone'     => 'nullable|string|max:20',
             'role'      => 'sometimes|in:admin,manager,agent',
             'is_active' => 'sometimes|boolean',
@@ -127,6 +132,7 @@ class ManagerUserController extends Controller
     {
         $user = User::findOrFail($id);
         $user->update(['is_active' => false]);
+        $user->revokeSessions();
 
         return response()->json([
             'message' => 'User deactivated successfully',
@@ -140,6 +146,7 @@ class ManagerUserController extends Controller
     public function destroy(int $id): JsonResponse
     {
         $user = User::findOrFail($id);
+        $user->revokeSessions();
         $user->delete();
 
         return response()->json(['message' => 'User deleted successfully']);

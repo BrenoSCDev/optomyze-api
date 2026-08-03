@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Events\InternalMessageSent;
 use App\Events\MessagesDeleted;
 use App\Events\PrivateMessageNotification;
+use App\Events\ConversationRead;
 use App\Models\Conversation;
 use App\Models\InternalMessage;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -23,7 +25,9 @@ class InternalMessageController extends Controller
             403
         );
 
-        $conversation->load('company');
+        // participants carries each member's last_read_at on the pivot, which
+        // is what turns a message into "seen by".
+        $conversation->load('company', 'participants');
 
         $messages = $conversation->messages()
             ->with('sender:id,name,profile_pic')
@@ -32,8 +36,20 @@ class InternalMessageController extends Controller
 
         $messages->getCollection()->each(fn($m) => $m->setRelation('conversation', $conversation));
 
+        // Read receipts are computed against the state *before* this open, so
+        // the caller doesn't see their own arrival reflected back at them.
+        $payload = $messages->getCollection()
+            ->map(fn ($m) => $this->formatMessage($m, $conversation, $user))
+            ->all();
+
+        // Opening the thread is what marks it read. Only the first page does
+        // it — paging back through history is not "catching up".
+        if ($messages->currentPage() === $messages->lastPage() && $conversation->markReadFor($user)) {
+            broadcast(new ConversationRead($conversation, $user->id, now()->toISOString()));
+        }
+
         return response()->json([
-            'data' => $messages->getCollection()->map(fn($m) => $this->formatMessage($m)),
+            'data' => $payload,
             'meta' => [
                 'current_page' => $messages->currentPage(),
                 'last_page'    => $messages->lastPage(),
@@ -91,7 +107,11 @@ class InternalMessageController extends Controller
             }
         }
 
-        return response()->json(['data' => $this->formatMessage($message)], 201);
+        // Comes back with read_by: [] rather than null — you sent it, so the
+        // "seen by" state is yours to watch, it is simply empty for now.
+        $conversation->load('participants');
+
+        return response()->json(['data' => $this->formatMessage($message, $conversation, $user)], 201);
     }
 
     public function deleteMultiple(Request $request): JsonResponse
@@ -131,9 +151,20 @@ class InternalMessageController extends Controller
         return response()->json(['data' => ['deleted_ids' => $deletedIds]]);
     }
 
-    private function formatMessage(InternalMessage $message): array
+    /**
+     * @param Conversation|null $conversation supplies participants' read state
+     * @param User|null $viewer only the author is told who has seen a message
+     */
+    private function formatMessage(InternalMessage $message, ?Conversation $conversation = null, ?User $viewer = null): array
     {
         $sender = $message->sender;
+
+        // "Seen by" is shown to the author of a message, not to everyone —
+        // it answers "did they read what I sent", which is only the sender's
+        // question.
+        $readBy = ($conversation && $viewer && $sender->id === $viewer->id)
+            ? $conversation->readersOf($message, $viewer)
+            : null;
 
         return [
             'id'              => $message->id,
@@ -147,6 +178,8 @@ class InternalMessageController extends Controller
                 'profile_pic_url' => $sender->profile_pic,
             ],
             'created_at' => $message->created_at->toIso8601String(),
+            // null for messages you did not send; a list of user ids otherwise.
+            'read_by'    => $readBy,
         ];
     }
 }

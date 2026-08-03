@@ -2,7 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\LeadLiveUpdate;
+use App\Models\Funnel;
 use App\Models\Lead;
+use App\Models\Record;
+use App\Models\Stage;
 use App\Models\Tag;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -72,6 +76,72 @@ class LeadArchiveController extends Controller
         }
 
         $affected = Lead::whereIn('id', $leads->pluck('id'))->update(['assigned_to' => $assigneeId]);
+
+        return response()->json(['updated' => $affected]);
+    }
+
+    /**
+     * File a selection of contacts into a funnel, at its entry stage.
+     *
+     * The bulk counterpart of the Contacts row action. Leads already in the
+     * target funnel are left alone rather than reset to the entry stage —
+     * a bulk action should not silently undo someone's pipeline progress.
+     */
+    public function bulkMoveToFunnel(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'lead_ids'   => 'required|array|min:1|max:' . self::MAX_BULK,
+            'lead_ids.*' => 'integer',
+            'funnel_id'  => 'required|integer',
+        ]);
+
+        $user = Auth::user();
+
+        $funnel = Funnel::where('id', $data['funnel_id'])
+            ->where('company_id', $user->company_id)
+            ->first();
+
+        if (!$funnel) {
+            return response()->json(['message' => 'Funnel not found in this company'], 422);
+        }
+
+        $entryStage = Stage::where('funnel_id', $funnel->id)
+            ->where('type', 'entry')
+            ->orderBy('order')
+            ->first();
+
+        if (!$entryStage) {
+            return response()->json([
+                'message' => 'The selected funnel has no entry stage configured.',
+            ], 422);
+        }
+
+        // Skips leads already in this funnel; a null funnel_id (an unfiled
+        // contact, the common case here) never matches and so is included.
+        $leads = $this->scopedLeads($user, $data['lead_ids'])
+            ->filter(fn (Lead $lead) => (int) $lead->funnel_id !== (int) $funnel->id);
+
+        $affected = 0;
+
+        foreach ($leads as $lead) {
+            $previousStage = $lead->stage;
+
+            // Tell the old board the card has gone before it moves.
+            if ($lead->funnel_id) {
+                broadcast(new LeadLiveUpdate('deleted', $lead));
+            }
+
+            $lead->update([
+                'funnel_id' => $funnel->id,
+                'stage_id'  => $entryStage->id,
+            ]);
+
+            Record::createLeadFunnelChange($lead, $funnel, $previousStage, $entryStage, $user);
+
+            broadcast(new LeadLiveUpdate('created', $lead->fresh()));
+
+            $affected++;
+        }
 
         return response()->json(['updated' => $affected]);
     }

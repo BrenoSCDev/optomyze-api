@@ -134,6 +134,8 @@
       '.' + PREFIX + '-msg--in .' + PREFIX + '-bubble{background:#fff;color:#111827;border-bottom-left-radius:5px;}',
       '.' + PREFIX + '-msg--out .' + PREFIX + '-bubble{background:var(--optz-accent);color:#fff;border-bottom-right-radius:5px;}',
       '.' + PREFIX + '-time{display:block;margin-top:4px;font-size:10px;opacity:.65;}',
+      // Sits under the visitor's own bubble, aligned to its right edge.
+      '.' + PREFIX + '-seen{display:block;margin-top:3px;font-size:10px;color:#6b7280;text-align:right;}',
 
       '.' + PREFIX + '-form{padding:16px;background:#fff;flex:1;overflow-y:auto;}',
       '.' + PREFIX + '-intro{margin:0 0 12px;font-size:13px;color:#6b7280;}',
@@ -173,6 +175,7 @@
       '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-panel{background:#0f172a;border-color:#1e293b;}',
       '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-body{background:#0b1220;}',
       '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-msg--in .' + PREFIX + '-bubble{background:#1e293b;color:#e2e8f0;}',
+      '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-seen{color:#94a3b8;}',
       '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-composer,',
       '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-form,',
       '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-foot{background:#0f172a;border-color:#1e293b;}',
@@ -562,6 +565,12 @@
     var row = el('div', PREFIX + '-msg ' + PREFIX + '-msg--' + (mine ? 'out' : 'in'));
     var bubble = el('div', PREFIX + '-bubble');
 
+    // Needed to place the "Seen" marker. The optimistic echo has no id yet,
+    // so it simply cannot be marked until the server confirms it.
+    if (message.id) {
+      row.setAttribute('data-optz-id', String(message.id));
+    }
+
     bubble.appendChild(document.createTextNode(message.text || ''));
 
     if (message.sent_at) {
@@ -639,7 +648,8 @@
     this.api('/messages?after_id=' + this.lastMessageId).then(function (result) {
       if (!result.ok) return;
 
-      var messages = (result.body.data || {}).messages || [];
+      var data = result.body.data || {};
+      var messages = data.messages || [];
 
       // The visitor's own messages were already echoed optimistically.
       var incoming = messages.filter(function (message) { return message.direction === 'outgoing'; });
@@ -650,8 +660,44 @@
 
       incoming.forEach(function (message) { self.appendMessage(message); });
 
+      self.applySeenMarker(data.seen_until_id);
+
       if (incoming.length) self.scrollToBottom();
     });
+  };
+
+  /**
+   * Show "Seen" under the visitor's newest message that someone has read.
+   *
+   * A single marker on the last read message, rather than one per bubble:
+   * everything above it is read by definition, and a column of ticks would be
+   * noise in a panel this small.
+   */
+  ChatWidget.prototype.applySeenMarker = function (seenUntilId) {
+    if (!seenUntilId) return;
+    if (this.seenUntilId === seenUntilId) return;
+
+    this.seenUntilId = seenUntilId;
+
+    if (this.seenEl && this.seenEl.parentNode) {
+      this.seenEl.parentNode.removeChild(this.seenEl);
+    }
+
+    // The visitor's own bubbles carry their id once the server has confirmed
+    // them; the optimistic echo has none and so is never marked.
+    var rows = this.bodyEl.querySelectorAll('.' + PREFIX + '-msg--out[data-optz-id]');
+    var target = null;
+
+    for (var i = 0; i < rows.length; i++) {
+      var id = parseInt(rows[i].getAttribute('data-optz-id'), 10);
+      if (id && id <= seenUntilId) target = rows[i];
+    }
+
+    if (!target) return;
+
+    this.seenEl = el('div', PREFIX + '-seen');
+    this.seenEl.textContent = this.content.seen_label || 'Seen';
+    target.appendChild(this.seenEl);
   };
 
   ChatWidget.prototype.schedulePoll = function () {

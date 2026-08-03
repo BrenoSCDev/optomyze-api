@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ResolvesTaskScope;
 use App\Models\Lead;
+use App\Models\Sale;
 use App\Models\Record;
 use App\Models\Task;
 use App\Models\TaskList;
@@ -240,6 +241,10 @@ class TaskController extends Controller
             return response()->json(['message' => 'Lead not found'], 404);
         }
 
+        if (!empty($validated['sale_id']) && !$this->saleInCompany($validated['sale_id'])) {
+            return response()->json(['message' => 'Deal not found'], 404);
+        }
+
         $statusId = $this->resolveStatusId($validated, $list);
 
         $parent = null;
@@ -318,6 +323,10 @@ class TaskController extends Controller
 
         if (!empty($validated['lead_id']) && !$this->leadInCompany($validated['lead_id'])) {
             return response()->json(['message' => 'Lead not found'], 404);
+        }
+
+        if (!empty($validated['sale_id']) && !$this->saleInCompany($validated['sale_id'])) {
+            return response()->json(['message' => 'Deal not found'], 404);
         }
 
         // A status must belong to the list the task is (or is moving) into.
@@ -607,6 +616,10 @@ class TaskController extends Controller
             $query->where('tasks.lead_id', $request->query('lead_id'));
         }
 
+        if ($request->filled('sale_id')) {
+            $query->where('tasks.sale_id', $request->query('sale_id'));
+        }
+
         if ($request->filled('due_from')) {
             $query->whereDate('tasks.due_date', '>=', $request->query('due_from'));
         }
@@ -687,6 +700,11 @@ class TaskController extends Controller
     private function leadInCompany($leadId): bool
     {
         return Lead::where('id', $leadId)->where('company_id', $this->companyId())->exists();
+    }
+
+    private function saleInCompany($saleId): bool
+    {
+        return Sale::where('id', $saleId)->where('company_id', $this->companyId())->exists();
     }
 
     /*

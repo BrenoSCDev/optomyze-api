@@ -37,6 +37,10 @@ return [
 
     'openai' => [
         'key' => env('OPENAI_API_KEY'),
+        'organization' => env('OPENAI_ORGANIZATION'),
+        // Optus, the in-app assistant. Billed to the platform key above, not
+        // to a tenant's own OpenAI integration.
+        'optus_model' => env('OPTUS_MODEL', 'gpt-4o-mini'),
     ],
 
 ];

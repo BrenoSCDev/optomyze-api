@@ -36,6 +36,7 @@ class InboxChat extends Model
         'contact_name',
         'is_group',
         'is_archived',
+        'is_favorite',
         'ai_agent_service',
         'last_message_at',
         'profile_pic_url',
@@ -44,6 +45,7 @@ class InboxChat extends Model
     protected $casts = [
         'is_group' => 'boolean',
         'is_archived' => 'boolean',
+        'is_favorite' => 'boolean',
         'ai_agent_service' => 'boolean',
         'last_message_at' => 'datetime',
     ];
@@ -74,6 +76,58 @@ class InboxChat extends Model
     public function messages(): HasMany
     {
         return $this->hasMany(InboxMessage::class);
+    }
+
+    /**
+     * Inbound messages nobody has opened the conversation to see yet.
+     *
+     * Read state lives on inbox_messages.status, the same enum that already
+     * carries outbound delivery receipts — an inbound message is unread until
+     * it reaches 'read'. Reusing it keeps one notion of "seen" per message
+     * rather than one per direction.
+     */
+    public function unreadMessages(): HasMany
+    {
+        return $this->messages()
+            ->where('direction', 'incoming')
+            ->where('status', '!=', InboxMessage::STATUS_READ);
+    }
+
+    /** Adds `unread_count` without loading any messages. */
+    public function scopeWithUnreadCount($query)
+    {
+        return $query->withCount(['messages as unread_count' => fn ($q) => $q
+            ->where('direction', 'incoming')
+            ->where('status', '!=', InboxMessage::STATUS_READ)]);
+    }
+
+    /**
+     * Narrows to fully-read or has-unread conversations.
+     * Anything other than 'unread'/'read' leaves the query untouched.
+     */
+    public function scopeReadState($query, ?string $state)
+    {
+        $hasUnread = fn ($q) => $q
+            ->where('direction', 'incoming')
+            ->where('status', '!=', InboxMessage::STATUS_READ);
+
+        return match ($state) {
+            'unread' => $query->whereHas('messages', $hasUnread),
+            'read'   => $query->whereDoesntHave('messages', $hasUnread),
+            default  => $query,
+        };
+    }
+
+    /**
+     * Marks every inbound message as read.
+     *
+     * Returns how many actually changed, so callers can skip broadcasting
+     * when opening an already-read conversation — otherwise every click would
+     * push a pointless update to everyone with the inbox open.
+     */
+    public function markInboundRead(): int
+    {
+        return $this->unreadMessages()->update(['status' => InboxMessage::STATUS_READ]);
     }
 
     public function chatSessions(): HasMany

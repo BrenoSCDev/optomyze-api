@@ -61,6 +61,10 @@ class ChatWidgetType implements WidgetType
                 'online_text' => 'Online',
                 'offline_text' => 'We are away — leave a message and we will reply by email.',
                 'input_placeholder' => 'Write a message…',
+                // Shown under the visitor's last message once an agent has
+                // read it. Configurable because the widget runs on the
+                // customer's site, in the customer's language.
+                'seen_label' => 'Seen',
             ],
             'branding' => [
                 'agent_avatar_url' => null,
@@ -106,6 +110,7 @@ class ChatWidgetType implements WidgetType
             'content.online_text' => ['nullable', 'string', 'max:60'],
             'content.offline_text' => ['nullable', 'string', 'max:200'],
             'content.input_placeholder' => ['nullable', 'string', 'max:80'],
+            'content.seen_label' => ['nullable', 'string', 'max:30'],
 
             'branding.agent_avatar_url' => ['nullable', 'url', 'max:500'],
             'branding.company_logo_url' => ['nullable', 'url', 'max:500'],
@@ -117,8 +122,10 @@ class ChatWidgetType implements WidgetType
             'identification.intro' => ['nullable', 'string', 'max:200'],
             'identification.submit_text' => ['nullable', 'string', 'max:40'],
 
-            'mapping.funnel_id' => ['required', 'integer'],
-            'mapping.stage_id' => ['required', 'integer'],
+            // Optional: a lead no longer has to live in a funnel. Leaving these
+            // empty creates the lead unfiled, reachable from Contacts.
+            'mapping.funnel_id' => ['nullable', 'integer'],
+            'mapping.stage_id' => ['nullable', 'integer'],
             'mapping.assigned_user_id' => ['nullable', 'integer'],
             'mapping.assigned_team_id' => ['nullable', 'integer'],
 
@@ -146,23 +153,34 @@ class ChatWidgetType implements WidgetType
                 }
             }
 
-            $funnel = Funnel::where('id', Arr::get($config, 'mapping.funnel_id'))
-                ->where('company_id', $companyId)
-                ->first();
+            $assignedUserId = Arr::get($config, 'mapping.assigned_user_id');
+
+            if ($assignedUserId && !User::where('id', $assignedUserId)->where('company_id', $companyId)->exists()) {
+                $validator->errors()->add('config.mapping.assigned_user_id', 'Select a user from your company.');
+            }
+
+            // The funnel is optional, but if one is named it must belong to
+            // this company and the stage must belong to it — a half-filled
+            // pair would put the lead in a stage of somebody else's funnel.
+            $funnelId = Arr::get($config, 'mapping.funnel_id');
+            $stageId = Arr::get($config, 'mapping.stage_id');
+
+            if (!$funnelId) {
+                if ($stageId) {
+                    $validator->errors()->add('config.mapping.stage_id', 'Choose a funnel before choosing a stage.');
+                }
+                return;
+            }
+
+            $funnel = Funnel::where('id', $funnelId)->where('company_id', $companyId)->first();
 
             if (!$funnel) {
                 $validator->errors()->add('config.mapping.funnel_id', 'Select a funnel that belongs to your company.');
                 return;
             }
 
-            if (!Stage::where('id', Arr::get($config, 'mapping.stage_id'))->where('funnel_id', $funnel->id)->exists()) {
+            if (!Stage::where('id', $stageId)->where('funnel_id', $funnel->id)->exists()) {
                 $validator->errors()->add('config.mapping.stage_id', 'Select a stage that belongs to the chosen funnel.');
-            }
-
-            $assignedUserId = Arr::get($config, 'mapping.assigned_user_id');
-
-            if ($assignedUserId && !User::where('id', $assignedUserId)->where('company_id', $companyId)->exists()) {
-                $validator->errors()->add('config.mapping.assigned_user_id', 'Select a user from your company.');
             }
         });
 
@@ -193,6 +211,7 @@ class ChatWidgetType implements WidgetType
                 'online_text' => Arr::get($config, 'content.online_text') ?: 'Online',
                 'offline_text' => Arr::get($config, 'content.offline_text', ''),
                 'input_placeholder' => Arr::get($config, 'content.input_placeholder') ?: 'Write a message…',
+                'seen_label' => Arr::get($config, 'content.seen_label') ?: 'Seen',
             ],
             'branding' => [
                 'agent_avatar_url' => Arr::get($config, 'branding.agent_avatar_url') ?: null,
@@ -205,8 +224,10 @@ class ChatWidgetType implements WidgetType
                 'submit_text' => Arr::get($config, 'identification.submit_text') ?: 'Start chat',
             ],
             'mapping' => [
-                'funnel_id' => (int) $config['mapping']['funnel_id'],
-                'stage_id' => (int) $config['mapping']['stage_id'],
+                // Null, not 0 — the lead's funnel_id is nullable and a 0 would
+                // be a foreign key to a funnel that does not exist.
+                'funnel_id' => Arr::get($config, 'mapping.funnel_id') ? (int) $config['mapping']['funnel_id'] : null,
+                'stage_id' => Arr::get($config, 'mapping.stage_id') ? (int) $config['mapping']['stage_id'] : null,
                 'assigned_user_id' => Arr::get($config, 'mapping.assigned_user_id') ?: null,
                 'assigned_team_id' => Arr::get($config, 'mapping.assigned_team_id') ?: null,
             ],

@@ -22,6 +22,7 @@ use App\Services\LeadQueueAssignmentService;
 
 use App\Traits\ResolvesActivityDateRange;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Auth;
 
 class LeadController extends Controller
@@ -51,7 +52,40 @@ class LeadController extends Controller
      */
     public function store(Request $request)
     {
+        $user = Auth::user();
+
+        if (!$user?->company_id) {
+            return response()->json(['message' => 'User does not belong to a company'], 403);
+        }
+
         $validated = $request->validate(Lead::validationRules());
+
+        // The company comes from the session, never from the request. The
+        // rules accept a company_id because other callers build the payload,
+        // but honouring a client-supplied one would let any authenticated
+        // user create a lead inside somebody else's company.
+        $validated['company_id'] = $user->company_id;
+
+        // A funnel, if named, has to be one of this company's — otherwise the
+        // lead would land on another tenant's board.
+        if (!empty($validated['funnel_id'])) {
+            $funnel = \App\Models\Funnel::where('id', $validated['funnel_id'])
+                ->where('company_id', $user->company_id)
+                ->first();
+
+            if (!$funnel) {
+                throw ValidationException::withMessages([
+                    'funnel_id' => ['Select a funnel that belongs to your company.'],
+                ]);
+            }
+
+            if (!empty($validated['stage_id'])
+                && !Stage::where('id', $validated['stage_id'])->where('funnel_id', $funnel->id)->exists()) {
+                throw ValidationException::withMessages([
+                    'stage_id' => ['Select a stage that belongs to the chosen funnel.'],
+                ]);
+            }
+        }
 
         // Create the lead
         $lead = Lead::create($validated);

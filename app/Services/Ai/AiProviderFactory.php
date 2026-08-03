@@ -5,6 +5,7 @@ namespace App\Services\Ai;
 use App\Models\AiAgent;
 use App\Models\OpenAiIntegration;
 use App\Services\Ai\Contracts\AiProviderInterface;
+use App\Services\Ai\Dto\OpenAiCredentials;
 use App\Services\Ai\Providers\OpenAiProvider;
 
 /**
@@ -31,6 +32,17 @@ class AiProviderFactory
             return null;
         }
 
-        return new OpenAiProvider($integration);
+        return new OpenAiProvider(OpenAiCredentials::fromIntegration($integration));
+    }
+
+    /**
+     * The platform-billed provider, for Optomyze's own features (Optus).
+     * Null when OPENAI_API_KEY is unset.
+     */
+    public static function platformOpenAi(): ?AiProviderInterface
+    {
+        $credentials = OpenAiCredentials::platform();
+
+        return $credentials ? new OpenAiProvider($credentials) : null;
     }
 }

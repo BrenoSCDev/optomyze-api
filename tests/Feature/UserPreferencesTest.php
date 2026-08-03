@@ -30,7 +30,7 @@ test('reading returns the shipped defaults', function () {
     $res->assertOk();
     expect($res->json('data.theme'))->toBe('dark')
         ->and($res->json('data.language'))->toBe('en')
-        ->and($res->json('data.optus_enabled'))->toBeFalse()
+        ->and($res->json('data.optus_enabled'))->toBeTrue()
         ->and($res->json('data.notification_sound'))->toBe('default')
         ->and($res->json('data.default_search_target'))->toBe('leads');
 });
@@ -119,7 +119,7 @@ test('reset restores the shipped defaults', function () {
 
     $this->actingAs($user)->putJson('/api/user/preferences', [
         'theme'                 => 'light',
-        'optus_enabled'         => true,
+        'optus_enabled'         => false,
         'default_search_target' => 'menu',
     ])->assertOk();
 
@@ -127,7 +127,7 @@ test('reset restores the shipped defaults', function () {
 
     $res->assertOk();
     expect($res->json('data.theme'))->toBe('dark')
-        ->and($res->json('data.optus_enabled'))->toBeFalse()
+        ->and($res->json('data.optus_enabled'))->toBeTrue()
         ->and($res->json('data.default_search_target'))->toBe('leads');
 });
 

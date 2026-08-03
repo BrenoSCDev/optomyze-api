@@ -460,10 +460,15 @@ class SaleController extends Controller
 
         $sale->load([
             'user:id,name,email,profile_pic',
-            'lead:id,first_name,last_name,email,phone,job_title,company_id,funnel_id,stage_id',
+            // `timezone` and the inbox chat are what the deal view's
+            // Appointments and Conversation tabs need — both act on the person
+            // behind the deal, so they reuse the lead components.
+            'lead:id,first_name,last_name,email,phone,job_title,timezone,company_id,funnel_id,stage_id',
             'lead.funnel:id,name',
             'lead.stage:id,name,color',
             'lead.leadCompany:id,legal_name,trade_name,logo_path',
+            'lead.whatsappInboxChat.messages' => fn ($q) => $q->orderBy('sent_at'),
+            'lead.whatsappInboxChat.channelable',
             'charges',
             'discounts',
             'items',

@@ -199,6 +199,11 @@ class PublicWidgetChatController extends Controller
         return response()->json([
             'data' => [
                 'messages' => $this->chat->visitorMessages($visitor, $afterId),
+                // Polling only asks for messages after the last one it saw, so
+                // a read receipt on an older message would never reach the
+                // widget. One high-water mark covers every earlier message
+                // without re-sending any of them.
+                'seen_until_id' => $this->chat->seenUntilId($visitor),
             ],
         ]);
     }

@@ -17,6 +17,7 @@ use App\Events\InboxChatUpdated;
 use App\Events\InboxMessagesCleared;
 use App\Events\InboxMessageReceived;
 use App\Events\InboxMessageUpdated;
+use App\Events\InboxMessagesRead;
 use App\Events\LeadLiveUpdate;
 use App\Services\Ai\AiAgentDispatcher;
 use App\Services\ChatSessionService;
@@ -550,9 +551,14 @@ class InboxController extends Controller
         $perPage   = 20;
         $channel   = $request->query('channel');
         $search    = trim((string) $request->query('search', ''));
+        $readState = $request->query('read_state');          // all | unread | read
+        $favorite  = $request->boolean('favorite');
+        $archived  = $request->boolean('archived');
 
         $query = InboxChat::query()
             ->where('company_id', $companyId)
+            ->withUnreadCount()
+            ->readState($readState)
             ->with([
                 'company:id,timezone',
                 'channelable',
@@ -562,6 +568,9 @@ class InboxController extends Controller
                 // Only the latest message per chat (for list preview)
                 'latestMessage' => fn($q) => $q->with('user:id,name,profile_pic'),
             ])
+            // Favourites pin to the top whatever their last activity; within
+            // each group the newest conversation still leads.
+            ->orderByDesc('is_favorite')
             ->orderByDesc('last_message_at');
 
         // Archiving a lead takes its conversation out of the inbox too.
@@ -570,6 +579,14 @@ class InboxController extends Controller
             $q->whereNull('lead_id')
                 ->orWhereHas('lead', fn ($l) => $l->where('is_active', true));
         });
+
+        // Archived conversations are put away, not deleted: hidden unless
+        // asked for, and then shown on their own.
+        $query->where('is_archived', $archived);
+
+        if ($favorite) {
+            $query->where('is_favorite', true);
+        }
 
         if ($channel) {
             $query->channel($channel);
@@ -694,6 +711,77 @@ class InboxController extends Controller
             'chat' => [
                 'id' => $chat->id,
                 'ai_agent_service' => $chat->ai_agent_service,
+            ],
+        ]);
+    }
+
+    /**
+     * Mark every inbound message in a conversation as read.
+     *
+     * Called when someone opens the conversation. Idempotent, and silent when
+     * there was nothing to mark — otherwise merely clicking through the list
+     * would broadcast to everyone with the inbox open.
+     */
+    public function markChatRead(Request $request, InboxChat $chat)
+    {
+        $user = Auth::user();
+
+        if (!$user || $chat->company_id !== $user->company_id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        // Captured before the update: afterwards there is nothing left to find.
+        $messageIds = $chat->unreadMessages()->pluck('id')->all();
+
+        if ($messageIds === []) {
+            return response()->json(['unread_count' => 0, 'marked' => 0]);
+        }
+
+        $chat->markInboundRead();
+
+        broadcast(new InboxMessagesRead($chat, InboxMessage::DIRECTION_INCOMING, $messageIds, 0));
+
+        return response()->json(['unread_count' => 0, 'marked' => count($messageIds)]);
+    }
+
+    /**
+     * Put a conversation away, or bring it back. Archived chats are hidden
+     * from the default list rather than deleted.
+     */
+    public function setChatArchived(Request $request, InboxChat $chat)
+    {
+        return $this->toggleChatFlag($request, $chat, 'is_archived', 'archived');
+    }
+
+    /** Pin a conversation to the top of the list, or unpin it. */
+    public function setChatFavorite(Request $request, InboxChat $chat)
+    {
+        return $this->toggleChatFlag($request, $chat, 'is_favorite', 'favorite');
+    }
+
+    /**
+     * Shared body for the two per-chat boolean toggles. Omitting the value
+     * flips the current one, so the UI can fire and forget.
+     */
+    private function toggleChatFlag(Request $request, InboxChat $chat, string $column, string $input)
+    {
+        $user = Auth::user();
+
+        if (!$user || $chat->company_id !== $user->company_id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $next = $request->has($input) ? $request->boolean($input) : !$chat->{$column};
+
+        $chat->update([$column => $next]);
+
+        broadcast(new InboxChatUpdated($chat->fresh()));
+
+        return response()->json([
+            'data' => [
+                'id'          => $chat->id,
+                'is_archived' => (bool) $chat->is_archived,
+                'is_favorite' => (bool) $chat->is_favorite,
             ],
         ]);
     }

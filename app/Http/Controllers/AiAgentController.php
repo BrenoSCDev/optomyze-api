@@ -7,6 +7,7 @@ use App\Models\AiAgentChannelBinding;
 use App\Models\InstagramIntegration;
 use App\Models\OpenAiIntegration;
 use App\Models\WhatsAppInstance;
+use App\Models\Widget;
 use App\Services\Ai\Tools\ToolRegistry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -23,6 +24,10 @@ class AiAgentController extends Controller
     private const CHANNEL_TYPES = [
         'whatsapp_instance' => WhatsAppInstance::class,
         'instagram' => InstagramIntegration::class,
+        // A website chat widget is the channelable of its InboxChat, exactly
+        // as an instance is for WhatsApp — so binding an agent to one needs
+        // nothing beyond listing it here.
+        'chat_widget' => Widget::class,
     ];
 
     public function index()
@@ -213,6 +218,26 @@ class AiAgentController extends Controller
             );
         }
 
+        // Website chat widgets. Form widgets are excluded: they take a
+        // submission and close, so there is no conversation for an agent to
+        // hold. Paused widgets are still listed — binding is configuration,
+        // and forcing someone to publish a widget before they can staff it
+        // would be the wrong order.
+        $chatWidgets = Widget::where('company_id', $user->company_id)
+            ->where('type', 'chat')
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        foreach ($chatWidgets as $widget) {
+            $accounts[] = $this->formatChannelAccount(
+                'chat_widget',
+                Widget::class,
+                $widget->id,
+                $widget->name ?: "Website chat #{$widget->id}",
+                'website'
+            );
+        }
+
         return response()->json($accounts);
     }
 
@@ -346,6 +371,7 @@ class AiAgentController extends Controller
                     InstagramIntegration::class => $channelable?->username
                         ? "@{$channelable->username}"
                         : "Instagram #{$binding->channelable_id}",
+                    Widget::class => $channelable?->name ?: "Website chat #{$binding->channelable_id}",
                     default => "#{$binding->channelable_id}",
                 };
 
@@ -353,7 +379,13 @@ class AiAgentController extends Controller
                     'channelable_type' => $typeKeys[$binding->channelable_type] ?? $binding->channelable_type,
                     'channelable_id' => $binding->channelable_id,
                     'label' => $label,
-                    'channel' => $binding->channelable_type === WhatsAppInstance::class ? 'whatsapp' : 'instagram',
+                    // Was a two-way guess; a third channel makes it a lookup.
+                    'channel' => match ($binding->channelable_type) {
+                        WhatsAppInstance::class => 'whatsapp',
+                        InstagramIntegration::class => 'instagram',
+                        Widget::class => 'website',
+                        default => 'unknown',
+                    },
                 ];
             })->values(),
         ];

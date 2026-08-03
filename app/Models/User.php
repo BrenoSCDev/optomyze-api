@@ -13,6 +13,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Unique;
 use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
@@ -23,6 +26,7 @@ class User extends Authenticatable
      * The attributes that are mass assignable.
      */
     protected $fillable = [
+        'identity_id',
         'company_id',
         'name',
         'email',
@@ -54,7 +58,7 @@ class User extends Authenticatable
     ];
 
     /**
-     * Give every new user a preferences row.
+     * Give every new user a preferences row, and an identity to sign in as.
      *
      * Placed on the model rather than in the controllers because users are
      * created from four different call sites (UserController has three,
@@ -63,9 +67,54 @@ class User extends Authenticatable
      */
     protected static function booted(): void
     {
+        static::creating(function (User $user) {
+            $user->identity_id ??= static::resolveIdentityFor($user)->id;
+        });
+
         static::created(function (User $user) {
             $user->preferences()->create(UserPreference::DEFAULTS);
         });
+    }
+
+    /**
+     * The person this new account belongs to.
+     *
+     * An address that already has an identity is the same person gaining an
+     * account in another company, so the existing identity is reused and its
+     * password left alone — they sign in with the credentials they already
+     * have. Callers that need to know this happened should compare the
+     * identity's `wasRecentlyCreated` flag.
+     *
+     * Anything created without an explicit identity_id (factories, seeders,
+     * the existing user-creation endpoints) therefore keeps working unchanged.
+     */
+    protected static function resolveIdentityFor(User $user): Identity
+    {
+        $existing = Identity::withTrashed()->where('email', $user->email)->first();
+
+        if ($existing) {
+            // A person who was soft-deleted everywhere and is being re-added.
+            if ($existing->trashed()) {
+                $existing->restore();
+            }
+
+            return $existing;
+        }
+
+        $identity = new Identity([
+            'name'              => $user->name,
+            'email'             => $user->email,
+            'email_verified_at' => $user->email_verified_at,
+            'is_active'         => true,
+        ]);
+
+        // Copied from the already-cast attribute rather than assigned through
+        // the fillable path: both models cast `password` as `hashed`, and the
+        // value on $user has been hashed once already.
+        $identity->password = $user->getAttributes()['password'] ?? Str::random(40);
+        $identity->save();
+
+        return $identity;
     }
 
     /**
@@ -82,6 +131,26 @@ class User extends Authenticatable
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
+    }
+
+    /**
+     * The person who owns this account.
+     *
+     * A user row is one company's account for that person; the same person may
+     * hold other accounts elsewhere. Nothing in the app should traverse this
+     * to reach another company's data — it exists for authentication and for
+     * the company picker only.
+     */
+    public function identity(): BelongsTo
+    {
+        return $this->belongsTo(Identity::class);
+    }
+
+    /** The person's other accounts. Never used to widen a query's scope. */
+    public function siblingAccounts()
+    {
+        return static::where('identity_id', $this->identity_id)
+            ->where('id', '!=', $this->id);
     }
 
     /**
@@ -224,18 +293,52 @@ class User extends Authenticatable
     }
 
     /**
+     * Uniqueness rule for an account's email address.
+     *
+     * Scoped to the company, not global: the same person may hold an account
+     * in several companies, and a global unique is precisely what used to
+     * forbid that. Within one company an address still identifies one account.
+     *
+     * Passing a null $companyId keeps the old global behaviour, which is what
+     * a caller that genuinely cannot know the company should get.
+     */
+    public static function emailUniqueRule(?int $companyId, ?int $ignoreUserId = null): Unique
+    {
+        $rule = Rule::unique('users', 'email');
+
+        if ($companyId !== null) {
+            $rule->where(fn ($query) => $query->where('company_id', $companyId));
+        }
+
+        return $ignoreUserId ? $rule->ignore($ignoreUserId) : $rule;
+    }
+
+    /**
      * Validation rules for user creation.
      */
-    public static function validationRules(): array
+    public static function validationRules(?int $companyId = null): array
     {
         return [
             'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users,email',
+            'email' => ['required', 'string', 'email', 'max:255', static::emailUniqueRule($companyId)],
             'phone' => 'nullable|string|max:20',
             'role' => 'required|in:admin,manager,agent',
             'is_active' => 'boolean',
             'settings' => 'nullable|array',
             'company_id' => 'required|exists:companies,id',
         ];
+    }
+
+    /**
+     * End every session this account has open.
+     *
+     * Called when an account is deleted or disabled: a Sanctum token is bound
+     * to this account and therefore to its company, so leaving one alive would
+     * leave a live session inside a company the person no longer belongs to.
+     * Sessions on the person's *other* accounts are untouched.
+     */
+    public function revokeSessions(): void
+    {
+        $this->tokens()->delete();
     }
 }

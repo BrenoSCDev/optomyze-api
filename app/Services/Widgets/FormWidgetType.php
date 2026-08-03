@@ -140,8 +140,10 @@ class FormWidgetType implements WidgetType
             'fields.*.validation.max' => ['nullable', 'numeric'],
             'fields.*.validation.max_length' => ['nullable', 'integer', 'min:1', 'max:5000'],
 
-            'mapping.funnel_id' => ['required', 'integer'],
-            'mapping.stage_id' => ['required', 'integer'],
+            // Optional: a lead no longer has to live in a funnel. Leaving these
+            // empty creates the lead unfiled, reachable from Contacts.
+            'mapping.funnel_id' => ['nullable', 'integer'],
+            'mapping.stage_id' => ['nullable', 'integer'],
 
             'spam.honeypot' => ['boolean'],
             'spam.min_submit_seconds' => ['integer', 'min:0', 'max:60'],
@@ -180,9 +182,18 @@ class FormWidgetType implements WidgetType
                 $validator->errors()->add('config.fields', 'Enable at least an Email or Phone field so leads are contactable.');
             }
 
-            // The funnel/stage pair must belong to this company.
+            // The funnel is optional, but if one is named it must belong to
+            // this company and the stage must belong to it — a half-filled
+            // pair would put the lead in a stage of somebody else's funnel.
             $funnelId = Arr::get($config, 'mapping.funnel_id');
             $stageId = Arr::get($config, 'mapping.stage_id');
+
+            if (!$funnelId) {
+                if ($stageId) {
+                    $validator->errors()->add('config.mapping.stage_id', 'Choose a funnel before choosing a stage.');
+                }
+                return;
+            }
 
             $funnel = Funnel::where('id', $funnelId)->where('company_id', $companyId)->first();
 
@@ -258,8 +269,10 @@ class FormWidgetType implements WidgetType
             ],
             'fields' => $fields,
             'mapping' => [
-                'funnel_id' => (int) $config['mapping']['funnel_id'],
-                'stage_id' => (int) $config['mapping']['stage_id'],
+                // Null, not 0 — the lead's funnel_id is nullable and a 0 would
+                // be a foreign key to a funnel that does not exist.
+                'funnel_id' => Arr::get($config, 'mapping.funnel_id') ? (int) $config['mapping']['funnel_id'] : null,
+                'stage_id' => Arr::get($config, 'mapping.stage_id') ? (int) $config['mapping']['stage_id'] : null,
             ],
             'spam' => [
                 'honeypot' => (bool) Arr::get($config, 'spam.honeypot', true),

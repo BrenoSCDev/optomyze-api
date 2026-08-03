@@ -17,6 +17,23 @@ class InboxMessage extends Model
     public const SOURCE_AUTOMATION = 'automation'; // CRM system (welcome/closing/...)
     public const SOURCE_EXTERNAL = 'external';     // sent from the connected account outside the CRM
 
+    /**
+     * Delivery states, shared by both directions.
+     *
+     * Outbound: how far the message got towards the contact (WhatsApp and
+     * Instagram report these back). Inbound: 'read' means a CRM user opened
+     * the conversation. One column, one meaning — "the other side has seen
+     * this" — rather than a separate flag per direction.
+     */
+    public const STATUS_PENDING = 'pending';
+    public const STATUS_SENT = 'sent';
+    public const STATUS_DELIVERED = 'delivered';
+    public const STATUS_READ = 'read';
+    public const STATUS_FAILED = 'failed';
+
+    public const DIRECTION_INCOMING = 'incoming';
+    public const DIRECTION_OUTGOING = 'outgoing';
+
     protected $fillable = [
         'inbox_chat_id',
         'chat_session_id',

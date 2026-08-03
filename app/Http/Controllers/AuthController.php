@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Models\Funnel;
+use App\Models\Identity;
+use App\Support\CompanySelectionToken;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
@@ -19,7 +21,17 @@ use Illuminate\Support\Facades\Validator;
 class AuthController extends Controller
 {
     /**
-     * Login user and issue Sanctum token
+     * Step one of signing in: check the person's credentials.
+     *
+     * Credentials belong to an identity, not to any one company account. What
+     * comes back depends on how many companies this person can act in:
+     *
+     *   one   → a session, in exactly the shape this endpoint has always
+     *           returned, so single-company users and any existing client see
+     *           no change at all
+     *   many  → the list to choose from plus a short-lived selection token,
+     *           redeemed at /auth/select-company
+     *   none  → 403
      */
     public function login(Request $request)
     {
@@ -28,33 +40,150 @@ class AuthController extends Controller
             'password' => ['required'],
         ]);
 
-        if (!Auth::attempt($credentials)) {
+        $identity = Identity::where('email', $credentials['email'])->first();
+
+        // Same message either way: whether an address is registered is not
+        // something an unauthenticated caller should be able to probe.
+        if (!$identity || !Hash::check($credentials['password'], $identity->password)) {
             throw ValidationException::withMessages([
                 'email' => ['The provided credentials are incorrect.'],
             ]);
         }
 
-        $user = Auth::user();
-
-        if (!$user->is_active) {
+        if (!$identity->is_active) {
             return response()->json(['message' => 'User account is inactive'], 403);
         }
 
-        $user->updateLastLogin();
+        $accounts = $identity->selectableAccounts()->get();
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+        if ($accounts->isEmpty()) {
+            return response()->json([
+                'message' => 'This account is not active at any company.',
+            ], 403);
+        }
 
-        $user->setAttribute('company_name', $user->company ? $user->company->name : null);
+        if ($accounts->count() === 1) {
+            return response()->json($this->sessionPayload($accounts->first(), $identity));
+        }
 
-        // Fetch funnels related to the user's company
+        return response()->json([
+            'requires_company_selection' => true,
+            'selection_token'            => CompanySelectionToken::issue($identity),
+            'expires_in'                 => CompanySelectionToken::ttlSeconds(),
+            'companies'                  => $this->companyOptions($accounts),
+        ]);
+    }
+
+    /**
+     * Step two: exchange the selection token for a session in one company.
+     *
+     * Membership is re-checked here rather than trusted from the client — the
+     * list handed out in step one is a convenience, not an authorisation.
+     */
+    public function selectCompany(Request $request)
+    {
+        $validated = $request->validate([
+            'selection_token' => ['required', 'string'],
+            'company_id'      => ['required', 'integer'],
+        ]);
+
+        $identity = CompanySelectionToken::resolve($validated['selection_token']);
+
+        if (!$identity) {
+            return response()->json([
+                'message' => 'Company selection has expired. Please sign in again.',
+            ], 401);
+        }
+
+        $account = $identity->accountForCompany($validated['company_id']);
+
+        if (!$account) {
+            return response()->json(['message' => 'You do not have access to that company.'], 403);
+        }
+
+        return response()->json($this->sessionPayload($account, $identity));
+    }
+
+    /**
+     * Move an authenticated session to another of the person's companies.
+     *
+     * The current token is destroyed and a new one minted against the target
+     * account, so the session cannot straddle two tenants even briefly. The
+     * client must discard every cached response it holds — see resetSession()
+     * on the frontend.
+     */
+    public function switchCompany(Request $request)
+    {
+        $validated = $request->validate([
+            'company_id' => ['required', 'integer'],
+        ]);
+
+        $current  = $request->user();
+        $identity = $current->identity;
+
+        if (!$identity || !$identity->is_active) {
+            return response()->json(['message' => 'User account is inactive'], 403);
+        }
+
+        $account = $identity->accountForCompany($validated['company_id']);
+
+        if (!$account) {
+            return response()->json(['message' => 'You do not have access to that company.'], 403);
+        }
+
+        if ((int) $account->id === (int) $current->id) {
+            return response()->json($this->sessionPayload($account, $identity));
+        }
+
+        // Revoke only the token being replaced. Other sessions this person has
+        // open — including in other companies — are independent and survive.
+        $current->currentAccessToken()?->delete();
+
+        return response()->json($this->sessionPayload($account, $identity));
+    }
+
+    /**
+     * The companies the signed-in person may switch to. Drives the switcher.
+     */
+    public function companies(Request $request)
+    {
+        $identity = $request->user()->identity;
+
+        if (!$identity) {
+            return response()->json(['data' => []]);
+        }
+
+        return response()->json([
+            'data'               => $this->companyOptions($identity->selectableAccounts()->get()),
+            'active_company_id'  => $request->user()->company_id,
+        ]);
+    }
+
+    /**
+     * Builds the login response for one company account.
+     *
+     * The token is minted against the account, and an account row carries
+     * exactly one company_id — so the active tenant is a property of the
+     * credential itself, not of a header or session value a later request
+     * could omit, forge or forget to send.
+     */
+    private function sessionPayload(User $account, Identity $identity): array
+    {
+        $account->updateLastLogin();
+        $identity->updateLastLogin();
+
+        $token = $account->createToken('auth_token')->plainTextToken;
+
+        $account->setAttribute('company_name', $account->company?->name);
+
         // Same rule as FunnelController@navigationFunnels: contact funnels are
         // only navigable when the company runs contact pipelines.
         $navTypes = ['deal'];
-        if ($user->company?->contact_pipeline_enabled) {
+        if ($account->company?->contact_pipeline_enabled) {
             $navTypes[] = 'contact';
         }
 
-        $funnels = Funnel::where('company_id', $user->company_id)
+        $funnels = Funnel::where('company_id', $account->company_id)
             ->where(['is_active' => true])
             ->whereIn('type', $navTypes)
             ->get()
@@ -63,18 +192,34 @@ class AuthController extends Controller
                 return $funnel;
             });
 
-        return response()->json([
+        return [
             'access_token' => $token,
             'token_type'   => 'Bearer',
-            'user'         => $user,
+            'user'         => $account,
             'funnels'      => $funnels,
             'permissions'  => [],
-        ]);
+            // Lets the client render the switcher without a second round trip.
+            'companies'    => $this->companyOptions($identity->selectableAccounts()->get()),
+        ];
     }
 
+    /** Shape of a company in the picker and the switcher. */
+    private function companyOptions($accounts): array
+    {
+        return $accounts->map(fn (User $account) => [
+            'company_id' => $account->company_id,
+            'name'       => $account->company?->name,
+            'logo_path'  => $account->company?->logo_path,
+            'role'       => $account->role,
+        ])->values()->all();
+    }
 
     /**
-     * Logout (revoke tokens)
+     * Logout (revoke tokens for this company account)
+     *
+     * Scoped to the account rather than the person: signing out of one company
+     * leaves a session open in another company untouched, which is what
+     * "independent account per company" means.
      */
     public function logout(Request $request)
     {
@@ -179,15 +324,18 @@ class AuthController extends Controller
             // requires new_password_confirmation field in request
         ]);
 
-        if (!Hash::check($request->old_password, $user->password)) {
+        // The identity holds the credential that login actually checks; the
+        // user row's copy is kept in step only so a rollback of the
+        // application code still authenticates. See the migration notes.
+        $identity = $user->identity;
+
+        if (!$identity || !Hash::check($request->old_password, $identity->password)) {
             throw ValidationException::withMessages([
                 'old_password' => ['The provided password does not match our records.'],
             ]);
         }
 
-        $user->update([
-            'password' => Hash::make($request->new_password),
-        ]);
+        $this->setPassword($identity, $request->new_password);
 
         return response()->json([
             'message' => 'Password updated successfully.'
@@ -198,7 +346,7 @@ class AuthController extends Controller
     {
         // 1. Validate the request
         $validator = Validator::make($request->all(), [
-            'email' => 'required|email|exists:users,email',
+            'email' => 'required|email|exists:identities,email',
         ]);
 
         if ($validator->fails()) {
@@ -209,7 +357,12 @@ class AuthController extends Controller
         }
 
         $email = $request->email;
-        $user = User::where('email', $request->email)->get();
+
+        // The reset is identity-wide — one credential covers every company the
+        // person belongs to. Only the identity is handed to the mail webhook;
+        // sending the company accounts would tell it where else they work.
+        $identity = Identity::where('email', $email)->first();
+        $user = $identity ? collect([$identity->only(['id', 'name', 'email'])]) : collect();
 
         // 2. Generate a secure random token
         $token = Str::random(64);
@@ -281,7 +434,7 @@ class AuthController extends Controller
     {
         // 1. Validate the request
         $validator = Validator::make($request->all(), [
-            'email' => 'required|email|exists:users,email',
+            'email' => 'required|email|exists:identities,email',
             'token' => 'required|string',
             'password' => 'required|string|min:8|confirmed',
         ]);
@@ -321,19 +474,39 @@ class AuthController extends Controller
             ], 401);
         }
 
-        // 5. Update the user's password
-        $user = User::where('email', $request->email)->first();
-        $user->password = $request->password;
-        $user->save();
+        // 5. Update the person's password — one credential covers every
+        //    company they belong to, so a reset is identity-wide.
+        $identity = Identity::where('email', $request->email)->first();
+
+        if (!$identity) {
+            return response()->json(['message' => 'Invalid or expired reset token.'], 404);
+        }
+
+        $this->setPassword($identity, $request->password);
 
         // 6. Delete the used token
         DB::table('password_reset_tokens')->where('email', $request->email)->delete();
 
-        // 7. Optional: Revoke all user tokens if using Sanctum/Passport
-        // $user->tokens()->delete();
-
         return response()->json([
             'message' => 'Password has been reset successfully.',
         ], 200);
+    }
+
+    /**
+     * Writes a new password to the identity and mirrors it onto that person's
+     * company accounts.
+     *
+     * The mirror is transitional. `users.password` is no longer read when
+     * signing in, but keeping it current means the previous release still
+     * authenticates if this one has to be rolled back. Both columns cast
+     * `password` as `hashed`, so the plaintext is hashed once per model.
+     */
+    private function setPassword(Identity $identity, string $plaintext): void
+    {
+        $identity->password = $plaintext;
+        $identity->save();
+
+        User::where('identity_id', $identity->id)
+            ->update(['password' => $identity->getAttributes()['password']]);
     }
 }

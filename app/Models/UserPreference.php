@@ -48,7 +48,7 @@ class UserPreference extends Model
     public const DEFAULTS = [
         'theme'                 => 'dark',
         'language'              => 'en',
-        'optus_enabled'         => false,
+        'optus_enabled'         => true,
         'notification_sound'    => 'default',
         'default_search_target' => 'leads',
     ];

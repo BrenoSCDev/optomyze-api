@@ -613,3 +613,111 @@ test('the summary counts open, overdue and due-today work for the current user',
         ->and($res->json('data.due_today'))->toBe(1)
         ->and($res->json('data.unscheduled'))->toBe(1);
 });
+
+/*
+|--------------------------------------------------------------------------
+| Deal linkage
+|--------------------------------------------------------------------------
+*/
+
+/** A deal in the given workspace. sales.funnel_id / stage_id are NOT NULL. */
+function workspaceDeal(array $w): App\Models\Sale
+{
+    $lead = Lead::create([
+        'company_id'      => $w['company']->id,
+        'first_name'      => 'Nina',
+        'source_platform' => 'website',
+        'source_type'     => 'manual',
+    ]);
+
+    $funnel = App\Models\Funnel::create([
+        'company_id' => $w['company']->id, 'name' => 'Sales', 'type' => 'deal',
+        'is_active' => true, 'created_by' => $w['user']->id,
+    ]);
+    $stage = App\Models\Stage::create([
+        'funnel_id' => $funnel->id, 'name' => 'Discovery',
+        'type' => 'entry', 'order' => 1, 'is_active' => true,
+    ]);
+
+    return App\Models\Sale::create([
+        'company_id'     => $w['company']->id,
+        'funnel_id'      => $funnel->id,
+        'stage_id'       => $stage->id,
+        'lead_id'        => $lead->id,
+        'user_id'        => $w['user']->id,
+        'name'           => 'Annual licence',
+        'status'         => 'pending',
+        'pricing_model'  => 'product',
+        'subtotal'       => 1000,
+        'discount_total' => 0,
+        'total'          => 1000,
+        'currency'       => 'BRL',
+    ]);
+}
+
+test('a task can be raised against a deal', function () {
+    $w = makeWorkspace();
+    $deal = workspaceDeal($w);
+
+    $res = $this->actingAs($w['user'])->postJson('/api/tasks', [
+        'title'        => 'Send the signed contract',
+        'task_list_id' => $w['list']->id,
+        'sale_id'      => $deal->id,
+    ]);
+
+    $res->assertCreated();
+    expect(Task::firstOrFail()->sale_id)->toBe($deal->id);
+});
+
+test('the feed returns only the tasks of the deal asked for', function () {
+    $w = makeWorkspace();
+    $deal = workspaceDeal($w);
+    $other = workspaceDeal($w);
+    $todo = $w['list']->statuses()->where('type', 'not_started')->first();
+
+    foreach ([[$deal, 'Mine'], [$other, 'Theirs'], [null, 'Unlinked']] as [$sale, $title]) {
+        Task::create([
+            'company_id' => $w['company']->id, 'task_list_id' => $w['list']->id,
+            'task_status_id' => $todo->id, 'title' => $title,
+            'sale_id' => $sale?->id,
+        ]);
+    }
+
+    $res = $this->actingAs($w['user'])->getJson("/api/tasks/feed?sale_id={$deal->id}");
+
+    $res->assertOk();
+    expect($res->json('data'))->toHaveCount(1)
+        ->and($res->json('data.0.title'))->toBe('Mine');
+});
+
+test('a task cannot be linked to another company\'s deal', function () {
+    $mine  = makeWorkspace('mine');
+    $yours = makeWorkspace('yours');
+    $deal  = workspaceDeal($yours);
+
+    $this->actingAs($mine['user'])->postJson('/api/tasks', [
+        'title'        => 'Peek',
+        'task_list_id' => $mine['list']->id,
+        'sale_id'      => $deal->id,
+    ])->assertStatus(404);
+
+    expect(Task::count())->toBe(0);
+});
+
+test('an existing task cannot be moved onto another company\'s deal', function () {
+    $mine  = makeWorkspace('mine');
+    $yours = makeWorkspace('yours');
+    $deal  = workspaceDeal($yours);
+    $todo  = $mine['list']->statuses()->where('type', 'not_started')->first();
+
+    $task = Task::create([
+        'company_id' => $mine['company']->id, 'task_list_id' => $mine['list']->id,
+        'task_status_id' => $todo->id, 'title' => 'Mine',
+    ]);
+
+    $this->actingAs($mine['user'])->putJson("/api/tasks/{$task->id}", [
+        'sale_id' => $deal->id,
+    ])->assertStatus(404);
+
+    expect($task->fresh()->sale_id)->toBeNull();
+});
