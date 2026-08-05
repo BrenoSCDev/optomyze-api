@@ -32,6 +32,7 @@ class FunnelManagerQueueController extends Controller
         $data = $request->validate([
             'name'          => 'required|string|max:255',
             'is_active'     => 'boolean',
+            'is_global'     => 'boolean',
             'users'         => 'nullable|array',
             'users.*.id'    => 'required|exists:users,id',
             'users.*.order' => 'required|integer|min:0',
@@ -53,9 +54,15 @@ class FunnelManagerQueueController extends Controller
             $this->assignFunnels($queue, $data['funnel_ids'], $user->company_id);
         }
 
+        // Goes through makeGlobal() rather than a plain column write, so the
+        // queue that previously held it is demoted in the same transaction.
+        if (!empty($data['is_global'])) {
+            $queue->makeGlobal();
+        }
+
         return response()->json([
             'message' => 'Queue created successfully',
-            'data'    => $queue->load(['users:id,name,email', 'funnels:id,funnel_manager_queue_id,name,type,is_active']),
+            'data'    => $queue->fresh()->load(['users:id,name,email', 'funnels:id,funnel_manager_queue_id,name,type,is_active']),
         ], 201);
     }
 
@@ -86,6 +93,7 @@ class FunnelManagerQueueController extends Controller
         $data = $request->validate([
             'name'          => 'sometimes|string|max:255',
             'is_active'     => 'boolean',
+            'is_global'     => 'boolean',
             'users'         => 'nullable|array',
             'users.*.id'    => 'required|exists:users,id',
             'users.*.order' => 'required|integer|min:0',
@@ -104,6 +112,20 @@ class FunnelManagerQueueController extends Controller
 
         if (array_key_exists('funnel_ids', $data)) {
             $this->assignFunnels($funnelManagerQueue, $data['funnel_ids'] ?? [], $user->company_id);
+        }
+
+        /*
+         * Turning it on promotes this queue and demotes the previous holder.
+         * Turning it off just clears the flag, which deliberately leaves the
+         * company with no global queue at all — unowned leads then stay
+         * unowned, the behaviour every company had before this existed.
+         */
+        if (array_key_exists('is_global', $data)) {
+            if ($data['is_global']) {
+                $funnelManagerQueue->makeGlobal();
+            } elseif ($funnelManagerQueue->is_global) {
+                $funnelManagerQueue->update(['is_global' => false]);
+            }
         }
 
         return response()->json([
