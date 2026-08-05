@@ -399,6 +399,38 @@ class InboxController extends Controller
                     $messageValues['longitude']  = null;
                 }
 
+            } elseif ($messageType === 'productMessage') {
+
+                /*
+                 * A catalog item shared from WhatsApp Business.
+                 *
+                 * It used to fall through to the text fallback, which read
+                 * `conversation` — a key a product message does not have — and
+                 * stored an empty bubble: the customer saw they had sent a
+                 * product, the CRM showed nothing at all.
+                 *
+                 * The title becomes the message text so the conversation list
+                 * preview, search and notifications all have something to say;
+                 * everything else the card needs goes to metadata.
+                 */
+                $product = $messageData['productMessage']['product'] ?? null;
+
+                if ($product) {
+                    $productImage = $product['productImage'] ?? null;
+
+                    $messageValues['type']       = 'product';
+                    $messageValues['text']       = $product['title'] ?? null;
+                    $messageValues['media_url']  = null;
+                    $messageValues['media_mime'] = $productImage['mimetype'] ?? 'image/jpeg';
+                    $messageValues['media_size'] = self::resolveLongValue($productImage['fileLength'] ?? null);
+                    $messageValues['metadata']   = self::buildProductMetadata($messageData['productMessage']);
+                    $messageValues['latitude']   = null;
+                    $messageValues['longitude']  = null;
+
+                    // Only worth asking Evolution when there is an image to get.
+                    $mediaDownloadType = $productImage ? 'product' : null;
+                }
+
             } elseif ($messageType === 'conversation') {
 
                 // Handle text message
@@ -462,8 +494,35 @@ class InboxController extends Controller
                         $companyId,
                         $originalFileName
                     );
+                    // A product image Evolution would not decrypt falls back to
+                    // the thumbnail WhatsApp already sent inline, so the card
+                    // still has a picture rather than an empty frame.
+                    $usedThumbnail = false;
+
+                    if (!$mediaPath && $mediaDownloadType === 'product') {
+                        $mediaPath = $this->storeProductThumbnail(
+                            $messageData['productMessage']['product']['productImage']['jpegThumbnail'] ?? null,
+                            $companyId
+                        );
+                        $usedThumbnail = (bool) $mediaPath;
+                    }
+
                     if ($mediaPath) {
-                        $message->update(['media_url' => $mediaPath]);
+                        $updates = ['media_url' => $mediaPath];
+
+                        /*
+                         * media_size came from the payload's fileLength, which
+                         * describes the full catalog photo. On the thumbnail
+                         * path that is not the file we stored, and a size that
+                         * disagrees with the bytes on disk is the kind of thing
+                         * a storage report or a download header later gets
+                         * wrong. Record what is actually there.
+                         */
+                        if ($usedThumbnail) {
+                            $updates['media_size'] = Storage::disk('local')->size($mediaPath);
+                        }
+
+                        $message->update($updates);
                         $message->media_url = $mediaPath;
                     }
                 }
@@ -1821,6 +1880,7 @@ class InboxController extends Controller
                 'document' => 'whatsapp/documents/' . $companyId,
                 'sticker'  => 'whatsapp/stickers/' . $companyId,
                 'video'    => 'whatsapp/videos/' . $companyId,
+                'product'  => 'whatsapp/products/' . $companyId,
                 default    => 'whatsapp/files/' . $companyId,
             };
             $storedName = 'whatsapp_' . time() . '_' . uniqid() . '.' . $extension;
@@ -1843,6 +1903,88 @@ class InboxController extends Controller
                 'error'      => $e->getMessage(),
                 'message_id' => $messageKey['id'] ?? 'unknown',
             ]);
+            return null;
+        }
+    }
+
+    /**
+     * Everything the product card needs, from the raw productMessage node.
+     *
+     * Prices arrive as `priceAmount1000` — the amount times a thousand, so
+     * integer arithmetic can carry three decimals — and are stored back in
+     * ordinary currency units. Catalog items are not required to have one, and
+     * the sample that prompted this had only a currency, so every field here
+     * is optional and absent rather than zero when WhatsApp omits it.
+     */
+    private static function buildProductMetadata(array $productMessage): array
+    {
+        $product = $productMessage['product'] ?? [];
+
+        $price = isset($product['priceAmount1000'])
+            ? (int) $product['priceAmount1000'] / 1000
+            : null;
+
+        $salePrice = isset($product['salePriceAmount1000'])
+            ? (int) $product['salePriceAmount1000'] / 1000
+            : null;
+
+        return array_filter([
+            'product_id'         => $product['productId'] ?? null,
+            'title'              => $product['title'] ?? null,
+            'description'        => $product['description'] ?: null,
+            'currency'           => $product['currencyCode'] ?? null,
+            'price'              => $price,
+            'sale_price'         => $salePrice,
+            'image_count'        => $product['productImageCount'] ?? null,
+            'retailer_id'        => $product['retailerId'] ?? null,
+            'url'                => $product['url'] ?? null,
+            'business_owner_jid' => $productMessage['businessOwnerJid'] ?? null,
+        ], fn ($value) => $value !== null);
+    }
+
+    /**
+     * Store the thumbnail WhatsApp already put in the payload.
+     *
+     * The fallback for a product image Evolution could not hand over. Catalog
+     * media is encrypted like any other attachment, but it belongs to the
+     * business's catalog rather than the conversation, and Evolution does not
+     * always resolve it — leaving a product card with no picture, which is
+     * most of what a product card is.
+     *
+     * `jpegThumbnail` is a complete JPEG delivered inline as a byte map, so
+     * this costs no network call and cannot fail the way a fetch can. Low
+     * resolution by nature; it is a fallback, not a preference.
+     */
+    private function storeProductThumbnail(?array $thumbnailBytes, int $companyId): ?string
+    {
+        if (empty($thumbnailBytes)) {
+            return null;
+        }
+
+        try {
+            // Keys arrive as "0", "1", "2"… — ordered by JSON convention, but
+            // sorted numerically here rather than trusting the order they were
+            // decoded in, since one swapped byte is a corrupt image.
+            $bytes = $thumbnailBytes;
+            ksort($bytes, SORT_NUMERIC);
+
+            $binary = pack('C*', ...array_map('intval', array_values($bytes)));
+
+            $folder     = 'whatsapp/products/' . $companyId;
+            $storedName = 'whatsapp_product_' . time() . '_' . uniqid() . '.jpg';
+
+            Storage::disk('local')->put($folder . '/' . $storedName, $binary);
+
+            CompanyStorage::record(
+                $companyId,
+                $folder . '/' . $storedName,
+                CompanyFile::CATEGORY_WHATSAPP_MEDIA,
+                mime: 'image/jpeg',
+            );
+
+            return $folder . '/' . $storedName;
+        } catch (\Throwable $e) {
+            Log::warning('storeProductThumbnail failed', ['error' => $e->getMessage()]);
             return null;
         }
     }
@@ -1881,6 +2023,9 @@ class InboxController extends Controller
         } elseif (isset($quotedMessage['contactMessage'])) {
             $type = 'contact';
             $text = $quotedMessage['contactMessage']['displayName'] ?? null;
+        } elseif (isset($quotedMessage['productMessage'])) {
+            $type = 'product';
+            $text = $quotedMessage['productMessage']['product']['title'] ?? null;
         }
 
         return [

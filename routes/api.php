@@ -60,6 +60,7 @@ use App\Http\Controllers\ClosingMessageController;
 use App\Http\Controllers\ClosingReasonController;
 use App\Http\Controllers\ConversationMetricsController;
 use App\Http\Controllers\ConversationSettingController;
+use App\Http\Controllers\InboxBulkActionController;
 use App\Http\Controllers\InboxController;
 use App\Http\Controllers\WelcomeMessageConfigController;
 use App\Http\Controllers\WhatsAppEvoIntegrationController;
@@ -554,6 +555,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/chats/{chat}/archived', [InboxController::class, 'setChatArchived']);
         Route::patch('/chats/{chat}/favorite', [InboxController::class, 'setChatFavorite']);
         Route::delete('/chats/{chat}/messages', [InboxController::class, 'clearMessages']);
+
+        /*
+        | The same four actions over a selection. POST throughout, including
+        | the destructive ones: the ids travel in the body, and a DELETE with a
+        | body is the kind of thing proxies drop.
+        */
+        Route::post('/chats/bulk/archived', [InboxBulkActionController::class, 'archive']);
+        Route::post('/chats/bulk/favorite', [InboxBulkActionController::class, 'favorite']);
+        Route::post('/chats/bulk/clear-messages', [InboxBulkActionController::class, 'clearMessages']);
+        Route::post('/chats/bulk/end', [InboxBulkActionController::class, 'endConversations']);
         Route::post('/chats/{chat}/website-messages', [InboxController::class, 'sendWebsiteChatMessage']);
         Route::post('/instances/{instanceId}/messages', [InboxController::class, 'sendTextMessage']);
         Route::post('/instances/{instanceId}/media', [InboxController::class, 'sendMediaMessage']);
