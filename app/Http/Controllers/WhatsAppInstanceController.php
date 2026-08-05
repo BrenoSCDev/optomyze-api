@@ -24,16 +24,32 @@ class WhatsAppInstanceController extends Controller
         return response()->json($instances);
     }
 
+    /**
+     * Provision a WhatsApp account.
+     *
+     * Takes no input at all. The user asked for an account, and everything the
+     * old form made them supply — a name, a server URL, an API key — is either
+     * generated here or already on the integration, so connecting WhatsApp is
+     * one click followed by a QR code.
+     */
     public function createInstance(Request $request)
     {
         $user = Auth::user();
         $companyId = $user->company_id;
 
-        $integration = WhatsAppEvoIntegration::where('company_id', $companyId)
-            ->first();
+        if (!WhatsAppEvoIntegration::platformServerConfigured()) {
+            Log::error('WhatsApp account requested but no Evolution server is configured for the platform', [
+                'company_id' => $companyId,
+            ]);
 
-        // Generate instance name
-        $instanceName = $request->name . '_' . Str::random(8);
+            return response()->json([
+                'message' => 'WhatsApp is not available right now. Please contact support.',
+            ], 503);
+        }
+
+        $integration = WhatsAppEvoIntegration::forCompany($companyId);
+
+        $instanceName = WhatsAppInstance::generateIdentifier();
 
         try {
             // Create instance in Evolution API FIRST
@@ -53,9 +69,16 @@ class WhatsAppInstanceController extends Controller
 
             // If Evolution failed, do NOT create locally
             if (!$response->successful()) {
+                Log::error('Failed to create WhatsApp account in Evolution API', [
+                    'company_id'    => $companyId,
+                    'instance_name' => $instanceName,
+                    'status'        => $response->status(),
+                ]);
+
+                // The response body can carry Evolution's own URL and key back
+                // to a customer who is not supposed to know we run one.
                 return response()->json([
-                    'message' => 'Failed to create instance in Evolution API',
-                    'error'   => $response->json() ?? $response->body(),
+                    'message' => 'Failed to create WhatsApp account',
                 ], 422);
             }
 
@@ -70,9 +93,13 @@ class WhatsAppInstanceController extends Controller
             return response()->json($instance, 201);
 
         } catch (\Throwable $e) {
+            Log::error('Failed to create WhatsApp account', [
+                'company_id' => $companyId,
+                'error'      => $e->getMessage(),
+            ]);
+
             return response()->json([
-                'message' => 'Failed to create WhatsApp instance',
-                'error' => $e->getMessage(),
+                'message' => 'Failed to create WhatsApp account',
             ], 500);
         }
     }
@@ -102,9 +129,10 @@ class WhatsAppInstanceController extends Controller
 
             // If Evolution failed, do NOT delete locally
             if (!$response->successful()) {
+                $this->logEvolutionFailure('delete account', $instance, $response->status());
+
                 return response()->json([
-                    'message' => 'Failed to delete instance in Evolution API',
-                    'error'   => $response->json() ?? $response->body(),
+                    'message' => 'Failed to delete WhatsApp account',
                 ], 422);
             }
 
@@ -112,13 +140,14 @@ class WhatsAppInstanceController extends Controller
             $instance->delete();
 
             return response()->json([
-                'message' => 'WhatsApp instance deleted successfully',
+                'message' => 'WhatsApp account deleted successfully',
             ], 200);
 
         } catch (\Throwable $e) {
+            $this->logEvolutionFailure('delete account', $instance, null, $e);
+
             return response()->json([
-                'message' => 'Failed to delete WhatsApp instance',
-                'error'   => $e->getMessage(),
+                'message' => 'Failed to delete WhatsApp account',
             ], 500);
         }
     }
@@ -158,9 +187,10 @@ class WhatsAppInstanceController extends Controller
 
             // If Evolution failed
             if (!$response->successful()) {
+                $this->logEvolutionFailure('send test message', $instance, $response->status());
+
                 return response()->json([
-                    'message' => 'Failed to send message via Evolution API',
-                    'error'   => $response->json() ?? $response->body(),
+                    'message' => 'Failed to send WhatsApp message',
                 ], 422);
             }
 
@@ -174,11 +204,32 @@ class WhatsAppInstanceController extends Controller
             ], 200);
 
         } catch (\Throwable $e) {
+            $this->logEvolutionFailure('send test message', $instance, null, $e);
+
             return response()->json([
                 'message' => 'Failed to send WhatsApp message',
-                'error'   => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Evolution's own errors quote the URL and API key of the server we run, so
+     * they are logged for us and never handed back to the customer — who, by
+     * design, does not know an Evolution server is involved at all.
+     */
+    private function logEvolutionFailure(
+        string $action,
+        WhatsAppInstance $instance,
+        ?int $status = null,
+        ?\Throwable $exception = null
+    ): void {
+        Log::error("WhatsApp: failed to {$action} via Evolution API", array_filter([
+            'company_id'    => $instance->company_id,
+            'instance_id'   => $instance->id,
+            'instance_name' => $instance->instance_name,
+            'status'        => $status,
+            'error'         => $exception?->getMessage(),
+        ], fn ($value) => $value !== null));
     }
 
     /**
@@ -208,7 +259,6 @@ class WhatsAppInstanceController extends Controller
 
             return response()->json([
                 'message' => 'Failed to check WhatsApp connection status',
-                'error'   => $e->getMessage(),
             ], 500);
         }
     }
@@ -393,9 +443,10 @@ class WhatsAppInstanceController extends Controller
 
             // If Evolution failed
             if (!$response->successful()) {
+                $this->logEvolutionFailure('generate QR code', $instance, $response->status());
+
                 return response()->json([
-                    'message' => 'Failed to generate QR Code from Evolution API',
-                    'error'   => $response->json() ?? $response->body(),
+                    'message' => 'Failed to generate WhatsApp QR Code',
                 ], 422);
             }
 
@@ -403,9 +454,10 @@ class WhatsAppInstanceController extends Controller
             return response()->json($response->json(), 200);
 
         } catch (\Throwable $e) {
+            $this->logEvolutionFailure('generate QR code', $instance, null, $e);
+
             return response()->json([
                 'message' => 'Failed to generate WhatsApp QR Code',
-                'error'   => $e->getMessage(),
             ], 500);
         }
     }
@@ -467,9 +519,10 @@ class WhatsAppInstanceController extends Controller
             );
 
             if (!$response->successful()) {
+                $this->logEvolutionFailure('disconnect account', $instance, $response->status());
+
                 return response()->json([
-                    'message' => 'Failed to disconnect instance in Evolution API',
-                    'error'   => $response->json() ?? $response->body(),
+                    'message' => 'Failed to disconnect WhatsApp account',
                 ], 422);
             }
 
@@ -494,15 +547,16 @@ class WhatsAppInstanceController extends Controller
             }
 
             return response()->json([
-                'message' => 'WhatsApp instance disconnected successfully',
+                'message' => 'WhatsApp account disconnected successfully',
                 'status'  => 'disconnected',
                 'reassignment' => $reassignment,
             ], 200);
 
         } catch (\Throwable $e) {
+            $this->logEvolutionFailure('disconnect account', $instance, null, $e);
+
             return response()->json([
-                'message' => 'Failed to disconnect WhatsApp instance',
-                'error'   => $e->getMessage(),
+                'message' => 'Failed to disconnect WhatsApp account',
             ], 500);
         }
     }

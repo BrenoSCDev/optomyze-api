@@ -95,8 +95,15 @@ class IntegrationController extends Controller
                     ->active()
                     ->first();
 
+                /*
+                 * "Configured" no longer means the customer filled in a form —
+                 * they never see one. It means the integration has a working
+                 * Evolution server behind it, which for everyone is the one we
+                 * host. The server's URL is deliberately not sent back: it is
+                 * our infrastructure, not something a tenant needs or should
+                 * be able to read out of an API response.
+                 */
                 $data['wpp_evo_configured'] = !empty($integration->base_url) && !empty($integration->api_key);
-                $data['wpp_evo_base_url'] = $integration->base_url;
 
                 $data['wpp_evo_instances'] = WhatsAppInstance::where(
                     'company_id',

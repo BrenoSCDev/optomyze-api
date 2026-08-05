@@ -43,4 +43,22 @@ return [
         'optus_model' => env('OPTUS_MODEL', 'gpt-4o-mini'),
     ],
 
+    /*
+     * Our own Evolution API server, shared by every tenant.
+     *
+     * Customers used to bring their own Evolution deployment and paste its URL
+     * and key into the CRM, which meant nobody could connect WhatsApp without
+     * first standing up infrastructure. We host it now, so these values are the
+     * defaults every new WhatsApp integration is created with.
+     *
+     * They are defaults, not a hard-coded destination: WhatsAppEvoIntegration
+     * still stores a base_url and api_key per company, so a tenant can be moved
+     * onto a dedicated or self-hosted server later by writing those columns,
+     * with no change to the code that talks to Evolution.
+     */
+    'evolution' => [
+        'url' => env('EVOLUTION_API_URL'),
+        'key' => env('EVOLUTION_API_KEY'),
+    ],
+
 ];

@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\WhatsAppEvoIntegration;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Str;
 
 class WhatsAppEvoIntegrationController extends Controller
 {
@@ -19,17 +18,12 @@ class WhatsAppEvoIntegrationController extends Controller
             ], 400);
         }
 
-        // Generate a random, unique name for the integration
-        $randomName = 'wpp_evo_' . Str::random(8);
-
         try {
-            $integration = WhatsAppEvoIntegration::create([
-                'name' => $randomName,
-                'company_id' => $user->company_id,
-                'api_key' => null,
-                'base_url' => null,
-                'is_active' => true,
-            ]);
+            // Installing WhatsApp no longer means "now go and fetch your
+            // Evolution credentials" — the integration is born pointed at the
+            // server we run, and the customer goes straight to connecting a
+            // number. forCompany() is idempotent, so installing twice is safe.
+            $integration = WhatsAppEvoIntegration::forCompany($user->company_id);
 
             return response()->json([
                 'message' => 'WhatsApp integration created successfully.',
@@ -45,7 +39,13 @@ class WhatsAppEvoIntegrationController extends Controller
     }
 
     /**
-     * Update base_url and api_key configuration for n8n integration
+     * Point a company at its own Evolution server.
+     *
+     * Nothing in the CRM calls this any more — customers connect through the
+     * server we host and are never shown a credentials form. It stays because
+     * it is the whole custom-server story: writing base_url and api_key here
+     * moves one tenant onto their own deployment, and every Evolution call
+     * already reads those columns off the integration.
      */
     public function configure(Request $request)
     {
