@@ -228,7 +228,25 @@ class FunnelController extends Controller
     }
 
     /**
-     * Remove the specified funnel.
+     * What deleting this funnel would cost, so the confirmation can say it.
+     *
+     * Only the contact count: those are the records that survive the delete in
+     * a changed state, and "12 contacts will be left without a funnel" is the
+     * one fact that decides whether someone clicks the button.
+     */
+    public function deleteImpact($id)
+    {
+        $user = Auth::user();
+
+        $funnel = Funnel::fromCompany($user->company_id)->findOrFail($id);
+
+        return response()->json([
+            'lead_count' => Lead::where('funnel_id', $funnel->id)->count(),
+        ]);
+    }
+
+    /**
+     * Remove the specified funnel, keeping its contacts.
      */
     public function destroy($id)
     {
@@ -236,9 +254,57 @@ class FunnelController extends Controller
 
         $funnel = Funnel::fromCompany($user->company_id)->findOrFail($id);
 
-        $funnel->delete();
+        $unfiled = $this->unfileLeadsAndDelete($funnel);
 
-        return response()->json(['message' => 'Funnel deleted successfully']);
+        return response()->json([
+            'message'          => 'Funnel deleted successfully',
+            'unfiled_leads'    => $unfiled,
+        ]);
+    }
+
+    /**
+     * Channel integrations that merely point at a funnel. A connected WhatsApp
+     * account or social inbox is infrastructure the customer set up; the funnel
+     * on it is a routing preference, and deleting the preference must not take
+     * the connection with it.
+     */
+    private const CHANNEL_TABLES = [
+        'whats_app_instances',
+        'instagram_integrations',
+        'facebook_messenger_integrations',
+    ];
+
+    /**
+     * Detach everything that was merely filed in the funnel, then delete it.
+     *
+     * These columns carry ON DELETE CASCADE, so it is tempting to assume the
+     * database already handles this. It does not, and cannot: Funnel is a
+     * SoftDeletes model, so the delete below is an UPDATE that sets deleted_at.
+     * The row never goes, no foreign key ever fires, and without this the
+     * contacts would keep pointing at a funnel that has been deleted — absent
+     * from every board, yet not unfiled either, since "unfiled" means
+     * funnel_id IS NULL. They fell out of both views.
+     *
+     * stage_id travels with funnel_id for the same reason: a stage only means
+     * something inside its own funnel.
+     *
+     * Wrapped in a transaction so a failed delete cannot leave contacts unfiled
+     * from a funnel that is still there.
+     */
+    private function unfileLeadsAndDelete(Funnel $funnel): int
+    {
+        return DB::transaction(function () use ($funnel) {
+            $unfiled = Lead::where('funnel_id', $funnel->id)
+                ->update(['funnel_id' => null, 'stage_id' => null]);
+
+            foreach (self::CHANNEL_TABLES as $table) {
+                DB::table($table)->where('funnel_id', $funnel->id)->update(['funnel_id' => null]);
+            }
+
+            $funnel->delete();
+
+            return $unfiled;
+        });
     }
 
     /**
@@ -767,8 +833,13 @@ class FunnelController extends Controller
             return response()->json(['message' => 'Funnel not found'], 404);
         }
 
-        $funnel->delete();
+        // Same contract as the CRM's own delete: the pipeline goes, the
+        // contacts in it stay and become unfiled.
+        $unfiled = $this->unfileLeadsAndDelete($funnel);
 
-        return response()->json(['message' => 'Funnel deleted successfully']);
+        return response()->json([
+            'message'       => 'Funnel deleted successfully',
+            'unfiled_leads' => $unfiled,
+        ]);
     }
 }

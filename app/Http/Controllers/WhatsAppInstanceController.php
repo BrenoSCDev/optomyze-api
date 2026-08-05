@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Validation\Rule;
 
 class WhatsAppInstanceController extends Controller
 {
@@ -603,24 +604,42 @@ class WhatsAppInstanceController extends Controller
     }
 
     /**
-     * Attach or update funnel for a WhatsApp instance
+     * Attach a funnel to an account, or detach it.
+     *
+     * A null funnel_id is a real choice, not a missing value: an account with
+     * no funnel still receives messages and still creates contacts, they are
+     * simply left unfiled for someone to place later. That is the same shape
+     * the webhooks already handle, so there is nothing special about it.
+     *
+     * The funnel is resolved against the caller's own company and restricted
+     * to contact funnels. `exists:funnels,id` accepted any funnel on the
+     * platform, including another tenant's, and any deal funnel — whose stages
+     * no contact can ever be placed in.
      */
     public function updateFunnel(Request $request, $instanceId)
     {
+        $companyId = Auth::user()->company_id;
+
         $data = $request->validate([
-            'funnel_id' => ['nullable', 'exists:funnels,id'],
+            'funnel_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('funnels', 'id')
+                    ->where('company_id', $companyId)
+                    ->where('type', 'contact'),
+            ],
         ]);
 
         $instance = WhatsAppInstance::where('id', $instanceId)
-            ->where('company_id', Auth::user()->company_id)
+            ->where('company_id', $companyId)
             ->firstOrFail();
 
         $instance->update([
-            'funnel_id' => $data['funnel_id'],
+            'funnel_id' => $data['funnel_id'] ?? null,
         ]);
 
         return response()->json([
-            'message' => 'Funnel linked to WhatsApp instance successfully.',
+            'message' => 'Funnel linked to WhatsApp account successfully.',
             'data' => $instance->fresh(),
         ]);
     }

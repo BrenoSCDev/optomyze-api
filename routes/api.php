@@ -264,6 +264,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/funnels/{id}/deals', [FunnelController::class, 'dealsByStages']);
     Route::put('/funnels/{id}', [FunnelController::class, 'update']);
     Route::patch('/funnels/{id}/toggle-status', [FunnelController::class, 'toggleStatus']);
+    // Read first, so the confirmation can name what the delete costs.
+    Route::get('/funnels/{id}/delete-impact', [FunnelController::class, 'deleteImpact']);
     Route::delete('/funnels/{id}', [FunnelController::class, 'destroy']);
 
     // Infinite scroll: one page of leads/deals for a single board column.

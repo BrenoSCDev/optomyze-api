@@ -124,13 +124,19 @@ class IntegrationController extends Controller
             }
         }
 
-        
-        $funnels = Funnel::fromCompany($user->company_id)
-            ->select(
-                'id', 'name'
-            )
+        /*
+         * Contact funnels only.
+         *
+         * This list is what a channel integration gets attached to, and an
+         * inbound message creates a *contact*. Deal funnels were offered too,
+         * so it was possible to point WhatsApp at a pipeline whose entry stage
+         * leads could never enter — and 'model' funnels are templates, not
+         * pipelines anything can live in.
+         */
+        $data['funnels'] = Funnel::fromCompany($user->company_id)
+            ->where('type', 'contact')
+            ->select('id', 'name')
             ->get();
-        $data['funnels'] = $funnels;
 
         return response()->json(
             $data, 200
