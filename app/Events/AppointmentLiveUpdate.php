@@ -15,7 +15,7 @@ class AppointmentLiveUpdate implements ShouldBroadcastNow
         if ($action !== 'deleted') {
             $this->appointment->loadMissing([
                 'appointmentType:id,name,color,duration_minutes',
-                'lead:id,first_name,last_name,funnel_id',
+                'lead:id,first_name,last_name,funnel_id,avatar_key',
                 'user:id,name,email',
             ]);
         }

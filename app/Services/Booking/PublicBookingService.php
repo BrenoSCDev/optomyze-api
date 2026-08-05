@@ -244,7 +244,7 @@ class PublicBookingService
      */
     private function announce(CalendarBookingSetting $settings, Lead $lead, Appointment $appointment, bool $leadWasCreated): void
     {
-        $appointment->load(['lead:id,company_id,first_name,last_name,funnel_id,assigned_to', 'appointmentType', 'user:id,name,email']);
+        $appointment->load(['lead:id,company_id,first_name,last_name,funnel_id,assigned_to,avatar_key', 'appointmentType', 'user:id,name,email']);
 
         try {
             if ($leadWasCreated) {

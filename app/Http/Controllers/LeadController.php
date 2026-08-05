@@ -619,7 +619,7 @@ class LeadController extends Controller
         $companyId = $user->company_id;
 
         $tasks = Task::with([
-                'lead:id,first_name,last_name,email,company_id',
+                'lead:id,first_name,last_name,email,company_id,avatar_key',
                 'creator:id,name,email',
                 'assignee:id,name,email'
             ])

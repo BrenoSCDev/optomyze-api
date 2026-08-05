@@ -58,6 +58,29 @@ class Lead extends Model
     const SOURCE_BOOKING = 'booking_page';
 
     /**
+     * Illustrated faces used for contacts with no photo of their own.
+     *
+     * These are keys, not paths: the images live in the frontend and are
+     * imported there, so the two ends only have to agree on this vocabulary.
+     * A key the frontend does not recognise falls back to initials, which
+     * makes adding a face here safe to deploy before the images ship.
+     */
+    public const AVATAR_KEYS = [
+        'happy-blue',
+        'happy-purple',
+        'shy-orange',
+        'shy-pink',
+        'suspicious-green',
+        'suspicious-red',
+    ];
+
+    /** One of the faces, picked at random. */
+    public static function randomAvatarKey(): string
+    {
+        return self::AVATAR_KEYS[array_rand(self::AVATAR_KEYS)];
+    }
+
+    /**
      * The attributes that are mass assignable.
      */
     protected $fillable = [
@@ -73,6 +96,7 @@ class Lead extends Model
         'email',
         'phone',
         'username',
+        'avatar_key',
         'priority',
         'currency',
         'contact_methods',
@@ -119,6 +143,16 @@ class Lead extends Model
 
             if (empty($lead->priority)) {
                 $lead->priority = self::PRIORITY_MEDIUM;
+            }
+
+            /*
+             * Every contact gets a face, whichever path created it — the CRM
+             * form, a webhook, a widget, a booking page, the public API.
+             * Doing it here rather than in each caller is what makes that
+             * true without twelve places having to remember.
+             */
+            if (empty($lead->avatar_key)) {
+                $lead->avatar_key = self::randomAvatarKey();
             }
         });
 

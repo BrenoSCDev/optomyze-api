@@ -21,7 +21,7 @@ class AppointmentScheduledNotification implements ShouldBroadcastNow
     public function __construct(Appointment $appointment, ?User $actor = null)
     {
         $this->appointment = $appointment->loadMissing([
-            'lead:id,first_name,last_name,funnel_id',
+            'lead:id,first_name,last_name,funnel_id,avatar_key',
             'user:id,name,profile_pic',
         ]);
         $this->actor = $actor;

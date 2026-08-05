@@ -41,7 +41,11 @@ class FunnelController extends Controller
 
     /** Relations every deal card on the board renders. */
     private const DEAL_CARD_RELATIONS = [
-        'lead:id,first_name,last_name,email,phone,stage_id,funnel_id,assigned_to',
+        'lead:id,first_name,last_name,email,phone,stage_id,funnel_id,assigned_to,avatar_key',
+        // The deal card shows the person behind the deal, so it needs the same
+        // picture the contact board uses — otherwise a lead with a real photo
+        // would show their illustrated face here and their photo there.
+        'lead.whatsappInboxChat:id,lead_id,profile_pic_url',
         'lead.assignedUser:id,name,profile_pic',
         'lead.stage:id,name,color',
         'lead.funnel:id,name',

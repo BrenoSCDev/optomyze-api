@@ -181,7 +181,7 @@ class LeadAppointmentController extends Controller
             return $appointment;
         });
 
-        $appointment->load(['appointmentType', 'lead:id,company_id,first_name,last_name,funnel_id,assigned_to', 'user:id,name,email', 'products:id,name,sku,base_price,type']);
+        $appointment->load(['appointmentType', 'lead:id,company_id,first_name,last_name,funnel_id,assigned_to,avatar_key', 'user:id,name,email', 'products:id,name,sku,base_price,type']);
 
         $apiToken = $request->get('api_token');
 

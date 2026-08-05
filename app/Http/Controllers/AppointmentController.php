@@ -45,7 +45,7 @@ class AppointmentController extends Controller
             ->with([
                 'appointmentType',
                 'user:id,name,email',
-                'lead:id,first_name,last_name',
+                'lead:id,first_name,last_name,avatar_key',
                 // The contact's picture lives on its chat, so the calendar can
                 // show a face next to the booking. Eager-loaded because the
                 // accessor below refuses to lazy-load one query per row.
@@ -104,7 +104,7 @@ class AppointmentController extends Controller
             $appointment->products()->sync($productIds);
         }
 
-        $appointment->load(['appointmentType', 'user:id,name,email', 'lead:id,company_id,first_name,last_name,funnel_id,assigned_to', 'products:id,name,sku,base_price,type']);
+        $appointment->load(['appointmentType', 'user:id,name,email', 'lead:id,company_id,first_name,last_name,funnel_id,assigned_to,avatar_key', 'products:id,name,sku,base_price,type']);
 
         $lead  = $appointment->lead;
         $actor = Auth::user();
@@ -177,7 +177,7 @@ class AppointmentController extends Controller
         }
 
         $appointment->update(collect($data)->except('product_ids')->toArray());
-        $fresh = $appointment->fresh(['appointmentType', 'lead:id,company_id,first_name,last_name,funnel_id', 'user:id,name,email', 'products:id,name,sku,base_price,type']);
+        $fresh = $appointment->fresh(['appointmentType', 'lead:id,company_id,first_name,last_name,funnel_id,avatar_key', 'user:id,name,email', 'products:id,name,sku,base_price,type']);
 
         if ($fresh->lead) {
             $justCompleted = ($data['status'] ?? null) === 'completed' && !$wasCompleted;
@@ -223,7 +223,7 @@ class AppointmentController extends Controller
         if (!$company) return response()->json(['message' => 'Unauthorized'], 401);
 
         $query = Appointment::where('company_id', $company->id)
-            ->with(['appointmentType', 'user:id,name,email', 'lead:id,first_name,last_name', 'products:id,name,sku,base_price,type']);
+            ->with(['appointmentType', 'user:id,name,email', 'lead:id,first_name,last_name,avatar_key', 'products:id,name,sku,base_price,type']);
 
         if ($request->has('lead_id'))    $query->where('lead_id', $request->lead_id);
         if ($request->has('status'))     $query->where('status', $request->status);
@@ -240,7 +240,7 @@ class AppointmentController extends Controller
         if (!$company) return response()->json(['message' => 'Unauthorized'], 401);
 
         $appointment = Appointment::where('company_id', $company->id)
-            ->with(['appointmentType', 'user:id,name,email', 'lead:id,first_name,last_name', 'products:id,name,sku,base_price,type'])
+            ->with(['appointmentType', 'user:id,name,email', 'lead:id,first_name,last_name,avatar_key', 'products:id,name,sku,base_price,type'])
             ->find($id);
 
         if (!$appointment) return response()->json(['message' => 'Appointment not found'], 404);
@@ -286,7 +286,7 @@ class AppointmentController extends Controller
             $appointment->products()->sync($productIds);
         }
 
-        $appointment->load(['appointmentType', 'lead:id,company_id,first_name,last_name,funnel_id,assigned_to', 'user:id,name,email', 'products:id,name,sku,base_price,type']);
+        $appointment->load(['appointmentType', 'lead:id,company_id,first_name,last_name,funnel_id,assigned_to,avatar_key', 'user:id,name,email', 'products:id,name,sku,base_price,type']);
 
         if ($appointment->lead) {
             Record::createAppointmentCreated($appointment, $appointment->lead, null);
@@ -347,7 +347,7 @@ class AppointmentController extends Controller
 
         $appointment->update(collect($validated)->except('product_ids')->toArray());
 
-        $fresh = $appointment->fresh(['appointmentType', 'lead:id,company_id,first_name,last_name', 'products:id,name,sku,base_price,type']);
+        $fresh = $appointment->fresh(['appointmentType', 'lead:id,company_id,first_name,last_name,avatar_key', 'products:id,name,sku,base_price,type']);
 
         if ($fresh->lead) {
             $justCompleted = ($validated['status'] ?? null) === 'completed' && !$wasCompleted;

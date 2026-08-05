@@ -30,7 +30,7 @@ class RecordCreated implements ShouldBroadcastNow
         $record->load('recordable');
 
         if ($record->recordable_type === Record::RECORDABLE_SALE && $record->recordable) {
-            $record->recordable->loadMissing('lead:id,first_name,last_name');
+            $record->recordable->loadMissing('lead:id,first_name,last_name,avatar_key');
         }
 
         $this->record = $record;

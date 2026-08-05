@@ -34,7 +34,7 @@ class TaskController extends Controller
         'list:id,name,color,task_space_id',
         'assignees:id,name,email,profile_pic',
         'tags:id,name,color',
-        'lead:id,first_name,last_name,source_platform',
+        'lead:id,first_name,last_name,source_platform,avatar_key',
         'sale:id,title',
     ];
 
@@ -774,7 +774,7 @@ class TaskController extends Controller
         }
 
         $query = Task::where('tasks.company_id', $company->id)
-            ->with(['lead:id,first_name,last_name', 'assignee:id,name,email', 'creator:id,name,email']);
+            ->with(['lead:id,first_name,last_name,avatar_key', 'assignee:id,name,email', 'creator:id,name,email']);
 
         if ($request->has('lead_id'))  $query->where('lead_id', $request->lead_id);
         if ($request->has('status'))   $query->where('status', $request->status);

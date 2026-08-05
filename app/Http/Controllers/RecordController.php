@@ -112,7 +112,7 @@ class RecordController extends Controller
         if (!$type || $type === Record::RECORDABLE_SALE) {
             $saleQuery = Record::with([
                     'recordable:id,lead_id,user_id,name,total,created_at',
-                    'recordable.lead:id,first_name,last_name,email,phone',
+                    'recordable.lead:id,first_name,last_name,email,phone,avatar_key',
                     'user:id,name,email',
                 ])
                 ->where('recordable_type', Record::RECORDABLE_SALE)

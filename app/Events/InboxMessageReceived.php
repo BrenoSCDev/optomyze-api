@@ -23,7 +23,7 @@ class InboxMessageReceived implements ShouldBroadcastNow
         $this->message = $message->load([
             'chat:id,company_id,channel,channelable_type,channelable_id,external_chat_id,lead_id,external_contact_id,last_message_at,profile_pic_url',
             'chat.channelable',
-            'chat.lead:id,company_id,first_name,last_name,phone,username,funnel_id,stage_id',
+            'chat.lead:id,company_id,first_name,last_name,phone,username,funnel_id,stage_id,avatar_key',
             'chat.lead.funnel:id,name',
             'chat.lead.stage:id,name',
             'user:id,name,profile_pic',

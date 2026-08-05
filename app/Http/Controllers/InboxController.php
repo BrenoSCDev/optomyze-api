@@ -577,7 +577,7 @@ class InboxController extends Controller
             ->with([
                 'company:id,timezone',
                 'channelable',
-                'lead:id,company_id,first_name,last_name,phone,username,funnel_id,stage_id',
+                'lead:id,company_id,first_name,last_name,phone,username,funnel_id,stage_id,avatar_key',
                 'lead.funnel:id,name',
                 'lead.stage:id,name',
                 'latestMessage' => fn ($q) => $q->with('user:id,name,profile_pic'),
@@ -626,7 +626,7 @@ class InboxController extends Controller
             ->with([
                 'company:id,timezone',
                 'channelable',
-                'lead:id,company_id,first_name,last_name,phone,username,funnel_id,stage_id',
+                'lead:id,company_id,first_name,last_name,phone,username,funnel_id,stage_id,avatar_key',
                 'lead.funnel:id,name',
                 'lead.stage:id,name',
                 // Only the latest message per chat (for list preview)

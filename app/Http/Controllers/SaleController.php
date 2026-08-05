@@ -241,7 +241,7 @@ class SaleController extends Controller
                 'items',
                 'charges',
                 'discounts',
-                'lead:id,first_name,last_name',
+                'lead:id,first_name,last_name,avatar_key',
                 'user:id,name,email',
             ]),
         ], 201);
@@ -340,7 +340,7 @@ class SaleController extends Controller
 
             return response()->json([
                 'message' => 'Sale updated successfully.',
-                'sale'    => $sale->fresh(['items', 'charges', 'discounts', 'lead:id,first_name,last_name', 'user:id,name,email', 'funnel:id,name', 'stage:id,name,color']),
+                'sale'    => $sale->fresh(['items', 'charges', 'discounts', 'lead:id,first_name,last_name,avatar_key', 'user:id,name,email', 'funnel:id,name', 'stage:id,name,color']),
             ]);
         });
     }
@@ -566,7 +566,7 @@ class SaleController extends Controller
             // `timezone` and the inbox chat are what the deal view's
             // Appointments and Conversation tabs need — both act on the person
             // behind the deal, so they reuse the lead components.
-            'lead:id,first_name,last_name,email,phone,job_title,timezone,company_id,funnel_id,stage_id',
+            'lead:id,first_name,last_name,email,phone,job_title,timezone,company_id,funnel_id,stage_id,avatar_key',
             'lead.funnel:id,name',
             'lead.stage:id,name,color',
             'lead.leadCompany:id,legal_name,trade_name,logo_path',
@@ -758,7 +758,7 @@ class SaleController extends Controller
 
         $query = Record::with([
                 'recordable:id,lead_id,user_id,name,total,created_at',
-                'recordable.lead:id,first_name,last_name,email,phone',
+                'recordable.lead:id,first_name,last_name,email,phone,avatar_key',
                 'user:id,name,email'
             ])
             ->where('recordable_type', Record::RECORDABLE_SALE)
@@ -821,7 +821,7 @@ class SaleController extends Controller
         }
 
         $sales = $query
-            ->with(['lead:id,first_name,last_name,email', 'user:id,name,email', 'stage:id,name,color'])
+            ->with(['lead:id,first_name,last_name,email,avatar_key', 'user:id,name,email', 'stage:id,name,color'])
             ->latest()
             ->paginate($request->input('per_page', 20));
 
@@ -836,7 +836,7 @@ class SaleController extends Controller
         }
 
         $sale = Sale::where('company_id', $company->id)
-            ->with(['lead:id,first_name,last_name,email,phone', 'user:id,name,email', 'items', 'charges', 'discounts', 'stage:id,name,color', 'funnel:id,name'])
+            ->with(['lead:id,first_name,last_name,email,phone,avatar_key', 'user:id,name,email', 'items', 'charges', 'discounts', 'stage:id,name,color', 'funnel:id,name'])
             ->find($id);
 
         if (!$sale) {

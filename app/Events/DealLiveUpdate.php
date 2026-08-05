@@ -22,7 +22,7 @@ class DealLiveUpdate implements ShouldBroadcastNow
     ) {
         if ($action === 'created') {
             $this->sale->loadMissing([
-                'lead:id,first_name,last_name,email,phone,stage_id,funnel_id,assigned_to',
+                'lead:id,first_name,last_name,email,phone,stage_id,funnel_id,assigned_to,avatar_key',
                 'lead.assignedUser:id,name',
                 'lead.stage:id,name,color',
                 'lead.funnel:id,name',
