@@ -7,6 +7,7 @@ use App\Events\LeadLiveUpdate;
 use App\Jobs\FireIntegrationWebhook;
 use App\Models\Appointment;
 use App\Models\AppointmentType;
+use App\Models\Calendar;
 use App\Models\Funnel;
 use App\Models\Lead;
 use App\Models\Record;
@@ -57,6 +58,7 @@ class LeadAppointmentController extends Controller
 
             // Always used — the appointment is created on every call.
             'appointment' => 'required|array',
+            'appointment.calendar_id' => 'nullable|integer',
             'appointment.appointment_type_id' => 'nullable|exists:appointment_types,id',
             'appointment.title' => 'required|string|max:255',
             'appointment.scheduled_at' => 'required|date',
@@ -141,6 +143,14 @@ class LeadAppointmentController extends Controller
                 'lead_id' => $lead->id,
                 'status' => $appointmentInput['status'] ?? 'draft',
                 'timezone' => $appointmentInput['timezone'] ?? $company->timezone ?? 'UTC',
+                // Callers of this endpoint are integrations that generally know
+                // nothing about calendars, so an omitted (or foreign) id files
+                // the appointment on the company's default calendar instead of
+                // leaving it unreachable from every calendar view.
+                'calendar_id' => Calendar::resolveForCompany(
+                    $appointmentInput['calendar_id'] ?? null,
+                    $company->id
+                ),
             ]);
 
             if (!empty($productIds)) {

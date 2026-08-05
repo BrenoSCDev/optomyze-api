@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Appointment;
 use App\Models\Lead;
 use App\Models\Observation;
 use App\Models\Record;
@@ -24,6 +25,10 @@ class ObservationController extends Controller
     private const NOTABLE_TYPES = [
         'lead' => Lead::class,
         'deal' => Sale::class,
+        // Appointments carry discussion too — "did they confirm?", "moved to
+        // Thursday" — and get the same threaded notes rather than a parallel
+        // comment system. Every notable here is scoped by company_id below.
+        'appointment' => Appointment::class,
     ];
 
     /**
@@ -205,13 +210,25 @@ class ObservationController extends Controller
             throw ValidationException::withMessages(['notable_id' => ['Record not found.']]);
         }
 
-        return [
-            $notable->getMorphClass(),
-            $notable->getKey(),
-            // A deal note also records the lead behind it, so lead-scoped
-            // views can surface it without a second query.
-            $notable instanceof Sale ? $notable->lead_id : $notable->getKey(),
-        ];
+        /*
+         * `lead_id` is the legacy column, kept so lead-scoped views can find a
+         * note without a second query. It has a foreign key to `leads`, so it
+         * must hold a real lead id or nothing.
+         *
+         * This used to fall back to the notable's own key for anything that
+         * was not a Sale — correct only while Lead was the sole alternative.
+         * An appointment's id is not a lead id, and writing one violated the
+         * constraint. Each notable now says explicitly which lead, if any,
+         * stands behind it.
+         */
+        $leadId = match (true) {
+            $notable instanceof Lead        => $notable->getKey(),
+            $notable instanceof Sale        => $notable->lead_id,
+            $notable instanceof Appointment => $notable->lead_id,
+            default                         => null,
+        };
+
+        return [$notable->getMorphClass(), $notable->getKey(), $leadId];
     }
 
     /**

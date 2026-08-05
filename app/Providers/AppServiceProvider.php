@@ -31,6 +31,7 @@ class AppServiceProvider extends ServiceProvider
             'Lead'            => Lead::class,
             'Sale'            => Sale::class,
             'User'            => User::class,
+            'Appointment'     => \App\Models\Appointment::class,
             'Company'         => \App\Models\Company::class,
             'LeadCompany'     => \App\Models\LeadCompany::class,
             'LeadDocument'    => \App\Models\LeadDocument::class,

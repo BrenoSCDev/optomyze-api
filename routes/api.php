@@ -42,7 +42,9 @@ use App\Http\Controllers\TaskActivityController;
 use App\Http\Controllers\TaskController;
 use App\Http\Controllers\TaskListController;
 use App\Http\Controllers\TaskSpaceController;
+use App\Http\Controllers\CalendarBookingController;
 use App\Http\Controllers\CalendarController;
+use App\Http\Controllers\PublicBookingController;
 use App\Http\Controllers\QuickstartController;
 use App\Http\Controllers\UserPreferenceController;
 use App\Http\Controllers\UserController;
@@ -109,6 +111,19 @@ Route::post('/users/manager', [UserController::class, 'storeManager']);
 | Hit directly by visitors' browsers on customer websites. Access is bounded
 | by the widget's own allowed-domain list plus per-IP rate limiting.
 */
+/*
+| Public booking pages. Unauthenticated by design — the slug is the credential,
+| so every response is narrow and each route is throttled per IP.
+*/
+Route::prefix('public/booking')->group(function () {
+    Route::get('/{slug}', [PublicBookingController::class, 'show'])
+        ->middleware('throttle:60,1');
+    Route::get('/{slug}/availability', [PublicBookingController::class, 'availability'])
+        ->middleware('throttle:60,1');
+    Route::post('/{slug}/book', [PublicBookingController::class, 'store'])
+        ->middleware('throttle:10,1');
+});
+
 Route::prefix('public/widgets')->group(function () {
     Route::get('/{publicId}', [PublicWidgetController::class, 'config'])
         ->middleware('throttle:60,1');
@@ -343,6 +358,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/calendars/{calendar}', [CalendarController::class, 'update']);
     Route::patch('/calendars/{calendar}/default', [CalendarController::class, 'setDefault']);
     Route::delete('/calendars/{calendar}', [CalendarController::class, 'destroy']);
+
+    // Public booking configuration, managed from the Calendar module.
+    Route::get('/calendars/{calendar}/booking', [CalendarBookingController::class, 'show']);
+    Route::put('/calendars/{calendar}/booking', [CalendarBookingController::class, 'update']);
+    Route::post('/calendars/{calendar}/booking/slug', [CalendarBookingController::class, 'regenerateSlug']);
+    Route::get('/calendars/{calendar}/booking/availability', [CalendarBookingController::class, 'previewAvailability']);
 
     Route::get('/appointment-types', [AppointmentTypeController::class, 'index']);
     Route::post('/appointment-types', [AppointmentTypeController::class, 'store']);

@@ -35,8 +35,11 @@ class AppointmentLiveUpdate implements ShouldBroadcastNow
     {
         if ($this->action === 'deleted') {
             return [
-                'action' => 'deleted',
-                'id'     => $this->appointment->id,
+                'action'      => 'deleted',
+                'id'          => $this->appointment->id,
+                // Sent on deletes too: a listener showing one calendar needs to
+                // know whether the removed appointment was even on it.
+                'calendar_id' => $this->appointment->calendar_id,
             ];
         }
 
@@ -47,6 +50,7 @@ class AppointmentLiveUpdate implements ShouldBroadcastNow
             'appointment' => [
                 'id'                  => $appt->id,
                 'company_id'          => $appt->company_id,
+                'calendar_id'         => $appt->calendar_id,
                 'lead_id'             => $appt->lead_id,
                 'appointment_type_id' => $appt->appointment_type_id,
                 'user_id'             => $appt->user_id,

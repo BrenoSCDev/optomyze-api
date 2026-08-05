@@ -170,3 +170,27 @@ test('the webhook still answers 200 for an attachment shape we do not know', fun
 
     expect(InboxMessage::where('external_message_id', 'mid-unknown')->exists())->toBeFalse();
 });
+
+/* ---------------- funnel is optional ---------------- */
+
+test('a message still creates a contact when the integration has no funnel', function () {
+    $integration = igIntegration();
+
+    // Leads no longer have to live in a funnel, so an unconfigured integration
+    // must not cause a real customer message to be dropped.
+    $integration->update(['funnel_id' => null]);
+
+    postIgWebhook($integration, igAttachmentPayload([
+        'type'    => 'image',
+        'payload' => ['url' => 'https://lookaside.fbsbx.com/photo.jpg'],
+    ], 'mid-nofunnel'))->assertOk();
+
+    $message = InboxMessage::where('external_message_id', 'mid-nofunnel')->first();
+    expect($message)->not->toBeNull();
+
+    $lead = \App\Models\Lead::where('company_id', $integration->company_id)->first();
+    expect($lead)->not->toBeNull()
+        ->and($lead->funnel_id)->toBeNull()
+        ->and($lead->stage_id)->toBeNull()
+        ->and($lead->source_platform)->toBe('instagram');
+});

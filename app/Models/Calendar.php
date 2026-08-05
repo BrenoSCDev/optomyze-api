@@ -184,6 +184,32 @@ class Calendar extends Model
     }
 
     /**
+     * Work out which calendar a new appointment or task belongs on.
+     *
+     * Every write path — the CRM UI, the public v1 API, the lead+appointment
+     * endpoint, webhooks — funnels through here so "no calendar_id given means
+     * the default calendar" is one rule in one place rather than a convention
+     * each controller has to remember.
+     *
+     * A requested id that this company does not own is treated exactly like no
+     * id at all: it falls back to the default rather than erroring, because the
+     * caller has no way to know another tenant's ids and rejecting would only
+     * leak that the id exists somewhere.
+     */
+    public static function resolveForCompany(?int $requested, int $companyId): int
+    {
+        if ($requested) {
+            $owned = static::fromCompany($companyId)->whereKey($requested)->value('id');
+
+            if ($owned) {
+                return $owned;
+            }
+        }
+
+        return static::defaultFor($companyId)->id;
+    }
+
+    /**
      * Make this the company's default, demoting whichever calendar held it.
      *
      * A default calendar is also forced active: the fallback every unfiled

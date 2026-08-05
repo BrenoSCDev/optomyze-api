@@ -860,14 +860,6 @@ class TaskController extends Controller
             return null;
         }
 
-        if ($requested) {
-            $owned = Calendar::fromCompany($companyId)->whereKey($requested)->value('id');
-
-            if ($owned) {
-                return $owned;
-            }
-        }
-
-        return Calendar::defaultFor($companyId)->id;
+        return Calendar::resolveForCompany($requested, $companyId);
     }
 }

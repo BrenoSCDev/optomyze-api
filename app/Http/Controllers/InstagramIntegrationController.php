@@ -315,15 +315,6 @@ class InstagramIntegrationController extends Controller
             return response('EVENT_RECEIVED', 200);
         }
 
-        if (!$integration->funnel) {
-            Log::warning('Instagram webhook received but no funnel associated', [
-                'integration_id' => $integration->id,
-                'company_id' => $integration->company_id,
-            ]);
-
-            return response()->json(['message' => 'No funnel associated'], 422);
-        }
-
         $companyId = $integration->company_id;
 
         foreach ($request->input('entry', []) as $entry) {
@@ -701,26 +692,20 @@ class InstagramIntegrationController extends Controller
     }
 
     /**
-     * A brand-new IGSID becomes a Lead in the integration's associated funnel,
-     * with name/avatar populated from the contact's Instagram profile —
-     * mirrors the WhatsApp webhook's lead-creation flow.
+     * A brand-new IGSID becomes a Lead, filed in the integration's funnel when
+     * one is configured and left unfiled when it is not, with name/avatar
+     * populated from the contact's Instagram profile — mirrors the WhatsApp
+     * webhook's lead-creation flow.
      */
     private function createInstagramChatAndLead(InstagramIntegration $integration, string $igsid, int $companyId): ?InboxChat
     {
+        // Optional, as on the WhatsApp webhook: a contact with no funnel is
+        // created unfiled rather than the message being dropped.
         $funnel = $integration->funnel;
 
-        $entryStage = $funnel->stages()
-            ->where('type', 'entry')
-            ->orderBy('order')
-            ->first();
-
-        if (!$entryStage) {
-            Log::warning('Instagram webhook: no entry stage found for funnel', [
-                'integration_id' => $integration->id,
-                'funnel_id'      => $funnel->id,
-            ]);
-            return null;
-        }
+        $entryStage = $funnel
+            ? $funnel->stages()->where('type', 'entry')->orderBy('order')->first()
+            : null;
 
         $profile = $this->fetchInstagramProfile($integration, $igsid);
 
@@ -738,14 +723,15 @@ class InstagramIntegrationController extends Controller
             'external_id'     => $igsid,
             'source_type'     => 'chat_integration',
             'source_platform' => 'instagram',
-            'funnel_id'       => $funnel->id,
-            'stage_id'        => $entryStage->id,
+            // Both or neither: a stage only means anything in its own funnel.
+            'funnel_id'       => $entryStage ? $funnel->id : null,
+            'stage_id'        => $entryStage?->id,
         ]);
 
         LeadQueueAssignmentService::assign($lead);
         Record::createLeadCreation($lead, null, Record::SOURCE_WEBHOOK);
 
-        Log::info("[LeadLive] Broadcasting created for lead {$lead->id} to funnel.{$lead->funnel_id}");
+        Log::info("[LeadLive] Broadcasting created for lead {$lead->id} to funnel." . ($lead->funnel_id ?? 'none'));
         broadcast(new LeadLiveUpdate('created', $lead));
 
         $picPath = !empty($profile['profile_pic'])

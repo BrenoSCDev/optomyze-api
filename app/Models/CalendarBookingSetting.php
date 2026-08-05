@@ -20,11 +20,25 @@ class CalendarBookingSetting extends Model
 {
     public const CONFIRMATION_MODES = ['automatic', 'manual'];
 
+    /**
+     * smart — only slots free of existing appointments on this calendar
+     * open  — every slot inside working hours; overlaps allowed on purpose
+     */
+    public const AVAILABILITY_MODES = ['smart', 'open'];
+
     protected $fillable = [
         'calendar_id',
         'company_id',
         'public_slug',
         'is_published',
+        'title',
+        'subtitle',
+        'description',
+        'availability_mode',
+        'slot_increment_minutes',
+        'form_fields',
+        'confirmation_title',
+        'confirmation_message',
         'working_hours',
         'date_overrides',
         'slot_duration_minutes',
@@ -42,6 +56,7 @@ class CalendarBookingSetting extends Model
 
     protected $casts = [
         'is_published'     => 'boolean',
+        'form_fields'      => 'array',
         'requires_phone'   => 'boolean',
         'working_hours'    => 'array',
         'date_overrides'   => 'array',

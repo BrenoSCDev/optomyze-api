@@ -393,14 +393,6 @@ class AppointmentController extends Controller
      */
     private function resolveCalendarId(?int $requested, int $companyId): int
     {
-        if ($requested) {
-            $owned = Calendar::fromCompany($companyId)->whereKey($requested)->value('id');
-
-            if ($owned) {
-                return $owned;
-            }
-        }
-
-        return Calendar::defaultFor($companyId)->id;
+        return Calendar::resolveForCompany($requested, $companyId);
     }
 }

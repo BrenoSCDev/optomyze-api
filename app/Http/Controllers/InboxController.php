@@ -108,20 +108,20 @@ class InboxController extends Controller
 
         $leadCreated = false;
         if (!$lead && $isInbound) {
+            /*
+             * A funnel is optional.
+             *
+             * Leads no longer have to live in one — an unfiled contact is
+             * reachable from Contacts and can be filed later. Refusing the
+             * webhook because the instance had no funnel meant a real customer
+             * message was dropped over a configuration detail, which is a
+             * worse outcome than a contact with no pipeline.
+             */
             $funnel = $instance->funnel;
 
-            if (!$funnel) {
-                return response()->json(['message' => 'No funnel associated'], 422);
-            }
-
-            $entryStage = $funnel->stages()
-                ->where('type', 'entry')
-                ->orderBy('order')
-                ->first();
-
-            if (!$entryStage) {
-                return response()->json(['message' => 'No entry stage found'], 422);
-            }
+            $entryStage = $funnel
+                ? $funnel->stages()->where('type', 'entry')->orderBy('order')->first()
+                : null;
 
             $lead = Lead::create([
                 'company_id'      => $companyId,
@@ -131,13 +131,15 @@ class InboxController extends Controller
                 'external_id'     => $remoteJid,
                 'source_type'     => 'chat_integration',
                 'source_platform' => 'whatsapp',
-                'funnel_id'       => $funnel->id,
-                'stage_id'        => $entryStage->id,
+                // A stage without its funnel is meaningless, so they travel
+                // together: both set, or neither.
+                'funnel_id'       => $entryStage ? $funnel->id : null,
+                'stage_id'        => $entryStage?->id,
             ]);
             LeadQueueAssignmentService::assign($lead);
             $leadCreated = true;
 
-            Log::info("[LeadLive] Broadcasting created for lead {$lead->id} to funnel.{$lead->funnel_id}");
+            Log::info("[LeadLive] Broadcasting created for lead {$lead->id} to funnel." . ($lead->funnel_id ?? 'none'));
             broadcast(new LeadLiveUpdate('created', $lead));
         }
 

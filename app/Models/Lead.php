@@ -42,6 +42,8 @@ class Lead extends Model
     const PLATFORM_EMAIL = 'email';
     const PLATFORM_WEBSITE = 'website';
     const PLATFORM_API = 'api';
+    /** A public booking page. Native alongside the messaging platforms. */
+    const PLATFORM_CALENDAR = 'calendar';
     const PLATFORM_OTHER = 'other';
 
     /**
@@ -52,6 +54,8 @@ class Lead extends Model
     const SOURCE_WEB_FORM = 'web_form';
     const SOURCE_API = 'api';
     const SOURCE_IMPORT = 'import';
+    /** Someone booked a slot on a calendar's public page. */
+    const SOURCE_BOOKING = 'booking_page';
 
     /**
      * The attributes that are mass assignable.
@@ -622,6 +626,7 @@ class Lead extends Model
     public static function getPlatformOptions(): array
     {
         return [
+            self::PLATFORM_CALENDAR => 'Calendar',
             self::PLATFORM_WHATSAPP => 'WhatsApp',
             self::PLATFORM_FACEBOOK => 'Facebook',
             self::PLATFORM_INSTAGRAM => 'Instagram',
