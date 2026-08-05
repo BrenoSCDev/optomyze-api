@@ -83,29 +83,45 @@ class LeadAppointmentController extends Controller
         if (!$lead) {
             $leadInput = $validated['lead'] ?? [];
 
-            if (empty($leadInput['funnel_id']) || empty($leadInput['first_name'])) {
-                return response()->json([
-                    'message' => 'lead.funnel_id and lead.first_name are required to create a new lead for this phone number',
-                ], 422);
-            }
+            /*
+             * Neither a funnel nor a name is required.
+             *
+             * A contact exists in its own right now — it is reachable from
+             * Contacts with no pipeline at all — so demanding a funnel_id here
+             * meant an integration that only wanted to book an appointment had
+             * to know the CRM's pipeline layout first. A name was demanded for
+             * no better reason: the phone number identifies the contact, and
+             * display names already fall back to username, email, or Unknown.
+             *
+             * The whole `lead` payload can be omitted. What arrives is a
+             * contact holding the phone number and an appointment against it.
+             */
+            $funnel = null;
+            $stage  = null;
 
-            $funnel = Funnel::where('company_id', $company->id)->find($leadInput['funnel_id']);
-            if (!$funnel) {
-                return response()->json(['message' => 'Funnel not found'], 404);
-            }
+            if (!empty($leadInput['funnel_id'])) {
+                $funnel = Funnel::where('company_id', $company->id)->find($leadInput['funnel_id']);
+                if (!$funnel) {
+                    return response()->json(['message' => 'Funnel not found'], 404);
+                }
 
-            // An explicit stage_id is honored if it belongs to this funnel;
-            // otherwise fall back to the funnel's entry stage as before.
-            $stage = !empty($leadInput['stage_id'])
-                ? $funnel->stages()->where('id', $leadInput['stage_id'])->first()
-                : null;
+                // An explicit stage_id is honored if it belongs to this funnel;
+                // otherwise fall back to the funnel's entry stage as before.
+                $stage = !empty($leadInput['stage_id'])
+                    ? $funnel->stages()->where('id', $leadInput['stage_id'])->first()
+                    : null;
 
-            if (!$stage) {
-                $stage = $funnel->stages()->where('type', 'entry')->first();
-            }
+                if (!$stage) {
+                    $stage = $funnel->stages()->where('type', 'entry')->first();
+                }
 
-            if (!$stage) {
-                return response()->json(['message' => 'No entry stage found for this funnel'], 422);
+                // Still an error, but only for a caller who asked for a funnel:
+                // they named one that cannot receive a contact, and that is a
+                // configuration problem worth reporting rather than silently
+                // filing the contact somewhere else.
+                if (!$stage) {
+                    return response()->json(['message' => 'No entry stage found for this funnel'], 422);
+                }
             }
 
             if (!empty($leadInput['assigned_to'])
@@ -118,8 +134,9 @@ class LeadAppointmentController extends Controller
                     ...collect($leadInput)->except(['funnel_id', 'stage_id'])->toArray(),
                     'company_id' => $company->id,
                     'phone' => $normalizedPhone,
-                    'funnel_id' => $funnel->id,
-                    'stage_id' => $stage->id,
+                    // Both or neither: a stage means nothing outside its funnel.
+                    'funnel_id' => $stage ? $funnel->id : null,
+                    'stage_id'  => $stage?->id,
                 ]);
             });
 
@@ -201,7 +218,11 @@ class LeadAppointmentController extends Controller
         app(NotificationService::class)->dispatch('appointment_scheduled', $company->id, [
             'lead_owner_id' => $lead->assigned_to,
             'actor_name' => null,
-            'lead' => ['id' => $lead->id, 'name' => trim("{$lead->first_name} {$lead->last_name}")],
+            // display_name, not the raw name parts: a contact created from this
+            // endpoint need not have a name, and the notification would have
+            // announced an appointment with nobody. It falls back to the phone
+            // number, which is what identified the contact in the first place.
+            'lead' => ['id' => $lead->id, 'name' => $lead->display_name],
             'appointment' => [
                 'title' => $appointment->title,
                 'scheduled_at' => $appointment->scheduled_at
