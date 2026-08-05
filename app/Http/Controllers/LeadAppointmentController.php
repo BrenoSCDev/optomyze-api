@@ -83,18 +83,22 @@ class LeadAppointmentController extends Controller
         if (!$lead) {
             $leadInput = $validated['lead'] ?? [];
 
+            // A name is still how anyone recognises the contact afterwards, so
+            // it stays required when this endpoint is the thing creating one.
+            if (empty($leadInput['first_name'])) {
+                return response()->json([
+                    'message' => 'lead.first_name is required to create a new lead for this phone number',
+                ], 422);
+            }
+
             /*
-             * Neither a funnel nor a name is required.
+             * A funnel is not required.
              *
              * A contact exists in its own right now — it is reachable from
              * Contacts with no pipeline at all — so demanding a funnel_id here
              * meant an integration that only wanted to book an appointment had
-             * to know the CRM's pipeline layout first. A name was demanded for
-             * no better reason: the phone number identifies the contact, and
-             * display names already fall back to username, email, or Unknown.
-             *
-             * The whole `lead` payload can be omitted. What arrives is a
-             * contact holding the phone number and an appointment against it.
+             * to learn the CRM's pipeline layout first. Omit it and the contact
+             * is created unfiled, ready to be placed later.
              */
             $funnel = null;
             $stage  = null;
@@ -218,10 +222,11 @@ class LeadAppointmentController extends Controller
         app(NotificationService::class)->dispatch('appointment_scheduled', $company->id, [
             'lead_owner_id' => $lead->assigned_to,
             'actor_name' => null,
-            // display_name, not the raw name parts: a contact created from this
-            // endpoint need not have a name, and the notification would have
-            // announced an appointment with nobody. It falls back to the phone
-            // number, which is what identified the contact in the first place.
+            // display_name, not the raw name parts. This endpoint also attaches
+            // appointments to contacts it did not create — matched by phone —
+            // and those can be nameless, so concatenating the name parts
+            // announced an appointment with nobody. display_name falls back to
+            // the phone number, which is what matched the contact anyway.
             'lead' => ['id' => $lead->id, 'name' => $lead->display_name],
             'appointment' => [
                 'title' => $appointment->title,
