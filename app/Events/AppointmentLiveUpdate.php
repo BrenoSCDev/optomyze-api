@@ -68,11 +68,16 @@ class AppointmentLiveUpdate implements ShouldBroadcastNow
                     'color'            => $appt->appointmentType->color,
                     'duration_minutes' => $appt->appointmentType->duration_minutes,
                 ] : null,
+                // Same shape the calendar's own fetch returns, picture included:
+                // a live update must not blank the avatar the grid is showing.
                 'lead' => $appt->lead ? [
-                    'id'         => $appt->lead->id,
-                    'first_name' => $appt->lead->first_name,
-                    'last_name'  => $appt->lead->last_name,
-                    'funnel_id'  => $appt->lead->funnel_id,
+                    'id'              => $appt->lead->id,
+                    'first_name'      => $appt->lead->first_name,
+                    'last_name'       => $appt->lead->last_name,
+                    'funnel_id'       => $appt->lead->funnel_id,
+                    'profile_pic_url' => $appt->lead
+                        ->loadMissing('inboxChats:id,lead_id,channel,profile_pic_url')
+                        ->profile_pic_url,
                 ] : null,
                 'user' => $appt->user ? [
                     'id'    => $appt->user->id,

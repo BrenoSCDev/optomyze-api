@@ -399,6 +399,27 @@ class Lead extends Model
     }
 
     /**
+     * The contact's picture.
+     *
+     * Leads carry no image of their own — the one the CRM shows comes from
+     * whichever channel the conversation arrived on, which is why it lives on
+     * the chat rather than the contact. Any channel will do; WhatsApp and
+     * Instagram both populate it when the chat is created.
+     *
+     * Reads only from an already-loaded relation, deliberately: this is used
+     * on lists, and letting it lazy-load would be one query per row. Eager-load
+     * `inboxChats` wherever the value is wanted, or it is simply null.
+     */
+    public function getProfilePicUrlAttribute(): ?string
+    {
+        if (!$this->relationLoaded('inboxChats')) {
+            return null;
+        }
+
+        return $this->inboxChats->first(fn ($chat) => filled($chat->profile_pic_url))?->profile_pic_url;
+    }
+
+    /**
      * Get the lead's display name for UI.
      */
     public function getDisplayNameAttribute(): string

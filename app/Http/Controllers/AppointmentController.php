@@ -42,9 +42,24 @@ class AppointmentController extends Controller
 
                 $query->whereIn('calendar_id', $ownIds);
             })
-            ->with(['appointmentType', 'user:id,name,email', 'lead:id,first_name,last_name', 'products:id,name,sku,base_price,type'])
+            ->with([
+                'appointmentType',
+                'user:id,name,email',
+                'lead:id,first_name,last_name',
+                // The contact's picture lives on its chat, so the calendar can
+                // show a face next to the booking. Eager-loaded because the
+                // accessor below refuses to lazy-load one query per row.
+                'lead.inboxChats:id,lead_id,channel,profile_pic_url',
+                'products:id,name,sku,base_price,type',
+            ])
             ->orderBy('scheduled_at')
             ->get();
+
+        // Ship the resolved picture, not the chats it was derived from — the
+        // calendar has no use for the conversation list.
+        $appointments->each(fn ($appointment) => $appointment->lead
+            ?->append('profile_pic_url')
+            ->makeHidden('inboxChats'));
 
         return response()->json($appointments);
     }
