@@ -59,6 +59,7 @@ class PublicWidgetChatController extends Controller
                     'phone' => $visitor->phone,
                 ],
                 'messages' => $this->chat->visitorMessages($visitor),
+                'reactions' => $this->chat->visitorReactions($visitor),
             ],
         ]);
     }
@@ -138,7 +139,16 @@ class PublicWidgetChatController extends Controller
 
         $data = $request->validate([
             'text' => ['required', 'string', 'max:4000'],
+            'reply_to_message_id' => ['sometimes', 'nullable', 'integer'],
         ]);
+
+        $replyTo = $request->filled('reply_to_message_id')
+            ? $this->chat->visitorVisibleMessage($visitor, (int) $request->input('reply_to_message_id'))
+            : null;
+
+        if ($request->filled('reply_to_message_id') && !$replyTo) {
+            return response()->json(['message' => 'That message is not part of this conversation.'], 422);
+        }
 
         // Identification can be enforced before the first message.
         $mode = Arr::get($widget->config, 'identification.mode', 'none');
@@ -154,7 +164,7 @@ class PublicWidgetChatController extends Controller
         }
 
         try {
-            $message = $this->chat->receiveVisitorMessage($widget, $visitor, $text);
+            $message = $this->chat->receiveVisitorMessage($widget, $visitor, $text, $replyTo);
         } catch (\Throwable $e) {
             Log::error('Website chat: failed to store visitor message', [
                 'widget_id' => $widget->id,
@@ -170,9 +180,46 @@ class PublicWidgetChatController extends Controller
                 'id' => $message->id,
                 'direction' => $message->direction,
                 'text' => $message->text,
+                'reply_to_message_id' => $message->reply_to_message_id,
                 'sent_at' => optional($message->sent_at)->toIso8601String(),
             ],
         ], 201);
+    }
+
+    /**
+     * Visitor reacts to a message, or clears their reaction with an empty
+     * emoji. Same shape as the CRM-side endpoint, minus the provider call —
+     * there is nothing to deliver to but the other end of this conversation.
+     */
+    public function react(Request $request, string $publicId, int $messageId)
+    {
+        [$widget, $error] = $this->resolveWidget($request, $publicId);
+
+        if ($error) {
+            return $error;
+        }
+
+        $visitor = $this->requireVisitor($request, $widget);
+
+        if (!$visitor) {
+            return response()->json(['message' => 'Session expired. Please reload the page.'], 401);
+        }
+
+        // Nullable because ConvertEmptyStringsToNull rewrites the "" that means
+        // "remove my reaction" before validation sees it.
+        $request->validate([
+            'emoji' => ['present', 'nullable', 'string', 'max:8'],
+        ]);
+
+        $message = $this->chat->visitorVisibleMessage($visitor, $messageId);
+
+        if (!$message) {
+            return response()->json(['message' => 'That message is not part of this conversation.'], 422);
+        }
+
+        $this->chat->reactToMessage($message, (string) $request->input('emoji'));
+
+        return response()->json(['data' => ['id' => $message->id, 'reactions' => $message->reactions]]);
     }
 
     /**
@@ -199,6 +246,9 @@ class PublicWidgetChatController extends Controller
         return response()->json([
             'data' => [
                 'messages' => $this->chat->visitorMessages($visitor, $afterId),
+                // Whole-conversation map, not just the new messages: a reaction
+                // on an older bubble has no other way to reach the widget.
+                'reactions' => $this->chat->visitorReactions($visitor),
                 // Polling only asks for messages after the last one it saw, so
                 // a read receipt on an older message would never reach the
                 // widget. One high-water mark covers every earlier message

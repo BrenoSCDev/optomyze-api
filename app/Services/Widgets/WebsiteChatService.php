@@ -3,6 +3,7 @@
 namespace App\Services\Widgets;
 
 use App\Events\InboxMessageReceived;
+use App\Events\InboxMessageUpdated;
 use App\Events\InboxMessagesRead;
 use App\Events\LeadLiveUpdate;
 use App\Jobs\FireIntegrationWebhook;
@@ -99,8 +100,12 @@ class WebsiteChatService
      * conversation on first contact, then run the same lifecycle every other
      * channel runs.
      */
-    public function receiveVisitorMessage(Widget $widget, WidgetChatVisitor $visitor, string $text): InboxMessage
-    {
+    public function receiveVisitorMessage(
+        Widget $widget,
+        WidgetChatVisitor $visitor,
+        string $text,
+        ?InboxMessage $replyTo = null
+    ): InboxMessage {
         $chat = $this->ensureChat($widget, $visitor);
 
         $session = ChatSessionService::startOrGetActive($chat);
@@ -115,6 +120,12 @@ class WebsiteChatService
             'message_mode' => 'external',
             'type' => 'text',
             'text' => $text,
+            'reply_to_message_id' => $replyTo?->id,
+            'reply_to_snapshot' => $replyTo ? [
+                'type' => $replyTo->type,
+                'text' => $replyTo->text,
+                'participant' => null,
+            ] : null,
             'status' => 'delivered',
             'sent_at' => now(),
         ]);
@@ -163,9 +174,101 @@ class WebsiteChatService
                 'direction' => $message->direction,
                 'text' => $message->text,
                 'type' => $message->type,
+                'reply_to' => $this->visitorReplyPreview($message),
                 'sent_at' => optional($message->sent_at)->toIso8601String(),
             ])
             ->all();
+    }
+
+    /**
+     * A message the visitor is allowed to address — reply to or react to.
+     *
+     * Scoped to their own conversation and to messages they can actually see,
+     * so neither another visitor's message nor an internal note can be named
+     * by a tampered client.
+     */
+    public function visitorVisibleMessage(WidgetChatVisitor $visitor, int $messageId): ?InboxMessage
+    {
+        if (!$visitor->inbox_chat_id) {
+            return null;
+        }
+
+        return InboxMessage::where('inbox_chat_id', $visitor->inbox_chat_id)
+            ->where('message_mode', 'external')
+            ->find($messageId);
+    }
+
+    /**
+     * Apply (or, with an empty emoji, clear) the visitor's reaction.
+     *
+     * There is no third-party API here — storing it is the delivery, and the
+     * agent watching the thread sees it live off the broadcast.
+     */
+    public function reactToMessage(InboxMessage $message, string $emoji): InboxMessage
+    {
+        $reactions = $message->reactions ?? [];
+
+        if ($emoji === '') {
+            unset($reactions['contact']);
+        } else {
+            $reactions['contact'] = [
+                'emoji' => $emoji,
+                'timestamp' => now()->getTimestampMs(),
+            ];
+        }
+
+        $message->update(['reactions' => $reactions]);
+
+        broadcast(new InboxMessageUpdated($message));
+
+        return $message;
+    }
+
+    /**
+     * Every reaction in the visitor's conversation, keyed by message id.
+     *
+     * Polling only asks for messages after the last one it saw, so a reaction
+     * applied to an older message would otherwise never reach the widget —
+     * the same gap `seen_until_id` closes for read receipts. Reactions are
+     * rare enough that sending the whole (tiny) map each poll is simpler than
+     * tracking deltas, and removals fall out of it for free: a message absent
+     * from the map has none.
+     */
+    public function visitorReactions(WidgetChatVisitor $visitor): array
+    {
+        if (!$visitor->inbox_chat_id) {
+            return [];
+        }
+
+        return InboxMessage::where('inbox_chat_id', $visitor->inbox_chat_id)
+            ->where('message_mode', 'external')
+            ->whereNotNull('reactions')
+            ->get(['id', 'reactions'])
+            ->mapWithKeys(fn (InboxMessage $message) => [
+                $message->id => collect($message->reactions)
+                    ->map(fn ($reaction) => $reaction['emoji'] ?? null)
+                    ->filter()
+                    ->all(),
+            ])
+            ->filter()
+            ->all();
+    }
+
+    /**
+     * The quoted excerpt as the visitor should see it. A reply always carries
+     * its snapshot, so this survives the original being deleted.
+     */
+    private function visitorReplyPreview(InboxMessage $message): ?array
+    {
+        if (!$message->reply_to_snapshot) {
+            return null;
+        }
+
+        return [
+            'id' => $message->reply_to_message_id,
+            'type' => $message->reply_to_snapshot['type'] ?? 'text',
+            'text' => $message->reply_to_snapshot['text'] ?? null,
+        ];
     }
 
     /**

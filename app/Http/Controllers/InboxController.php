@@ -171,6 +171,15 @@ class InboxController extends Controller
             $chat->update(['lead_id' => $lead->id]);
         }
 
+        // Learn the address WhatsApp itself uses for this chat. external_chat_id
+        // is rebuilt from the normalized phone number and can differ from the
+        // real JID (the contact's account may be registered under the other
+        // Brazilian digit format), which matters for any endpoint addressing a
+        // message by its full key — see sendReaction.
+        if ($chat->provider_jid !== $remoteJid) {
+            $chat->update(['provider_jid' => $remoteJid]);
+        }
+
         // 5️⃣ Fire lead records for new lead / new chat
         if ($leadCreated) {
             \App\Models\Record::createLeadCreation(
@@ -450,8 +459,17 @@ class InboxController extends Controller
                 $messageValues['media_size'] = null;
             }
 
-            // Reply / quoted-message context - applies on top of any message type above
+            // Reply / quoted-message context - applies on top of any message type above.
+            // Evolution surfaces it at data.contextInfo for text replies, but a
+            // reply sent *with* media carries it only on the typed body
+            // (data.message.imageMessage.contextInfo), so both are checked —
+            // reading just the top level loses the link on media replies.
             $contextInfo = $payload['data']['contextInfo'] ?? null;
+
+            if (empty($contextInfo['quotedMessage']) && is_array($messageData[$messageType] ?? null)) {
+                $contextInfo = $messageData[$messageType]['contextInfo'] ?? $contextInfo;
+            }
+
             if ($contextInfo && !empty($contextInfo['quotedMessage'])) {
                 $stanzaId = $contextInfo['stanzaId'] ?? null;
 
@@ -903,9 +921,10 @@ class InboxController extends Controller
         $companyId = $user->company_id;
 
         $request->validate([
-            'lead_id'      => 'required|integer',
-            'text'         => 'required|string',
-            'message_mode' => 'sometimes|in:external,internal',
+            'lead_id'             => 'required|integer',
+            'text'                => 'required|string',
+            'message_mode'        => 'sometimes|in:external,internal',
+            'reply_to_message_id' => 'sometimes|nullable|integer',
         ]);
 
         $messageMode = $request->input('message_mode', 'external');
@@ -933,8 +952,27 @@ class InboxController extends Controller
             $chat->update(['lead_id' => $lead->id]);
         }
 
+        // Scoped to this chat so a malformed or forged id can never quote
+        // another customer's message back at this contact.
+        $replyToMessage = $request->filled('reply_to_message_id')
+            ? InboxMessage::where('inbox_chat_id', $chat->id)->find($request->input('reply_to_message_id'))
+            : null;
+
+        if ($request->filled('reply_to_message_id') && !$replyToMessage) {
+            return response()->json([
+                'message' => 'That message is not from this conversation.',
+            ], 422);
+        }
+
+        if ($messageMode === 'external' && $replyToMessage
+            && !$this->isUsableWhatsAppMessageId($replyToMessage->external_message_id)) {
+            return response()->json([
+                'message' => 'This message cannot be replied to (no valid WhatsApp reference for it).',
+            ], 422);
+        }
+
         try {
-            $waMessageId = Str::uuid();
+            $waMessageId = 'local-' . Str::uuid();
 
             // 4️⃣ External: call WhatsApp API first to get the real message ID
             if ($messageMode === 'external') {
@@ -942,14 +980,20 @@ class InboxController extends Controller
                     ->where('company_id', $companyId)
                     ->firstOrFail();
 
+                $body = [
+                    'number' => $phoneNumber,
+                    'text'   => $request->text,
+                ];
+
+                if ($replyToMessage) {
+                    $body['quoted'] = $this->buildWhatsAppQuoted($replyToMessage);
+                }
+
                 $response = Http::withHeaders([
                     'apikey' => $integration->api_key,
                 ])->post(
                     rtrim($integration->base_url, '/') . '/message/sendText/' . $instance->instance_name,
-                    [
-                        'number' => $phoneNumber,
-                        'text'   => $request->text,
-                    ]
+                    $body
                 );
 
                 if (!$response->successful()) {
@@ -959,7 +1003,7 @@ class InboxController extends Controller
                     ], 422);
                 }
 
-                $waMessageId = $response->json()['key']['id'] ?? $waMessageId;
+                $waMessageId = $this->resolveSentWhatsAppMessageId($response, $waMessageId, $chat);
             }
 
             // An agent proactively messaging a lead whose conversation is
@@ -978,6 +1022,8 @@ class InboxController extends Controller
                 'message_mode'        => $messageMode,
                 'type'                => 'text',
                 'text'                => $request->text,
+                'reply_to_message_id' => $replyToMessage?->id,
+                'reply_to_snapshot'   => $this->buildReplySnapshot($replyToMessage),
                 'status'              => 'sent',
                 'sent_at'             => now(),
             ]);
@@ -1027,11 +1073,15 @@ class InboxController extends Controller
 
         $companyId = $user->company_id;
 
+        // Removing a reaction is an empty emoji, and Laravel's
+        // ConvertEmptyStringsToNull middleware turns that "" into null before
+        // validation runs — so the rule has to accept null, and the value is
+        // normalized back to "" for the rest of the method.
         $request->validate([
-            'emoji' => 'present|string|max:8',
+            'emoji' => 'present|nullable|string|max:8',
         ]);
 
-        $emoji = $request->input('emoji');
+        $emoji = (string) $request->input('emoji');
 
         $message = InboxMessage::with('chat.channelable')
             ->whereHas('chat', fn ($q) => $q->where('company_id', $companyId))
@@ -1047,14 +1097,26 @@ class InboxController extends Controller
         if ($chat->channel === InboxChat::CHANNEL_WHATSAPP && $chat->channelable instanceof WhatsAppInstance) {
             $instance = $chat->channelable;
 
+            if (!$this->isUsableWhatsAppMessageId($message->external_message_id)) {
+                return response()->json([
+                    'message' => 'This message has no valid WhatsApp reference to react to.',
+                ], 422);
+            }
+
             $integration = WhatsAppEvoIntegration::where('id', $instance->whats_app_evo_integration_id)
                 ->where('company_id', $companyId)
                 ->firstOrFail();
 
             $response = Http::withHeaders(['apikey' => $integration->api_key])
                 ->post(rtrim($integration->base_url, '/') . '/message/sendReaction/' . $instance->instance_name, [
+                    // Unlike `quoted`, Evolution does not look the message up
+                    // here — the full key is mandatory, and a wrong remoteJid or
+                    // fromMe applies the reaction to nothing while still
+                    // answering 200. provider_jid is the address WhatsApp
+                    // reported for this chat; external_chat_id is our
+                    // synthesised fallback for chats with no inbound message yet.
                     'key' => [
-                        'remoteJid' => $chat->external_chat_id,
+                        'remoteJid' => $chat->provider_jid ?: $chat->external_chat_id,
                         'fromMe'    => $message->direction === 'outgoing',
                         'id'        => $message->external_message_id,
                     ],
@@ -1095,6 +1157,11 @@ class InboxController extends Controller
                     'error'   => $response->json() ?? $response->body(),
                 ], 422);
             }
+        } elseif ($chat->channel === InboxChat::CHANNEL_WEBSITE) {
+            // No third-party API to call: the widget reads reactions off its
+            // next poll, so persisting below is the delivery. Internal notes
+            // never reach the visitor, but they are still reactable — the
+            // reaction stays as internal as the note it sits on.
         } else {
             return response()->json(['message' => 'Reactions are not supported for this chat channel'], 422);
         }
@@ -1201,10 +1268,11 @@ class InboxController extends Controller
         $companyId = $user->company_id;
 
         $request->validate([
-            'lead_id'      => 'required|integer',
-            'type'         => 'required|in:image,audio',
-            'file'         => 'required|file|max:20480',
-            'message_mode' => 'sometimes|in:external,internal',
+            'lead_id'             => 'required|integer',
+            'type'                => 'required|in:image,audio',
+            'file'                => 'required|file|max:20480',
+            'message_mode'        => 'sometimes|in:external,internal',
+            'reply_to_message_id' => 'sometimes|nullable|integer',
         ]);
 
         $messageMode = $request->input('message_mode', 'external');
@@ -1233,6 +1301,28 @@ class InboxController extends Controller
             $chat->update(['lead_id' => $lead->id]);
         }
 
+        // Scoped to this chat so a malformed or forged id can never quote
+        // another customer's message back at this contact.
+        $replyToMessage = $request->filled('reply_to_message_id')
+            ? InboxMessage::where('inbox_chat_id', $chat->id)->find($request->input('reply_to_message_id'))
+            : null;
+
+        if ($request->filled('reply_to_message_id') && !$replyToMessage) {
+            return response()->json([
+                'message' => 'That message is not from this conversation.',
+            ], 422);
+        }
+
+        // Audio is exempt: the quote never reaches WhatsApp anyway (see the
+        // send block below), so it is kept as a CRM-only thread link rather
+        // than rejected.
+        if ($messageMode === 'external' && $type !== 'audio' && $replyToMessage
+            && !$this->isUsableWhatsAppMessageId($replyToMessage->external_message_id)) {
+            return response()->json([
+                'message' => 'This message cannot be replied to (no valid WhatsApp reference for it).',
+            ], 422);
+        }
+
         // 4️⃣ Store file locally
         $uploadedFile = $request->file('file');
         $folder       = $type === 'image' ? "whatsapp/images/{$companyId}" : "whatsapp/audio/{$companyId}";
@@ -1243,7 +1333,7 @@ class InboxController extends Controller
         CompanyStorage::record($companyId, $filePath, CompanyFile::CATEGORY_WHATSAPP_MEDIA, mime: $mime);
 
         try {
-            $waMessageId = Str::uuid();
+            $waMessageId = 'local-' . Str::uuid();
 
             // 5️⃣ External: send to Evolution API as base64
             if ($messageMode === 'external') {
@@ -1256,14 +1346,31 @@ class InboxController extends Controller
                 $apiKey   = $integration->api_key;
 
                 if ($type === 'image') {
+                    $body = [
+                        'number'    => $phoneNumber,
+                        'mediatype' => 'image',
+                        'media'     => $base64,
+                        'fileName'  => $uploadedFile->getClientOriginalName(),
+                    ];
+
+                    if ($replyToMessage) {
+                        $body['quoted'] = $this->buildWhatsAppQuoted($replyToMessage);
+                    }
+
                     $response = Http::withHeaders(['apikey' => $apiKey])
-                        ->post("{$apiBase}/message/sendMedia/{$instance->instance_name}", [
-                            'number'    => $phoneNumber,
-                            'mediatype' => 'image',
-                            'media'     => $base64,
-                            'fileName'  => $uploadedFile->getClientOriginalName(),
-                        ]);
+                        ->post("{$apiBase}/message/sendMedia/{$instance->instance_name}", $body);
                 } else {
+                    // Deliberately sent without `quoted`. On Evolution 2.3.6
+                    // sendWhatsAppAudio accepts the field and silently discards
+                    // it — the stored message comes back with contextInfo but no
+                    // stanzaId. The endpoint that does carry the quote,
+                    // sendMedia with mediatype "audio", rewrites the mimetype
+                    // from the file extension and drops the "codecs=opus"
+                    // parameter WhatsApp needs to render OGG, so the message
+                    // uploads, stores and is retrievable — and never appears on
+                    // the recipient's phone. A voice note that arrives without
+                    // its quote beats one that never arrives, so the reply link
+                    // is kept CRM-side only and the composer warns the agent.
                     $response = Http::withHeaders(['apikey' => $apiKey])
                         ->post("{$apiBase}/message/sendWhatsAppAudio/{$instance->instance_name}", [
                             'number' => $phoneNumber,
@@ -1280,7 +1387,7 @@ class InboxController extends Controller
                     ], 422);
                 }
 
-                $waMessageId = $response->json()['key']['id'] ?? $waMessageId;
+                $waMessageId = $this->resolveSentWhatsAppMessageId($response, $waMessageId, $chat);
             }
 
             // An agent proactively messaging a lead whose conversation is
@@ -1301,6 +1408,8 @@ class InboxController extends Controller
                 'media_url'           => $filePath,
                 'media_mime'          => $mime,
                 'media_size'          => $size,
+                'reply_to_message_id' => $replyToMessage?->id,
+                'reply_to_snapshot'   => $this->buildReplySnapshot($replyToMessage),
                 'status'              => 'sent',
                 'sent_at'             => now(),
             ]);
@@ -1431,11 +1540,7 @@ class InboxController extends Controller
                 'type'                => 'text',
                 'text'                => $request->text,
                 'reply_to_message_id' => $replyToMessage?->id,
-                'reply_to_snapshot'   => $replyToMessage ? [
-                    'type'        => $replyToMessage->type,
-                    'text'        => $replyToMessage->text,
-                    'participant' => null,
-                ] : null,
+                'reply_to_snapshot'   => $this->buildReplySnapshot($replyToMessage),
                 'status'              => 'sent',
                 'sent_at'             => now(),
             ]);
@@ -1660,11 +1765,7 @@ class InboxController extends Controller
                 'media_mime'          => $mime,
                 'media_size'          => $size,
                 'reply_to_message_id' => $replyToMessage?->id,
-                'reply_to_snapshot'   => $replyToMessage ? [
-                    'type'        => $replyToMessage->type,
-                    'text'        => $replyToMessage->text,
-                    'participant' => null,
-                ] : null,
+                'reply_to_snapshot'   => $this->buildReplySnapshot($replyToMessage),
                 'status'              => 'sent',
                 'sent_at'             => now(),
             ]);
@@ -1711,6 +1812,83 @@ class InboxController extends Controller
         }
 
         return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $mid) !== 1;
+    }
+
+    /**
+     * Whether a stored external_message_id is a real WhatsApp `key.id` that
+     * Evolution's `quoted.key.id` will resolve, as opposed to one of our own
+     * locally-minted ids. We mint those for internal notes (never sent to
+     * WhatsApp) and as a fallback when a send response arrives without a
+     * `key.id`. New ones carry a `local-` prefix; rows created before that
+     * convention hold a bare UUID, which a WhatsApp id never looks like.
+     */
+    private function isUsableWhatsAppMessageId(?string $id): bool
+    {
+        if (!$id || str_starts_with($id, 'local-')) {
+            return false;
+        }
+
+        return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $id) !== 1;
+    }
+
+    /**
+     * Pull the WhatsApp `key.id` off an Evolution send response.
+     *
+     * Evolution answers 200 in every failure mode we have seen, so a missing
+     * id is not an error we can surface — but a message stored under a local
+     * fallback id can never be quoted, reacted to, or advanced past 'sent' by
+     * the status webhook, so it is logged rather than degrading silently.
+     */
+    private function resolveSentWhatsAppMessageId($response, string $fallbackId, InboxChat $chat): string
+    {
+        $returnedId = $response->json('key.id');
+
+        if (!$returnedId) {
+            Log::warning('WhatsApp send: no key.id in Evolution response, using local fallback id', [
+                'chat_id'       => $chat->id,
+                'response_body' => $response->json(),
+            ]);
+        }
+
+        return $returnedId ?: $fallbackId;
+    }
+
+    /**
+     * Build Evolution's `quoted` payload for an outgoing reply.
+     *
+     * `key.id` alone is enough while Evolution still holds the message in its
+     * own database — it looks the message up and rebuilds the context. The
+     * `message.conversation` copy is the fallback it uses when that lookup
+     * misses (old message, recreated instance); without it the customer sees
+     * a reply to an empty bubble. It is omitted for messages that carry no
+     * text (audio, sticker) rather than sent empty.
+     */
+    private function buildWhatsAppQuoted(InboxMessage $replyToMessage): array
+    {
+        $quoted = ['key' => ['id' => $replyToMessage->external_message_id]];
+
+        if (filled($replyToMessage->text)) {
+            $quoted['message'] = ['conversation' => $replyToMessage->text];
+        }
+
+        return $quoted;
+    }
+
+    /**
+     * Snapshot of a quoted message, stored alongside the reply so the thread
+     * still renders the excerpt if the original is later deleted.
+     */
+    private function buildReplySnapshot(?InboxMessage $replyToMessage): ?array
+    {
+        if (!$replyToMessage) {
+            return null;
+        }
+
+        return [
+            'type'        => $replyToMessage->type,
+            'text'        => $replyToMessage->text,
+            'participant' => null,
+        ];
     }
 
     /**
@@ -1766,11 +1944,32 @@ class InboxController extends Controller
         }
 
         $data = $request->validate([
-            'text'         => 'required|string|max:4000',
-            'message_mode' => 'sometimes|in:external,internal',
+            'text'                => 'required|string|max:4000',
+            'message_mode'        => 'sometimes|in:external,internal',
+            'reply_to_message_id' => 'sometimes|nullable|integer',
         ]);
 
         $messageMode = $data['message_mode'] ?? 'external';
+
+        $replyToMessage = $request->filled('reply_to_message_id')
+            ? InboxMessage::where('inbox_chat_id', $chat->id)->find($request->input('reply_to_message_id'))
+            : null;
+
+        if ($request->filled('reply_to_message_id') && !$replyToMessage) {
+            return response()->json([
+                'message' => 'That message is not from this conversation.',
+            ], 422);
+        }
+
+        // The quote snapshot travels to the visitor's browser inside the reply,
+        // so quoting an internal note in a customer-visible message would leak
+        // the note's text. On WhatsApp and Instagram this is blocked already —
+        // notes have no provider message id to quote.
+        if ($messageMode === 'external' && $replyToMessage?->message_mode === 'internal') {
+            return response()->json([
+                'message' => 'An internal note cannot be quoted in a message the visitor will see.',
+            ], 422);
+        }
 
         $chatSession = $chat->lead_id
             ? ChatSessionService::startOrGetActive($chat)
@@ -1786,6 +1985,8 @@ class InboxController extends Controller
             'message_mode'        => $messageMode,
             'type'                => 'text',
             'text'                => $data['text'],
+            'reply_to_message_id' => $replyToMessage?->id,
+            'reply_to_snapshot'   => $this->buildReplySnapshot($replyToMessage),
             'status'              => 'sent',
             'sent_at'             => now(),
         ]);

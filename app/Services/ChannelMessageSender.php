@@ -108,7 +108,7 @@ class ChannelMessageSender
             return null;
         }
 
-        $waMessageId = (string) Str::uuid();
+        $waMessageId = 'local-' . Str::uuid();
 
         $response = Http::withHeaders([
             'apikey' => $integration->api_key,
@@ -129,7 +129,16 @@ class ChannelMessageSender
             return null;
         }
 
-        return $response->json()['key']['id'] ?? $waMessageId;
+        $returnedId = $response->json('key.id');
+
+        if (!$returnedId) {
+            Log::warning('ChannelMessageSender: no key.id in Evolution response, using local fallback id', [
+                'chat_id'       => $chat->id,
+                'response_body' => $response->json(),
+            ]);
+        }
+
+        return $returnedId ?: $waMessageId;
     }
 
     private static function sendInstagram(InboxChat $chat, string $text): ?string

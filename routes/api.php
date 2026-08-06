@@ -140,6 +140,8 @@ Route::prefix('public/widgets')->group(function () {
         ->middleware('throttle:30,1');
     Route::get('/{publicId}/chat/messages', [PublicWidgetChatController::class, 'messages'])
         ->middleware('throttle:240,1');
+    Route::post('/{publicId}/chat/messages/{messageId}/reaction', [PublicWidgetChatController::class, 'react'])
+        ->middleware('throttle:60,1');
 });
 
 /*

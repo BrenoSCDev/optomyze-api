@@ -32,6 +32,7 @@ class InboxChat extends Model
         'channelable_id',
         'lead_id',
         'external_chat_id',
+        'provider_jid',
         'external_contact_id',
         'contact_name',
         'is_group',

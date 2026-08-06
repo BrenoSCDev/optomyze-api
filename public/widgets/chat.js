@@ -50,6 +50,89 @@
     'briefcase': '<rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>'
   };
 
+  // Same set the CRM offers agents, so both ends of a conversation can express
+  // the same things.
+  var REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+  // Only http(s) and bare www. hosts, so a "javascript:" or "data:" string in
+  // a message can never become a clickable link.
+  var LINK_PATTERN = /(https?:\/\/[^\s<>"]+|www\.[^\s<>"]+)/gi;
+
+  // Sentence punctuation that follows a URL far more often than it belongs to
+  // one: "see https://x.com/docs." should not link the full stop.
+  var TRAILING_PUNCTUATION = /[.,;:!?'"]+$/;
+
+  /**
+   * Append `text` to `target`, turning URLs into real links along the way.
+   *
+   * Everything is built as DOM nodes — the message text is written by the
+   * other party, so it must never be routed through innerHTML.
+   */
+  function appendLinkedText(target, text) {
+    text = text || '';
+
+    var lastIndex = 0;
+    var match;
+
+    LINK_PATTERN.lastIndex = 0;
+
+    while ((match = LINK_PATTERN.exec(text)) !== null) {
+      var raw = match[0];
+      var trimmed = raw.replace(TRAILING_PUNCTUATION, '');
+
+      // A trailing ")" only belongs to the URL if it opened inside it.
+      while (trimmed.charAt(trimmed.length - 1) === ')'
+        && trimmed.split(')').length > trimmed.split('(').length) {
+        trimmed = trimmed.slice(0, -1);
+      }
+
+      if (match.index > lastIndex) {
+        target.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+      }
+
+      if (trimmed) {
+        var link = el('a', PREFIX + '-link', {
+          href: /^www\./i.test(trimmed) ? 'https://' + trimmed : trimmed,
+          target: '_blank',
+          // noopener/noreferrer keep the opened page away from this one;
+          // nofollow because the text is visitor-supplied.
+          rel: 'noopener noreferrer nofollow'
+        });
+        link.textContent = trimmed;
+        // Bubbles toggle the action strip on click; a link must just open.
+        link.addEventListener('click', function (event) { event.stopPropagation(); });
+        target.appendChild(link);
+      }
+
+      lastIndex = match.index + trimmed.length;
+    }
+
+    if (lastIndex < text.length) {
+      target.appendChild(document.createTextNode(text.slice(lastIndex)));
+    }
+  }
+
+  /**
+   * One-line label for a quoted message: its text, or a stand-in for the
+   * types that have none.
+   */
+  function quotedLabel(quoted) {
+    if (!quoted) return '';
+    if (quoted.text) return quoted.text;
+
+    var labels = {
+      image: '📷 Photo',
+      video: '🎬 Video',
+      audio: '🎤 Audio',
+      document: '📄 Document',
+      location: '📍 Location',
+      contact: '👤 Contact',
+      sticker: 'Sticker'
+    };
+
+    return labels[quoted.type] || 'Message';
+  }
+
   function svgIcon(paths) {
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
       'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + paths + '</svg>';
@@ -126,16 +209,83 @@
       '.' + PREFIX + '-head-btn svg{width:16px;height:16px;}',
 
       '.' + PREFIX + '-body{flex:1;overflow-y:auto;padding:16px;background:#f8fafc;}',
-      '.' + PREFIX + '-msg{display:flex;margin-bottom:10px;}',
+      // position:relative anchors the emoji picker; the extra bottom margin
+      // leaves room for a reaction badge overhanging the bubble.
+      // flex-wrap so the "Seen" marker can claim a full line under the bubble
+      // instead of sitting beside it as another flex item.
+      '.' + PREFIX + '-msg{display:flex;flex-wrap:wrap;margin-bottom:10px;position:relative;}',
       '.' + PREFIX + '-msg--in{justify-content:flex-start;}',
       '.' + PREFIX + '-msg--out{justify-content:flex-end;}',
-      '.' + PREFIX + '-bubble{max-width:78%;padding:9px 13px;border-radius:16px;font-size:14px;line-height:1.45;',
-      'white-space:pre-wrap;word-break:break-word;box-shadow:0 1px 2px rgba(15,23,42,.08);}',
+      '.' + PREFIX + '-msg--reacted{margin-bottom:18px;}',
+      // min-width:0 + overflow-wrap:anywhere: as a flex item the bubble is
+      // sized from its min-content width, which one long unbreakable token
+      // (a pasted URL) pushes past max-width. Only `anywhere` shrinks that
+      // min-content measure — `break-word` alone lets the bubble overflow.
+      '.' + PREFIX + '-bubble{position:relative;min-width:0;max-width:78%;padding:9px 13px;border-radius:16px;',
+      'font-size:14px;line-height:1.45;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;',
+      'box-shadow:0 1px 2px rgba(15,23,42,.08);}',
       '.' + PREFIX + '-msg--in .' + PREFIX + '-bubble{background:#fff;color:#111827;border-bottom-left-radius:5px;}',
       '.' + PREFIX + '-msg--out .' + PREFIX + '-bubble{background:var(--optz-accent);color:#fff;border-bottom-right-radius:5px;}',
+      // The accent carries the link on the business's white bubble; on the
+      // visitor's accent-filled bubble it would vanish, so there the link
+      // inherits the bubble's own foreground and leans on the underline.
+      '.' + PREFIX + '-link{color:var(--optz-accent);text-decoration:underline;text-underline-offset:2px;}',
+      '.' + PREFIX + '-msg--out .' + PREFIX + '-link{color:inherit;}',
+      '.' + PREFIX + '-link:hover{text-decoration-thickness:2px;}',
+
       '.' + PREFIX + '-time{display:block;margin-top:4px;font-size:10px;opacity:.65;}',
       // Sits under the visitor's own bubble, aligned to its right edge.
-      '.' + PREFIX + '-seen{display:block;margin-top:3px;font-size:10px;color:#6b7280;text-align:right;}',
+      '.' + PREFIX + '-seen{flex:0 0 100%;margin-top:3px;font-size:10px;color:#6b7280;text-align:right;}',
+      // A reaction badge overhangs the bubble's bottom edge; give it room so
+      // it doesn't land on top of the marker.
+      '.' + PREFIX + '-msg--reacted .' + PREFIX + '-seen{margin-top:13px;}',
+
+      // Quoted excerpt, rendered inside the replying bubble.
+      '.' + PREFIX + '-quote{margin:-1px 0 6px;padding:4px 8px;border-left:3px solid currentColor;border-radius:6px;',
+      'font-size:12px;line-height:1.35;opacity:.75;max-height:52px;overflow:hidden;overflow-wrap:anywhere;',
+      'background:rgba(15,23,42,.06);}',
+      '.' + PREFIX + '-msg--out .' + PREFIX + '-quote{background:rgba(255,255,255,.18);}',
+
+      // Reaction badge, overhanging the bubble's bottom corner like WhatsApp.
+      '.' + PREFIX + '-react{position:absolute;bottom:-11px;display:flex;gap:1px;padding:1px 5px;border-radius:999px;',
+      'background:#fff;box-shadow:0 1px 3px rgba(15,23,42,.18);font-size:11px;line-height:1.5;}',
+      '.' + PREFIX + '-msg--in .' + PREFIX + '-react{left:8px;}',
+      '.' + PREFIX + '-msg--out .' + PREFIX + '-react{right:8px;}',
+
+      // Hover (desktop) or tap (touch, via -msg--active) reveals the actions.
+      // Absolutely placed in the gutter the 78% bubble leaves, so they can
+      // never wrap the row or displace the "Seen" marker below it.
+      '.' + PREFIX + '-acts{position:absolute;top:50%;transform:translateY(-50%);display:flex;gap:2px;',
+      'opacity:0;pointer-events:none;transition:opacity .12s;}',
+      '.' + PREFIX + '-msg:hover .' + PREFIX + '-acts,',
+      '.' + PREFIX + '-msg--active .' + PREFIX + '-acts{opacity:1;pointer-events:auto;}',
+      '.' + PREFIX + '-msg--in .' + PREFIX + '-acts{right:0;}',
+      '.' + PREFIX + '-msg--out .' + PREFIX + '-acts{left:0;}',
+      '.' + PREFIX + '-act{width:22px;height:22px;padding:0;border:0;border-radius:50%;cursor:pointer;',
+      'display:flex;align-items:center;justify-content:center;color:#6b7280;background:#fff;',
+      'box-shadow:0 1px 2px rgba(15,23,42,.14);font-size:12px;line-height:1;}',
+      '.' + PREFIX + '-act:hover{color:#111827;}',
+      '.' + PREFIX + '-act svg{width:12px;height:12px;}',
+
+      '.' + PREFIX + '-emojis{position:absolute;bottom:100%;margin-bottom:4px;z-index:5;display:flex;gap:1px;',
+      'padding:3px 5px;border-radius:999px;background:#fff;box-shadow:0 2px 8px rgba(15,23,42,.2);}',
+      '.' + PREFIX + '-msg--in .' + PREFIX + '-emojis{left:0;}',
+      '.' + PREFIX + '-msg--out .' + PREFIX + '-emojis{right:0;}',
+      '.' + PREFIX + '-emoji{border:0;background:transparent;cursor:pointer;font-size:15px;line-height:1;',
+      'padding:3px;border-radius:50%;}',
+      '.' + PREFIX + '-emoji:hover{background:#f1f5f9;}',
+      '.' + PREFIX + '-emoji--on{background:#e2e8f0;}',
+
+      // Citation bar; sits on its own line above the input via the composer's
+      // flex-wrap, so the row layout underneath is untouched.
+      '.' + PREFIX + '-reply-bar{flex:0 0 100%;display:flex;align-items:center;gap:8px;margin-bottom:8px;',
+      'padding:6px 10px;border-left:3px solid var(--optz-accent);border-radius:8px;background:#f1f5f9;}',
+      '.' + PREFIX + '-reply-text{flex:1;min-width:0;font-size:12px;line-height:1.35;color:#475569;',
+      'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+      '.' + PREFIX + '-reply-title{display:block;font-weight:600;color:var(--optz-accent);}',
+      '.' + PREFIX + '-reply-cancel{flex:0 0 auto;width:20px;height:20px;padding:0;border:0;border-radius:50%;',
+      'background:transparent;color:#64748b;cursor:pointer;font-size:15px;line-height:1;}',
+      '.' + PREFIX + '-reply-cancel:hover{background:#e2e8f0;color:#111827;}',
 
       '.' + PREFIX + '-form{padding:16px;background:#fff;flex:1;overflow-y:auto;}',
       '.' + PREFIX + '-intro{margin:0 0 12px;font-size:13px;color:#6b7280;}',
@@ -150,7 +300,7 @@
       '.' + PREFIX + '-btn:hover{filter:brightness(1.07);}',
       '.' + PREFIX + '-btn:disabled{opacity:.6;cursor:not-allowed;}',
 
-      '.' + PREFIX + '-composer{display:flex;align-items:flex-end;gap:8px;padding:10px 12px;background:#fff;',
+      '.' + PREFIX + '-composer{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;padding:10px 12px;background:#fff;',
       'border-top:1px solid #e5e7eb;flex:0 0 auto;}',
       '.' + PREFIX + '-textarea{flex:1;max-height:110px;min-height:40px;padding:10px 12px;font-size:14px;',
       'font-family:inherit;color:#111827;background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;',
@@ -176,6 +326,19 @@
       '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-body{background:#0b1220;}',
       '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-msg--in .' + PREFIX + '-bubble{background:#1e293b;color:#e2e8f0;}',
       '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-seen{color:#94a3b8;}',
+      '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-msg--in .' + PREFIX + '-quote{background:rgba(255,255,255,.09);}',
+      // The accent is a brand colour and can be far too dark against the dark
+      // bubble, so links there get a fixed readable blue instead.
+      '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-msg--in .' + PREFIX + '-link{color:#93c5fd;}',
+      '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-react,',
+      '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-act,',
+      '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-emojis{background:#1e293b;color:#cbd5e1;}',
+      '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-act:hover{color:#f8fafc;}',
+      '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-emoji:hover{background:#334155;}',
+      '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-emoji--on{background:#475569;}',
+      '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-reply-bar{background:#1e293b;}',
+      '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-reply-text{color:#cbd5e1;}',
+      '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-reply-cancel:hover{background:#334155;color:#f8fafc;}',
       '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-composer,',
       '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-form,',
       '.' + PREFIX + '-host[data-optz-theme="auto"] .' + PREFIX + '-foot{background:#0f172a;border-color:#1e293b;}',
@@ -238,6 +401,10 @@
     this.pollTimer = null;
     this.identified = false;
     this.hasConversation = false;
+    // messageId -> { contact: emoji, agent: emoji }
+    this.reactions = {};
+    this.replyTo = null;
+    this.emojiPicker = null;
 
     this.build();
     this.startSession();
@@ -352,14 +519,30 @@
     this.launcher = launcher;
     this.badge = badge;
 
+    body.addEventListener('click', function () { self.clearActiveRows(); });
+
     document.addEventListener('keydown', function (event) {
-      if (event.key === 'Escape' && self.open) self.setOpen(false);
+      if (event.key !== 'Escape' || !self.open) return;
+
+      // Escape backs out one layer at a time: the open picker, then a pending
+      // reply, then the panel itself.
+      if (self.emojiPicker) {
+        self.clearActiveRows();
+      } else if (self.replyTo) {
+        self.clearReplyTo();
+      } else {
+        self.setOpen(false);
+      }
     });
   };
 
   ChatWidget.prototype.buildComposer = function () {
     var self = this;
     var composer = el('div', PREFIX + '-composer');
+
+    // Full-width first line above the input row (the composer wraps).
+    var replyBar = el('div', PREFIX + '-reply-bar');
+    replyBar.style.display = 'none';
 
     var textarea = el('textarea', PREFIX + '-textarea', {
       rows: 1,
@@ -391,11 +574,13 @@
       textarea.style.height = Math.min(textarea.scrollHeight, 110) + 'px';
     });
 
+    composer.appendChild(replyBar);
     composer.appendChild(textarea);
     composer.appendChild(send);
 
     this.textarea = textarea;
     this.sendButton = send;
+    this.replyBar = replyBar;
 
     return composer;
   };
@@ -518,6 +703,7 @@
       self.hasConversation = !!data.has_conversation;
 
       self.renderMessages(data.messages || [], true);
+      self.applyReactions(data.reactions);
       self.updateView();
 
       // Reopen where the visitor left off, when the widget is set to remember.
@@ -571,7 +757,13 @@
       row.setAttribute('data-optz-id', String(message.id));
     }
 
-    bubble.appendChild(document.createTextNode(message.text || ''));
+    if (message.reply_to) {
+      var quote = el('div', PREFIX + '-quote');
+      quote.textContent = quotedLabel(message.reply_to);
+      bubble.appendChild(quote);
+    }
+
+    appendLinkedText(bubble, message.text);
 
     if (message.sent_at) {
       var time = el('span', PREFIX + '-time');
@@ -580,6 +772,7 @@
     }
 
     row.appendChild(bubble);
+    row.appendChild(this.buildMessageActions(row, message));
     this.bodyEl.appendChild(row);
 
     if (message.id && message.id > this.lastMessageId) {
@@ -591,6 +784,98 @@
       this.badge.textContent = String(this.unread);
       this.badge.style.display = '';
     }
+
+    return row;
+  };
+
+  /**
+   * Reply / react strip beside a bubble.
+   *
+   * Revealed on hover, and on tap for touch devices where there is no hover —
+   * tapping the bubble toggles the strip rather than opening anything, so a
+   * mistap costs nothing.
+   */
+  ChatWidget.prototype.buildMessageActions = function (row, message) {
+    var self = this;
+    var acts = el('div', PREFIX + '-acts');
+
+    var reply = el('button', PREFIX + '-act', {
+      type: 'button',
+      'aria-label': this.content.reply_label || 'Reply'
+    });
+    reply.innerHTML = svgIcon('<polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>');
+    reply.addEventListener('click', function (event) {
+      event.stopPropagation();
+      self.setReplyTo(message);
+    });
+
+    var react = el('button', PREFIX + '-act', {
+      type: 'button',
+      'aria-label': this.content.react_label || 'React'
+    });
+    react.innerHTML = svgIcon('<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/>'
+      + '<line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>');
+    react.addEventListener('click', function (event) {
+      event.stopPropagation();
+      self.toggleEmojiPicker(row, message);
+    });
+
+    acts.appendChild(reply);
+    acts.appendChild(react);
+
+    row.addEventListener('click', function (event) {
+      // Kept off the body's clear-everything handler below.
+      event.stopPropagation();
+      var wasActive = row.className.indexOf(PREFIX + '-msg--active') !== -1;
+      self.clearActiveRows();
+      if (!wasActive) row.className += ' ' + PREFIX + '-msg--active';
+    });
+
+    return acts;
+  };
+
+  ChatWidget.prototype.clearActiveRows = function () {
+    var rows = this.bodyEl.querySelectorAll('.' + PREFIX + '-msg--active');
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].className = rows[i].className.replace(' ' + PREFIX + '-msg--active', '');
+    }
+    this.closeEmojiPicker();
+  };
+
+  ChatWidget.prototype.closeEmojiPicker = function () {
+    if (this.emojiPicker && this.emojiPicker.parentNode) {
+      this.emojiPicker.parentNode.removeChild(this.emojiPicker);
+    }
+    this.emojiPicker = null;
+  };
+
+  ChatWidget.prototype.toggleEmojiPicker = function (row, message) {
+    var self = this;
+    var wasOpenHere = this.emojiPicker && this.emojiPicker.parentNode === row;
+
+    this.closeEmojiPicker();
+
+    if (wasOpenHere || !message.id) return;
+
+    var picker = el('div', PREFIX + '-emojis');
+    var current = (this.reactions[message.id] || {}).contact;
+
+    REACTIONS.forEach(function (emoji) {
+      var button = el('button', PREFIX + '-emoji' + (current === emoji ? ' ' + PREFIX + '-emoji--on' : ''), {
+        type: 'button'
+      });
+      button.textContent = emoji;
+      button.addEventListener('click', function (event) {
+        event.stopPropagation();
+        self.closeEmojiPicker();
+        // Tapping the emoji already applied removes it.
+        self.react(message.id, current === emoji ? '' : emoji);
+      });
+      picker.appendChild(button);
+    });
+
+    row.appendChild(picker);
+    this.emojiPicker = picker;
   };
 
   ChatWidget.prototype.renderMessages = function (messages, initial) {
@@ -608,17 +893,141 @@
     this.scrollToBottom();
   };
 
+  /**
+   * Reconcile every bubble's reaction badge against the server's map.
+   *
+   * The map covers the whole conversation rather than just the newly polled
+   * messages, because a reaction can land on a bubble the widget rendered long
+   * ago. Reconciling (rather than applying deltas) also makes removal free: a
+   * message missing from the map simply loses its badge.
+   */
+  ChatWidget.prototype.applyReactions = function (map) {
+    this.reactions = map || {};
+
+    var rows = this.bodyEl.querySelectorAll('.' + PREFIX + '-msg[data-optz-id]');
+
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var id = row.getAttribute('data-optz-id');
+      var bubble = row.querySelector('.' + PREFIX + '-bubble');
+      var existing = row.querySelector('.' + PREFIX + '-react');
+      var emojis = [];
+      var entry = this.reactions[id];
+
+      for (var key in entry) {
+        if (Object.prototype.hasOwnProperty.call(entry, key) && entry[key]) emojis.push(entry[key]);
+      }
+
+      if (existing) existing.parentNode.removeChild(existing);
+      row.className = row.className.replace(' ' + PREFIX + '-msg--reacted', '');
+
+      if (!emojis.length || !bubble) continue;
+
+      var badge = el('span', PREFIX + '-react');
+      badge.textContent = emojis.join('');
+      bubble.appendChild(badge);
+      row.className += ' ' + PREFIX + '-msg--reacted';
+    }
+  };
+
+  /** Quote the given message in the next thing the visitor sends. */
+  ChatWidget.prototype.setReplyTo = function (message) {
+    if (!message.id) return;
+
+    this.clearActiveRows();
+    this.replyTo = message;
+    this.renderReplyBar();
+
+    if (this.textarea) this.textarea.focus();
+  };
+
+  ChatWidget.prototype.clearReplyTo = function () {
+    this.replyTo = null;
+    this.renderReplyBar();
+  };
+
+  ChatWidget.prototype.renderReplyBar = function () {
+    if (!this.replyBar) return;
+
+    if (!this.replyTo) {
+      this.replyBar.style.display = 'none';
+      this.replyBar.innerHTML = '';
+      return;
+    }
+
+    var self = this;
+    var mine = this.replyTo.direction === 'incoming';
+
+    this.replyBar.innerHTML = '';
+    this.replyBar.style.display = '';
+
+    var text = el('div', PREFIX + '-reply-text');
+    var title = el('span', PREFIX + '-reply-title');
+    title.textContent = mine
+      ? (this.content.reply_to_you || 'You')
+      : (this.content.header_title || 'Support');
+    text.appendChild(title);
+    text.appendChild(document.createTextNode(quotedLabel(this.replyTo)));
+
+    var cancel = el('button', PREFIX + '-reply-cancel', {
+      type: 'button',
+      'aria-label': this.content.cancel_reply_label || 'Cancel reply'
+    });
+    cancel.innerHTML = '&times;';
+    cancel.addEventListener('click', function () { self.clearReplyTo(); });
+
+    this.replyBar.appendChild(text);
+    this.replyBar.appendChild(cancel);
+  };
+
+  /** Apply or clear the visitor's reaction, optimistically. */
+  ChatWidget.prototype.react = function (messageId, emoji) {
+    var self = this;
+    var previous = JSON.parse(JSON.stringify(this.reactions || {}));
+    var next = JSON.parse(JSON.stringify(this.reactions || {}));
+
+    if (!next[messageId]) next[messageId] = {};
+    if (emoji === '') {
+      delete next[messageId].contact;
+    } else {
+      next[messageId].contact = emoji;
+    }
+
+    this.applyReactions(next);
+
+    this.api('/messages/' + messageId + '/reaction', {
+      method: 'POST',
+      body: { emoji: emoji }
+    }).then(function (result) {
+      if (!result.ok) self.applyReactions(previous);
+    });
+  };
+
   ChatWidget.prototype.sendMessage = function (text) {
     var self = this;
+    var replyTo = this.replyTo;
 
     // Optimistic echo keeps the conversation feeling instant.
-    this.appendMessage({ direction: 'incoming', text: text, sent_at: new Date().toISOString() }, true);
+    var row = this.appendMessage({
+      direction: 'incoming',
+      text: text,
+      reply_to: replyTo ? { type: replyTo.type, text: replyTo.text } : null,
+      sent_at: new Date().toISOString()
+    }, true);
+    this.clearReplyTo();
     this.scrollToBottom();
 
-    this.api('/messages', { method: 'POST', body: { text: text } }).then(function (result) {
+    this.api('/messages', {
+      method: 'POST',
+      body: { text: text, reply_to_message_id: replyTo ? replyTo.id : null }
+    }).then(function (result) {
       if (result.ok) {
         var data = result.body.data || {};
         if (data.id && data.id > self.lastMessageId) self.lastMessageId = data.id;
+        // The poll only asks for messages *after* this one, so it will never
+        // send it back — stamping the confirmed id here is what makes the
+        // visitor's own bubble reactable, quotable and markable as seen.
+        if (data.id && row) row.setAttribute('data-optz-id', String(data.id));
         self.hasConversation = true;
         self.poll();
         return;
@@ -660,6 +1069,7 @@
 
       incoming.forEach(function (message) { self.appendMessage(message); });
 
+      self.applyReactions(data.reactions);
       self.applySeenMarker(data.seen_until_id);
 
       if (incoming.length) self.scrollToBottom();
