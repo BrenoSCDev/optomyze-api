@@ -36,7 +36,7 @@ class AiAgentPreviewService
     {
         $agent = new AiAgent([
             'name' => $config['name'] ?? 'Preview Agent',
-            'provider' => $config['provider'] ?? AiAgent::PROVIDER_OPENAI,
+            'provider' => $config['provider'] ?? LlmProviderRegistry::defaultKey(),
             'model' => $config['model'],
             'temperature' => $config['temperature'],
             'max_tokens' => $config['max_tokens'],
@@ -49,7 +49,9 @@ class AiAgentPreviewService
         $provider = AiProviderFactory::forAgent($agent);
 
         if (!$provider) {
-            throw new AiProviderException('The OpenAI integration is not connected.');
+            $label = LlmProviderRegistry::config($agent->provider, 'label', $agent->provider);
+
+            throw new AiProviderException("The {$label} integration is not connected.");
         }
 
         $context = $this->previewContext($agent, $companyId);

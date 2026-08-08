@@ -8,7 +8,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
-class OpenAiIntegration extends Model
+/**
+ * A company's account with one LLM vendor (OpenAI, Gemini, Claude...).
+ *
+ * One table keyed by `provider`, the same shape signature vendors use — the
+ * driver's capabilities live in config/llm.php, only the credentials live here.
+ */
+class LlmProviderAccount extends Model
 {
     use HasCompanyTimezone;
 
@@ -16,11 +22,12 @@ class OpenAiIntegration extends Model
     public const CONNECTION_CONNECTED = 'connected';
     public const CONNECTION_ERROR = 'error';
 
-    protected $table = 'openai_integrations';
+    protected $table = 'llm_provider_accounts';
 
     protected $fillable = [
-        'name',
         'company_id',
+        'provider',
+        'name',
         'api_key',
         'organization_id',
         'connection_status',
@@ -42,9 +49,13 @@ class OpenAiIntegration extends Model
 
     protected static function booted(): void
     {
-        static::creating(function (self $integration) {
-            if (empty($integration->connection_status)) {
-                $integration->connection_status = self::CONNECTION_NOT_CONFIGURED;
+        static::creating(function (self $account) {
+            if (empty($account->connection_status)) {
+                $account->connection_status = self::CONNECTION_NOT_CONFIGURED;
+            }
+
+            if (empty($account->name)) {
+                $account->name = config("llm.providers.{$account->provider}.label", $account->provider);
             }
         });
     }
@@ -64,12 +75,28 @@ class OpenAiIntegration extends Model
         return $query->where('company_id', $companyId);
     }
 
-    public static function validateConfig(array $data)
+    public function scopeForProvider($query, string $provider)
     {
-        $validator = Validator::make($data, [
-            'api_key' => ['required', 'string', 'max:512'],
-            'organization_id' => ['nullable', 'string', 'max:255'],
-        ]);
+        return $query->where('provider', $provider);
+    }
+
+    /**
+     * Validate credentials against the field list the driver declares, so a
+     * vendor that needs a different set doesn't need a rule change here.
+     */
+    public static function validateConfig(string $provider, array $data): array
+    {
+        $rules = [];
+
+        foreach ((array) config("llm.providers.{$provider}.credential_fields", []) as $field) {
+            $rules[$field['key']] = [
+                ($field['required'] ?? false) ? 'required' : 'nullable',
+                'string',
+                'max:512',
+            ];
+        }
+
+        $validator = Validator::make($data, $rules);
 
         if ($validator->fails()) {
             throw new ValidationException($validator);

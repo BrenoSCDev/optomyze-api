@@ -2,12 +2,12 @@
 
 namespace App\Services\Ai\Dto;
 
-use App\Models\OpenAiIntegration;
+use App\Models\LlmProviderAccount;
 
 /**
  * Which OpenAI account a request is billed to.
  *
- * The provider used to take an OpenAiIntegration directly, which tied it to
+ * The provider used to take the integration model directly, which tied it to
  * per-company keys. Optus is an Optomyze product feature rather than a tenant
  * integration, so it bills to the platform key in OPENAI_API_KEY — the same
  * provider, a different account.
@@ -20,9 +20,9 @@ class OpenAiCredentials
     ) {
     }
 
-    public static function fromIntegration(OpenAiIntegration $integration): self
+    public static function fromAccount(LlmProviderAccount $account): self
     {
-        return new self($integration->api_key, $integration->organization_id);
+        return new self($account->api_key, $account->organization_id);
     }
 
     /**

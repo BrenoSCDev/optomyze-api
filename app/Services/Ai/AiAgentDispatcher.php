@@ -8,7 +8,6 @@ use App\Models\AiAgent;
 use App\Models\ChatSession;
 use App\Models\InboxChat;
 use App\Models\InboxMessage;
-use App\Models\OpenAiIntegration;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -87,12 +86,6 @@ class AiAgentDispatcher
 
     public static function providerUsable(AiAgent $agent): bool
     {
-        if ($agent->provider !== AiAgent::PROVIDER_OPENAI) {
-            return false;
-        }
-
-        $integration = OpenAiIntegration::fromCompany($agent->company_id)->active()->first();
-
-        return $integration !== null && $integration->isUsable();
+        return AiProviderFactory::isUsable($agent->company_id, (string) $agent->provider);
     }
 }

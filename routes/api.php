@@ -33,7 +33,7 @@ use App\Http\Controllers\MetaAdsIntegrationController;
 use App\Http\Controllers\MetricsController;
 use App\Http\Controllers\N8nAgentController;
 use App\Http\Controllers\N8nIntegrationController;
-use App\Http\Controllers\OpenAiIntegrationController;
+use App\Http\Controllers\LlmProviderController;
 use App\Http\Controllers\ProductImageController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\DocumentController;
@@ -539,13 +539,28 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/instagram/disconnect', [InstagramIntegrationController::class, 'disconnectAccount']);
         Route::put('/instagram/funnel', [InstagramIntegrationController::class, 'updateFunnel']);
 
-        // OpenAI (ChatGPT) Integration
-        Route::post('/openai', [OpenAiIntegrationController::class, 'createIntegration']);
-        Route::get('/openai', [OpenAiIntegrationController::class, 'show']);
-        Route::put('/openai/configure', [OpenAiIntegrationController::class, 'configure']);
-        Route::post('/openai/test-connection', [OpenAiIntegrationController::class, 'testConnection']);
-        Route::get('/openai/models', [OpenAiIntegrationController::class, 'listModels']);
-        Route::post('/openai/disconnect', [OpenAiIntegrationController::class, 'disconnect']);
+        /*
+         * LLM providers (OpenAI, Gemini, Claude) powering AI Agents.
+         *
+         * Provider-neutral: {provider} is constrained to the drivers declared
+         * in config/llm.php, so registering a vendor there gives it this whole
+         * surface with no change here.
+         */
+        Route::get('/llm', [LlmProviderController::class, 'index']);
+
+        Route::prefix('llm/{provider}')
+            // Set before group(): a where() chained *after* group() applies to
+            // later definitions, not to the routes just registered — which
+            // silently lets any {provider} value through.
+            ->where(['provider' => implode('|', array_keys((array) config('llm.providers', [])))])
+            ->group(function () {
+                Route::post('/', [LlmProviderController::class, 'install']);
+                Route::get('/', [LlmProviderController::class, 'show']);
+                Route::put('/configure', [LlmProviderController::class, 'configure']);
+                Route::post('/test-connection', [LlmProviderController::class, 'testConnection']);
+                Route::get('/models', [LlmProviderController::class, 'models']);
+                Route::post('/disconnect', [LlmProviderController::class, 'disconnect']);
+            });
 
         // Facebook Messenger Integration (Facebook Graph API, Page access token)
         Route::post('/facebook', [FacebookMessengerIntegrationController::class, 'createIntegration']);

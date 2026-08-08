@@ -5,9 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\AiAgent;
 use App\Models\AiAgentChannelBinding;
 use App\Models\InstagramIntegration;
-use App\Models\OpenAiIntegration;
 use App\Models\WhatsAppInstance;
 use App\Models\Widget;
+use App\Services\Ai\AiProviderFactory;
+use App\Services\Ai\LlmProviderRegistry;
 use App\Services\Ai\Tools\ToolRegistry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -87,14 +88,13 @@ class AiAgentController extends Controller
             'status' => ['required', Rule::in([AiAgent::STATUS_ENABLED, AiAgent::STATUS_DISABLED])],
         ]);
 
-        if ($validated['status'] === AiAgent::STATUS_ENABLED) {
-            $integration = OpenAiIntegration::fromCompany($user->company_id)->active()->first();
+        if ($validated['status'] === AiAgent::STATUS_ENABLED
+            && !AiProviderFactory::isUsable($user->company_id, (string) $agent->provider)) {
+            $label = LlmProviderRegistry::config($agent->provider, 'label', $agent->provider);
 
-            if (!$integration || !$integration->isUsable()) {
-                return response()->json([
-                    'message' => 'The OpenAI integration must be installed and connected before enabling an agent.',
-                ], 422);
-            }
+            return response()->json([
+                'message' => "The {$label} integration must be installed and connected before enabling an agent.",
+            ], 422);
         }
 
         $agent->update(['status' => $validated['status']]);
@@ -260,7 +260,7 @@ class AiAgentController extends Controller
 
         $validated = $request->validate([
             'config' => ['required', 'array'],
-            'config.provider' => ['required', Rule::in([AiAgent::PROVIDER_OPENAI])],
+            'config.provider' => ['required', Rule::in(LlmProviderRegistry::keys())],
             'config.model' => ['required', 'string', 'max:100'],
             'config.temperature' => ['required', 'numeric', 'min:0', 'max:2'],
             'config.max_tokens' => ['required', 'integer', 'min:64', 'max:16000'],
@@ -307,7 +307,7 @@ class AiAgentController extends Controller
         return $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:2000'],
-            'provider' => ['required', Rule::in([AiAgent::PROVIDER_OPENAI])],
+            'provider' => ['required', Rule::in(LlmProviderRegistry::keys())],
             'model' => ['required', 'string', 'max:100'],
             'temperature' => ['required', 'numeric', 'min:0', 'max:2'],
             'max_tokens' => ['required', 'integer', 'min:64', 'max:16000'],

@@ -8,10 +8,11 @@ use App\Models\GoogleAdsIntegration;
 use App\Models\InstagramIntegration;
 use App\Models\MetaAdsIntegration;
 use App\Models\N8nIntegration;
-use App\Models\OpenAiIntegration;
+use App\Models\LlmProviderAccount;
 use App\Models\WhatsAppEvoIntegration;
 use App\Models\SignatureProviderAccount;
 use App\Models\WhatsAppInstance;
+use App\Services\Ai\LlmProviderRegistry;
 use App\Services\Signatures\SignatureProviderRegistry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -42,7 +43,6 @@ class IntegrationController extends Controller
             'optomyze_erp'   => OptomyzeErpIntegration::class,
             'instagram' => InstagramIntegration::class,
             'facebook' => FacebookMessengerIntegration::class,
-            'openai' => OpenAiIntegration::class,
         ];
 
         $availability = [];
@@ -59,6 +59,16 @@ class IntegrationController extends Controller
         foreach (WidgetIntegration::TYPES as $type) {
             $availability[$type . '_widget_available'] = WidgetIntegration::fromCompany($user->company_id)
                 ->ofType($type)
+                ->active()
+                ->exists();
+        }
+
+        // LLM vendors share one table keyed by provider. Driven off the
+        // registry, so a driver added to config/llm.php gets its card lit up
+        // without an edit here.
+        foreach (LlmProviderRegistry::keys() as $provider) {
+            $availability[$provider . '_available'] = LlmProviderAccount::fromCompany($user->company_id)
+                ->forProvider($provider)
                 ->active()
                 ->exists();
         }

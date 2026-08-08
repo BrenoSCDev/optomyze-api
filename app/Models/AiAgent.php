@@ -14,7 +14,13 @@ class AiAgent extends Model
     public const STATUS_ENABLED = 'enabled';
     public const STATUS_DISABLED = 'disabled';
 
+    /*
+     * Provider keys are the driver keys in config/llm.php — that registry is
+     * the source of truth, so there is deliberately no enum of them here.
+     */
     public const PROVIDER_OPENAI = 'openai';
+    public const PROVIDER_GEMINI = 'gemini';
+    public const PROVIDER_CLAUDE = 'claude';
 
     public const MIN_RESPONSE_DELAY_SECONDS = 10;
 

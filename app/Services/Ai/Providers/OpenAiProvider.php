@@ -8,12 +8,12 @@ use App\Services\Ai\Dto\AiChatRequest;
 use App\Services\Ai\Dto\AiChatResponse;
 use App\Services\Ai\Dto\AiToolCall;
 use App\Services\Ai\Dto\OpenAiCredentials;
+use App\Services\Ai\LlmProviderRegistry;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class OpenAiProvider implements AiProviderInterface
 {
-    private const API_BASE = 'https://api.openai.com/v1';
     private const TRANSCRIPTION_MODEL = 'gpt-4o-mini-transcribe';
 
     public function __construct(private readonly OpenAiCredentials $credentials)
@@ -43,7 +43,7 @@ class OpenAiProvider implements AiProviderInterface
 
         $response = $this->http()
             ->timeout(90)
-            ->post(self::API_BASE . '/chat/completions', $body);
+            ->post($this->baseUrl() . '/chat/completions', $body);
 
         if (!$response->successful()) {
             throw new AiProviderException(
@@ -85,7 +85,7 @@ class OpenAiProvider implements AiProviderInterface
             $response = $this->http()
                 ->timeout(60)
                 ->attach('file', file_get_contents($absolutePath), 'audio.' . $extension)
-                ->post(self::API_BASE . '/audio/transcriptions', [
+                ->post($this->baseUrl() . '/audio/transcriptions', [
                     'model' => self::TRANSCRIPTION_MODEL,
                 ]);
 
@@ -108,6 +108,11 @@ class OpenAiProvider implements AiProviderInterface
 
             return null;
         }
+    }
+
+    private function baseUrl(): string
+    {
+        return rtrim((string) LlmProviderRegistry::config('openai', 'api_base'), '/');
     }
 
     private function http()
