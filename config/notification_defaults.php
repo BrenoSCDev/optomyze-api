@@ -48,6 +48,31 @@ return [
             'enabled' => true,
             'priority' => 'normal',
         ],
+
+        /*
+         * Document lifecycle.
+         *
+         * Only the outcomes nobody in the CRM can see coming are on by
+         * default — the counterparty signing, refusing, or letting the
+         * deadline pass. `document_sent` is off because the person who would
+         * be notified is the person who just clicked Send.
+         */
+        'document_signed' => [
+            'enabled' => true,
+            'priority' => 'high',
+        ],
+        'document_rejected' => [
+            'enabled' => true,
+            'priority' => 'high',
+        ],
+        'document_expired' => [
+            'enabled' => true,
+            'priority' => 'high',
+        ],
+        'document_sent' => [
+            'enabled' => false,
+            'priority' => 'low',
+        ],
     ],
 
     'quiet_hours' => [

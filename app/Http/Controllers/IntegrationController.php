@@ -10,7 +10,9 @@ use App\Models\MetaAdsIntegration;
 use App\Models\N8nIntegration;
 use App\Models\OpenAiIntegration;
 use App\Models\WhatsAppEvoIntegration;
+use App\Models\SignatureProviderAccount;
 use App\Models\WhatsAppInstance;
+use App\Services\Signatures\SignatureProviderRegistry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Funnel;
@@ -57,6 +59,17 @@ class IntegrationController extends Controller
         foreach (WidgetIntegration::TYPES as $type) {
             $availability[$type . '_widget_available'] = WidgetIntegration::fromCompany($user->company_id)
                 ->ofType($type)
+                ->active()
+                ->exists();
+        }
+
+        // Signature providers share one table keyed by provider, the same way
+        // widgets share one keyed by type. Driven off the registry so a new
+        // driver in config/signatures.php gets its availability flag without
+        // an edit here.
+        foreach (app(SignatureProviderRegistry::class)->keys() as $provider) {
+            $availability[$provider . '_available'] = SignatureProviderAccount::fromCompany($user->company_id)
+                ->forProvider($provider)
                 ->active()
                 ->exists();
         }

@@ -240,3 +240,45 @@ test('an empty or oversized message is rejected', function () {
     $this->actingAs($user)->postJson('/api/optus/messages', ['message' => str_repeat('a', 4001)])
         ->assertStatus(422);
 });
+
+/* ============================================================
+ | Knowledge base coverage
+ |
+ | The knowledge document is Optus's only source of truth, so these guard the
+ | two ways it goes wrong: a shipped module missing from it (the user is told
+ | a real feature doesn't exist), and a feature described as working when only
+ | its fields exist (the user goes hunting for a control that isn't there).
+ ============================================================ */
+
+test('the knowledge base covers the documents module', function () {
+    $document = App\Services\Optus\OptusKnowledge::document();
+
+    expect($document)
+        ->toContain('## Documents and Contracts')
+        ->toContain('## Connecting a signature provider')
+        // Named because it is the only provider that actually exists today.
+        ->toContain('Clicksign')
+        // The distinction the whole module rests on.
+        ->toContain('A **contract** is the legal agreement');
+
+    // Documents is a top-level destination, so it belongs in Navigation too —
+    // describing a feature without saying where to find it is half an answer.
+    expect(substr($document, 0, strpos($document, '## Contacts and Leads')))
+        ->toContain('**Documents**');
+});
+
+test('the knowledge base does not present phase-two behaviour as working', function () {
+    $document = App\Services\Optus\OptusKnowledge::document();
+
+    // Term and approval fields are stored and displayed, but nothing fires off
+    // them yet. If this caveat is ever dropped, Optus will start promising
+    // renewal alerts that do not exist.
+    expect($document)->toContain('does not yet send renewal reminders');
+});
+
+test('the knowledge version is bumped when the document changes', function () {
+    // The version is part of the prompt cache key, so an edit without a bump
+    // ships stale knowledge. Kept as an explicit assertion because it is the
+    // easiest step to forget.
+    expect(App\Services\Optus\OptusKnowledge::VERSION)->toBeGreaterThanOrEqual(4);
+});

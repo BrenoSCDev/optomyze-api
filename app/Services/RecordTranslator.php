@@ -283,6 +283,58 @@ class RecordTranslator
                 'ES' => 'Documento Añadido',
                 'DE' => 'Dokument Hinzugefügt',
             ],
+
+            // Digital signature lifecycle. Provider-neutral wording on
+            // purpose — the vendor's name belongs in the request detail, not
+            // on the record timeline.
+            'Lead.signature.sent' => [
+                'EN' => 'Sent for Signature',
+                'PT' => 'Enviado para Assinatura',
+                'ES' => 'Enviado para Firma',
+                'DE' => 'Zur Signatur Gesendet',
+            ],
+            'Sale.signature.sent' => [
+                'EN' => 'Sent for Signature',
+                'PT' => 'Enviado para Assinatura',
+                'ES' => 'Enviado para Firma',
+                'DE' => 'Zur Signatur Gesendet',
+            ],
+            'Lead.signature.completed' => [
+                'EN' => 'Document Signed',
+                'PT' => 'Documento Assinado',
+                'ES' => 'Documento Firmado',
+                'DE' => 'Dokument Signiert',
+            ],
+            'Sale.signature.completed' => [
+                'EN' => 'Document Signed',
+                'PT' => 'Documento Assinado',
+                'ES' => 'Documento Firmado',
+                'DE' => 'Dokument Signiert',
+            ],
+            'Lead.signature.refused' => [
+                'EN' => 'Signature Refused',
+                'PT' => 'Assinatura Recusada',
+                'ES' => 'Firma Rechazada',
+                'DE' => 'Signatur Abgelehnt',
+            ],
+            'Sale.signature.refused' => [
+                'EN' => 'Signature Refused',
+                'PT' => 'Assinatura Recusada',
+                'ES' => 'Firma Rechazada',
+                'DE' => 'Signatur Abgelehnt',
+            ],
+            'Lead.signature.canceled' => [
+                'EN' => 'Signature Canceled',
+                'PT' => 'Assinatura Cancelada',
+                'ES' => 'Firma Cancelada',
+                'DE' => 'Signatur Abgebrochen',
+            ],
+            'Sale.signature.canceled' => [
+                'EN' => 'Signature Canceled',
+                'PT' => 'Assinatura Cancelada',
+                'ES' => 'Firma Cancelada',
+                'DE' => 'Signatur Abgebrochen',
+            ],
         ];
     }
 
@@ -551,6 +603,55 @@ class RecordTranslator
                 'PT' => "Documento '{documentTitle}' anexado a '{dealName}'",
                 'ES' => "Documento '{documentTitle}' adjuntado a '{dealName}'",
                 'DE' => "Dokument '{documentTitle}' an '{dealName}' angehängt",
+            ],
+
+            'Lead.signature.sent' => [
+                'EN' => "'{documentTitle}' sent to {signerCount} signer(s) for {leadName}",
+                'PT' => "'{documentTitle}' enviado para {signerCount} signatário(s) de {leadName}",
+                'ES' => "'{documentTitle}' enviado a {signerCount} firmante(s) de {leadName}",
+                'DE' => "'{documentTitle}' an {signerCount} Unterzeichner von {leadName} gesendet",
+            ],
+            'Sale.signature.sent' => [
+                'EN' => "'{documentTitle}' sent to {signerCount} signer(s) for '{dealName}'",
+                'PT' => "'{documentTitle}' enviado para {signerCount} signatário(s) de '{dealName}'",
+                'ES' => "'{documentTitle}' enviado a {signerCount} firmante(s) de '{dealName}'",
+                'DE' => "'{documentTitle}' an {signerCount} Unterzeichner von '{dealName}' gesendet",
+            ],
+            'Lead.signature.completed' => [
+                'EN' => "'{documentTitle}' fully signed for {leadName}",
+                'PT' => "'{documentTitle}' totalmente assinado para {leadName}",
+                'ES' => "'{documentTitle}' totalmente firmado para {leadName}",
+                'DE' => "'{documentTitle}' vollständig signiert für {leadName}",
+            ],
+            'Sale.signature.completed' => [
+                'EN' => "'{documentTitle}' fully signed for '{dealName}'",
+                'PT' => "'{documentTitle}' totalmente assinado para '{dealName}'",
+                'ES' => "'{documentTitle}' totalmente firmado para '{dealName}'",
+                'DE' => "'{documentTitle}' vollständig signiert für '{dealName}'",
+            ],
+            'Lead.signature.refused' => [
+                'EN' => "A signer refused '{documentTitle}' for {leadName}",
+                'PT' => "Um signatário recusou '{documentTitle}' de {leadName}",
+                'ES' => "Un firmante rechazó '{documentTitle}' de {leadName}",
+                'DE' => "Ein Unterzeichner hat '{documentTitle}' von {leadName} abgelehnt",
+            ],
+            'Sale.signature.refused' => [
+                'EN' => "A signer refused '{documentTitle}' for '{dealName}'",
+                'PT' => "Um signatário recusou '{documentTitle}' de '{dealName}'",
+                'ES' => "Un firmante rechazó '{documentTitle}' de '{dealName}'",
+                'DE' => "Ein Unterzeichner hat '{documentTitle}' von '{dealName}' abgelehnt",
+            ],
+            'Lead.signature.canceled' => [
+                'EN' => "'{documentTitle}' was canceled for {leadName}",
+                'PT' => "'{documentTitle}' foi cancelado para {leadName}",
+                'ES' => "'{documentTitle}' fue cancelado para {leadName}",
+                'DE' => "'{documentTitle}' wurde für {leadName} abgebrochen",
+            ],
+            'Sale.signature.canceled' => [
+                'EN' => "'{documentTitle}' was canceled for '{dealName}'",
+                'PT' => "'{documentTitle}' foi cancelado para '{dealName}'",
+                'ES' => "'{documentTitle}' fue cancelado para '{dealName}'",
+                'DE' => "'{documentTitle}' wurde für '{dealName}' abgebrochen",
             ],
         ];
     }

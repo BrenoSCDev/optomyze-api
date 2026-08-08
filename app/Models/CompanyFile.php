@@ -29,6 +29,19 @@ class CompanyFile extends Model
     public const CATEGORY_PROFILE_PICTURE  = 'profile_picture';
     public const CATEGORY_COMPANY_BRANDING = 'company_branding';
 
+    /** Contracts sent for signature, and the signed copies pulled back. */
+    public const CATEGORY_SIGNATURE_DOCUMENT = 'signature_document';
+
+    /**
+     * Logos, signatures, stamps and letterheads placed in a document template.
+     *
+     * Its own category rather than company_branding: these are referenced by
+     * template bodies, so "what would I break by deleting this" has a
+     * different answer, and they are inlined into every generated PDF, so
+     * their weight is worth seeing separately in the usage breakdown.
+     */
+    public const CATEGORY_DOCUMENT_ASSET = 'document_asset';
+
     public const CATEGORIES = [
         self::CATEGORY_WHATSAPP_MEDIA,
         self::CATEGORY_INSTAGRAM_MEDIA,
@@ -38,6 +51,8 @@ class CompanyFile extends Model
         self::CATEGORY_PRODUCT_IMAGE,
         self::CATEGORY_PROFILE_PICTURE,
         self::CATEGORY_COMPANY_BRANDING,
+        self::CATEGORY_SIGNATURE_DOCUMENT,
+        self::CATEGORY_DOCUMENT_ASSET,
     ];
 
     protected $fillable = [

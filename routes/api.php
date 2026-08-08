@@ -36,6 +36,11 @@ use App\Http\Controllers\N8nIntegrationController;
 use App\Http\Controllers\OpenAiIntegrationController;
 use App\Http\Controllers\ProductImageController;
 use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\DocumentSettingsController;
+use App\Http\Controllers\DocumentTemplateController;
+use App\Http\Controllers\SignatureProviderController;
+use App\Http\Controllers\SignatureWebhookController;
 use App\Http\Controllers\StageController;
 use App\Http\Controllers\TagController;
 use App\Http\Controllers\TaskActivityController;
@@ -474,6 +479,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{integrationKey}', [WidgetIntegrationController::class, 'createIntegration'])
             ->where('integrationKey', 'form-widget|chat-widget');
 
+        /*
+         * Digital signature providers, installed like every other card in the
+         * marketplace. The constraint is built from the registered drivers, so
+         * adding a provider to config/signatures.php gives it an install route
+         * with no change here — and a key that is not a registered driver
+         * falls through to the other routes instead of being swallowed.
+         */
+        Route::post('/{provider}', [SignatureProviderController::class, 'install'])
+            ->where('provider', implode('|', array_keys((array) config('signatures.providers', []))));
+
         // N8N Integrations
         Route::post('/n8n-integrations', [N8nIntegrationController::class, 'createIntegration']);
         Route::put('/n8n-integrations/configure', [N8nIntegrationController::class, 'configure']);
@@ -687,6 +702,90 @@ Route::middleware('auth:sanctum')->group(function () {
 
     /*
     |--------------------------------------------------------------------------
+    | Digital Signature Routes
+    |--------------------------------------------------------------------------
+    |
+    | Provider-neutral: {provider} is a driver key from config/signatures.php,
+    | resolved through SignatureProviderRegistry. Adding a vendor adds no
+    | route here.
+    |
+    */
+    Route::get('/signatures/providers', [SignatureProviderController::class, 'index']);
+    Route::get('/signatures/providers/{provider}', [SignatureProviderController::class, 'show']);
+    Route::put('/signatures/providers/{provider}', [SignatureProviderController::class, 'configure']);
+    Route::post('/signatures/providers/{provider}/test', [SignatureProviderController::class, 'test']);
+    Route::delete('/signatures/providers/{provider}', [SignatureProviderController::class, 'disconnect']);
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Documents (contracts, proposals, quotes, NDAs)
+    |--------------------------------------------------------------------------
+    |
+    | A contract is a document whose type sits in the `contract` category, so
+    | these routes serve every document kind. Signing is a stage of a
+    | document's life and lives under /documents/{id}/send — there is no
+    | standalone signature-request API.
+    |
+    | Authorization is enforced server-side in DocumentAuthorizer rather than
+    | by route middleware: the CRM's `permission:` middleware and its tables
+    | were dropped in 2026_04_16, so role checks are the mechanism that
+    | actually exists. See that class for the seam.
+    |
+    */
+    Route::get('/documents/variables/registry', [DocumentSettingsController::class, 'variableRegistry']);
+
+    Route::get('/documents', [DocumentController::class, 'index']);
+    Route::post('/documents', [DocumentController::class, 'store']);
+    Route::get('/documents/{id}', [DocumentController::class, 'show']);
+    Route::put('/documents/{id}', [DocumentController::class, 'update']);
+    Route::delete('/documents/{id}', [DocumentController::class, 'destroy']);
+    Route::post('/documents/{id}/generate', [DocumentController::class, 'generate']);
+    Route::post('/documents/{id}/send', [DocumentController::class, 'send']);
+    Route::post('/documents/{id}/cancel', [DocumentController::class, 'cancel']);
+    Route::patch('/documents/{id}/status', [DocumentController::class, 'updateStatus']);
+    Route::get('/documents/{id}/history', [DocumentController::class, 'history']);
+    Route::get('/documents/{id}/versions', [DocumentController::class, 'versions']);
+    Route::get('/documents/{id}/versions/{versionId}/preview', [DocumentController::class, 'versionPreview']);
+    Route::get('/documents/{id}/download', [DocumentController::class, 'download']);
+    Route::get('/documents/{id}/versions/{versionId}/download', [DocumentController::class, 'download']);
+
+    Route::get('/document-templates', [DocumentTemplateController::class, 'index']);
+    Route::post('/document-templates', [DocumentTemplateController::class, 'store']);
+    Route::get('/document-templates/{id}', [DocumentTemplateController::class, 'show']);
+    Route::put('/document-templates/{id}', [DocumentTemplateController::class, 'update']);
+    Route::delete('/document-templates/{id}', [DocumentTemplateController::class, 'destroy']);
+    Route::post('/document-templates/{id}/publish', [DocumentTemplateController::class, 'publish']);
+    Route::post('/document-templates/{id}/preview', [DocumentTemplateController::class, 'preview']);
+
+    // Template revision history — the author's undo. Generated documents
+    // already snapshot their own body, so this protects the template, not the
+    // contracts made from it.
+    Route::get('/document-templates/{id}/revisions', [DocumentTemplateController::class, 'revisions']);
+    Route::post('/document-templates/{id}/revisions/{revisionId}/restore',
+        [DocumentTemplateController::class, 'restoreRevision']);
+
+    // Export the wording itself, as PDF or a real .docx. Produces no
+    // document and burns no contract number — this is a copy of the template.
+    Route::get('/document-templates/{id}/download', [DocumentTemplateController::class, 'download']);
+
+    // Images placed in a template. Stored through CompanyStorage and
+    // referenced by URL; inlined as data URIs only at generation time.
+    Route::post('/document-assets', [DocumentTemplateController::class, 'uploadAsset']);
+
+    Route::get('/document-types', [DocumentSettingsController::class, 'types']);
+    Route::post('/document-types', [DocumentSettingsController::class, 'storeType']);
+    Route::put('/document-types/{id}', [DocumentSettingsController::class, 'updateType']);
+    Route::delete('/document-types/{id}', [DocumentSettingsController::class, 'destroyType']);
+
+    Route::get('/document-variables', [DocumentSettingsController::class, 'variables']);
+    Route::post('/document-variables', [DocumentSettingsController::class, 'storeVariable']);
+    Route::put('/document-variables/{id}', [DocumentSettingsController::class, 'updateVariable']);
+    Route::delete('/document-variables/{id}', [DocumentSettingsController::class, 'destroyVariable']);
+
+
+    /*
+    |--------------------------------------------------------------------------
     | Lead Companies Routes
     |--------------------------------------------------------------------------
     */
@@ -848,6 +947,22 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::get('/signed-media/{path}', [FileController::class, 'serveSigned'])
     ->where('path', '.*')
     ->name('files.signed')
+    ->middleware(\Illuminate\Routing\Middleware\ValidateSignature::relative());
+
+/*
+| Document template assets — logos, signature images, stamps, letterheads.
+|
+| Same reasoning as signed-media above, and the same relative signature for
+| the same proxy reason. The editor renders these in <img> tags, which cannot
+| carry an auth header, so the signature is the credential.
+|
+| The path is additionally confined to `documents/{company}/assets/` in the
+| controller: a signature proves the URL came from us, not that the file
+| behind it is one this route should ever serve.
+*/
+Route::get('/documents/assets/{path}', [DocumentTemplateController::class, 'showAsset'])
+    ->where('path', '[A-Za-z0-9+/=]+')
+    ->name('documents.asset')
     ->middleware(\Illuminate\Routing\Middleware\ValidateSignature::relative());
 
 
@@ -1014,6 +1129,11 @@ Route::post('/whatsapp-evo-chat', [InboxController::class, 'handleEvolutionWebho
 // Instagram Graph API webhook (called directly by Meta - no CRM session/JWT)
 Route::get('/integrations/instagram/webhook/{webhookCallbackId}', [InstagramIntegrationController::class, 'verifyWebhook']);
 Route::post('/integrations/instagram/webhook/{webhookCallbackId}', [InstagramIntegrationController::class, 'receiveWebhook']);
+
+// Digital signature webhooks (called directly by the vendor - no CRM session/JWT).
+// The callback UUID resolves the tenant; the vendor's signature over the raw
+// body authenticates the delivery. One route serves every provider.
+Route::post('/signatures/webhook/{provider}/{callbackId}', [SignatureWebhookController::class, 'handle']);
 
 // Facebook Graph API webhook (called directly by Meta - no CRM session/JWT)
 Route::get('/integrations/facebook/webhook/{webhookCallbackId}', [FacebookMessengerIntegrationController::class, 'verifyWebhook']);

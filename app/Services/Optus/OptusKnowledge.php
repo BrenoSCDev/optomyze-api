@@ -25,7 +25,7 @@ class OptusKnowledge
      * Bumped whenever the document changes. Part of the prompt cache key, so
      * an edit here takes effect without a manual cache flush.
      */
-    public const VERSION = 3;
+    public const VERSION = 4;
 
     public static function document(): string
     {
@@ -51,6 +51,7 @@ its collapsed/expanded state is remembered between sessions.
 - **Contacts** — every contact in the company.
 - **Inbox** — the Global Inbox, all customer conversations.
 - **Calendar** — appointments.
+- **Documents** — contracts, proposals and NDAs.
 - **App Store** — integrations and widgets.
 
 **Expandable sections:**
@@ -109,10 +110,125 @@ deal is normally linked to the contact it belongs to.
 A deal record carries: name, value/total, currency, pricing model, status,
 funnel and stage, an owner, and its linked contact.
 
-Deal detail view includes tabs for **Notes**, **Tasks**, **Appointments** and
-**Conversation**. Appointments and Conversation belong to the *contact* behind
-the deal — you meet a person, not an opportunity — so they show that contact's
-appointments and message history. Notes and Tasks belong to the deal itself.
+Deal detail view includes tabs for **Notes**, **Tasks**, **Documents**,
+**Appointments** and **Conversation**. Appointments and Conversation belong to
+the *contact* behind the deal — you meet a person, not an opportunity — so they
+show that contact's appointments and message history. Notes, Tasks and
+Documents belong to the deal itself.
+
+## Documents and Contracts
+
+A **deal** is an opportunity. A **contract** is the legal agreement that results
+from it. They are different records, and a contract is not just an attached
+file — it has its own number, type, status, owner, value and version history.
+
+Everything in this module is a **document**. A contract is a document whose type
+is a contract type; proposals, quotes and NDAs are documents of other types, in
+the same place and with the same tools.
+
+Reachable from the **Documents** sidebar link, and from the **Documents** tab on
+any contact or deal.
+
+### The Documents screen
+
+Two tabs:
+- **Board** — a Kanban of every document by status.
+- **Templates** — the reusable bodies documents are generated from.
+
+### Document types
+
+Each company starts with a seeded set that can be edited or extended: Service
+Agreement, Sales Agreement, NDA, Employment, Rental, Maintenance, Consulting,
+Subscription, and Commercial Proposal. A type decides whether documents of that
+kind need signing, and can carry a default template.
+
+### Numbering
+
+Every document gets a number automatically when it is created, in the form
+`CTR-2026-0001`. The prefix reflects the kind of document. The number never
+changes and is never reused, including after cancellation.
+
+### Status
+
+- **Draft** — being prepared.
+- **Pending approval** — waiting on internal approval.
+- **Ready to send** — generated, not yet sent to anyone outside.
+- **Awaiting signature** — with the signature provider, nobody has signed.
+- **Partially signed** — some signers done, others outstanding.
+- **Signed** — everyone signed and the provider finalised it.
+- **Rejected** — a signer declined.
+- **Expired** — the signing deadline passed.
+- **Cancelled** — withdrawn.
+- **Archived** — filed away.
+
+On the board, cards can only be dragged between Draft, Pending approval and
+Ready to send (and to cancelled/archived). Awaiting signature onward is set by
+the signature provider as signers act, so those columns do not accept a dragged
+card — this is deliberate, not a bug.
+
+### Versions
+
+Generating a document produces a numbered version with its own PDF. Generating
+again produces a **new** version; earlier versions are never overwritten and
+stay downloadable exactly as they were. A document out for signature cannot be
+regenerated — cancel it first.
+
+Each version also stores the template wording as it was at that moment, so
+editing a template later never changes documents already generated from it.
+
+### Templates and variables
+
+Templates hold the wording, written once and reused. A template must be
+**published** before documents can be generated from it, and only Admins and
+Managers can create, edit or publish templates — Agents use them but do not
+write them.
+
+A template body can pull live CRM data in place of typed text: the contact's
+name and address, the customer company's details, the deal's value and its
+product lines, the salesperson, today's date, and company-wide constants the
+company defines itself. The template editor has a picker listing every available
+value, which inserts it where the cursor is, plus a preview.
+
+Templates can also vary their own content: include or omit a clause depending on
+a value (for example a different clause above a certain deal value), and repeat
+a block once per product line to build a price table from the deal.
+
+### Sending for signature
+
+From the document, once it has been generated. Signers are chosen at the moment
+of sending rather than stored on the document, because who signs can differ each
+time it is sent.
+
+For each signer: name, email, phone, tax ID, a **signing order** number, and
+which identity checks they must pass. Signers with the same order number sign in
+parallel; a higher number waits for the lower ones to finish. A deadline and
+reminder interval can be set for the whole request.
+
+Before anything is sent, Optomyze checks the details against the signature
+provider's own rules and reports what to fix.
+
+### After signing
+
+When every signer has signed, the document becomes **Signed**, the signed PDF is
+stored in Optomyze, and an entry appears on the contact's and deal's timelines.
+
+If the document is a contract and its deal is still open, that **deal is moved
+to Won automatically**. Proposals and quotes do not close a deal, and a deal
+already marked won or lost is left alone.
+
+### Term and approval fields
+
+A document can record a start date, end date, renewal date, renewal frequency
+and notice period, and shows them on the record. These are stored and displayed
+for reference — Optomyze does not yet send renewal reminders or run an approval
+workflow from them. If a user asks for automatic renewal alerts or an approval
+chain, say those are not available yet rather than describing the fields as if
+they trigger something.
+
+### What Optus cannot do here
+
+Optus cannot create, generate, send or cancel a document, and cannot write a
+template. Explain the steps instead.
 
 ## Tasks
 
@@ -184,6 +300,9 @@ Integrations and widgets are installed from the **App Store**. Widgets include a
 **website form widget** (a form that creates contacts). Both are installed
 first, then configured, then embedded on a site with a snippet.
 
+The App Store also holds a **Digital Signature** category, which is where a
+signature provider is connected so contracts can be signed.
+
 ## Connecting a messaging channel
 
 Every messaging channel is connected the same way: **App Store** → find the app
@@ -206,6 +325,24 @@ Every messaging channel is connected the same way: **App Store** → find the ap
 
 Connecting a channel is an admin-level setup task, and Optus cannot do it for
 the user — it can only walk them through these screens.
+
+## Connecting a signature provider
+
+Contracts are signed through a signature provider, connected the same way as any
+other app: **App Store** → **Digital Signature** → **Clicksign** → **Install** →
+**Configure**.
+
+Configure asks for the provider's **access token** and which **environment** to
+use — a sandbox for testing or production for real contracts, each with its own
+token. Optomyze verifies the token and registers the callback the provider uses
+to report signatures, so nothing else has to be set up by hand.
+
+**Clicksign** is the provider available today. The module is built so other
+providers can be added later; do not tell a user that a specific other provider
+is available or coming.
+
+Until a provider is connected, documents can still be created and generated but
+not sent for signature. This is an admin-level setup task.
 
 ## Users, roles and permissions
 
@@ -277,6 +414,29 @@ whichever channel it arrived on.
 
 **Install a widget or integration** — Go to **App Store**, install it, configure
 it, then embed the snippet it gives you.
+
+**Create a contract** — Open the contact or deal it belongs to, go to its
+**Documents** tab, and create a new document there. Pick the document type, give
+it a title, choose a published template, and optionally set value and dates. It
+can also be created from the **Documents** screen. Contracts can be created from
+either — a deal can hold several (for example a main contract, a maintenance
+contract and an NDA).
+
+**Send a contract for signature** — The document must be generated first, so
+that it has a version to send. Then use the send action on the document, add the
+signers with their signing order and identity checks, and send. Its status moves
+to Awaiting signature.
+
+**Get the signed copy** — Once everyone has signed, download it from the
+document. Earlier versions can be downloaded separately from the version list.
+
+**Change the wording of contracts** — Go to **Documents → Templates** and edit
+the template, then publish it. Only Admins and Managers can do this. Editing a
+template affects documents generated from then on; documents already generated
+keep the wording they were created with.
+
+**Revise a contract already sent** — Cancel it, make the change, generate it
+again (which creates a new version) and send it again.
 
 **Change your language** — Settings → **Preferences**.
 MARKDOWN;

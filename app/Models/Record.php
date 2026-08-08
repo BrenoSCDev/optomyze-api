@@ -48,6 +48,7 @@ class Record extends Model
     const TYPE_APPOINTMENT = 'appointment';
     const TYPE_OBSERVATION = 'observation';
     const TYPE_DOCUMENT = 'document';
+    const TYPE_SIGNATURE = 'signature';
 
     /**
      * Record action constants.
@@ -72,6 +73,9 @@ class Record extends Model
     const ACTION_WON = 'won';
     const ACTION_CLOSED = 'closed';
     const ACTION_COMPLETED = 'completed';
+    const ACTION_SENT = 'sent';
+    const ACTION_REFUSED = 'refused';
+    const ACTION_CANCELED = 'canceled';
 
     /**
      * Source constants.
@@ -725,6 +729,70 @@ class Record extends Model
             ['dealName' => $sale->name, 'documentTitle' => $doc->filename],
             $actor ? self::SOURCE_MANUAL : self::SOURCE_SYSTEM
         );
+    }
+
+    /**
+     * Log a step in a document's lifecycle onto the lead and/or deal it
+     * belongs to.
+     *
+     * Provider-neutral wording: the timeline says a contract was sent or
+     * signed, never which vendor carried it. A document can be attached to
+     * both a lead and a deal, and both timelines should show it — a contract
+     * is news on the opportunity *and* on the person.
+     *
+     * @return array<int, self>
+     */
+    public static function createDocumentLifecycle(
+        Document $document,
+        string $action,
+        ?User $actor = null
+    ): array {
+        $signerCount = $document->relationLoaded('signatureRequest')
+            ? ($document->signatureRequest?->signers()->count() ?? 0)
+            : SignatureSigner::whereIn(
+                'signature_request_id',
+                SignatureRequest::where('document_id', $document->id)->select('id')
+            )->count();
+
+        $written = [];
+
+        if ($document->sale) {
+            $written[] = self::make(
+                $document->company_id,
+                self::RECORDABLE_SALE,
+                $document->sale_id,
+                $actor,
+                self::TYPE_SIGNATURE,
+                $action,
+                null,
+                [
+                    'documentTitle' => $document->title,
+                    'signerCount'   => $signerCount,
+                    'dealName'      => $document->sale->name,
+                ],
+                $actor ? self::SOURCE_MANUAL : self::SOURCE_WEBHOOK
+            );
+        }
+
+        if ($document->lead) {
+            $written[] = self::make(
+                $document->company_id,
+                self::RECORDABLE_LEAD,
+                $document->lead_id,
+                $actor,
+                self::TYPE_SIGNATURE,
+                $action,
+                null,
+                [
+                    'documentTitle' => $document->title,
+                    'signerCount'   => $signerCount,
+                    'leadName'      => self::leadDisplayName($document->lead),
+                ],
+                $actor ? self::SOURCE_MANUAL : self::SOURCE_WEBHOOK
+            );
+        }
+
+        return $written;
     }
 
     /**

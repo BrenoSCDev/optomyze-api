@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Events\AppointmentScheduledNotification;
+use App\Events\DocumentTransactionNotification;
 use App\Events\LeadCreatedNotification;
 use App\Jobs\SendExternalNotification;
 use App\Models\NotificationSetting;
@@ -134,6 +135,16 @@ class NotificationService
             $ids->push((int) $context['deal_owner_id']);
         }
 
+        // document_owner — the user responsible for a contract/proposal.
+        //
+        // Not behind a `default_recipients` toggle: a document has an explicit
+        // owner, and an outcome on it (signed, refused, expired) is addressed
+        // to that person the way a reply is addressed to a sender. The lead
+        // and deal owners above still receive it when those toggles are on.
+        if (!empty($context['document_owner_id'])) {
+            $ids->push((int) $context['document_owner_id']);
+        }
+
         // team_manager — the manager(s) of whichever team(s) the lead/deal owner belongs to.
         // We look up teams that contain either the lead_owner or deal_owner, then collect
         // their manager_user_id. This avoids querying by role and instead follows the actual
@@ -238,6 +249,21 @@ class NotificationService
                 ));
             }
 
+            // Document lifecycle. Unlike deals, a document has no RecordCreated
+            // hook to ride on when it hangs off no lead or deal (a master
+            // agreement against a customer company, say), so the in-app signal
+            // is broadcast here explicitly.
+            if (
+                str_starts_with($eventKey, 'document_')
+                && isset($context['_document_model'])
+            ) {
+                broadcast(new DocumentTransactionNotification(
+                    $context['_document_model'],
+                    $eventKey,
+                    $context['_actor_model'] ?? null,
+                ));
+            }
+
             // For deal_created, deal_won, deal_lost, deal_stage_changed, lead_assigned:
             // the RecordCreated model hook already broadcasts these events to the
             // company feed channel — they are the in-app signal.
@@ -309,6 +335,8 @@ class NotificationService
         $saleTotal = isset($context['sale']['total'])
             ? 'R$ ' . number_format((float) $context['sale']['total'], 2, ',', '.')
             : null;
+        $docNumber = $context['document']['number'] ?? null;
+        $docTitle  = $context['document']['title']  ?? null;
 
         $lines = match ($eventKey) {
 
@@ -394,6 +422,47 @@ class NotificationService
                 $actorName ? "Added by: {$actorName}" : null,
                 '',
                 'Access the CRM to review the updated deal.',
+            ],
+
+            'document_signed' => [
+                '[Optomyze CRM] Document Fully Signed',
+                '',
+                $docNumber ? "Document: {$docNumber}"  : null,
+                $docTitle  ? "Title: {$docTitle}"      : null,
+                $saleName  ? "Deal: {$saleName}"       : null,
+                $leadName  ? "Client: {$leadName}"     : null,
+                '',
+                'Every signer has signed. The countersigned copy is on the document in the CRM.',
+            ],
+
+            'document_rejected' => [
+                '[Optomyze CRM] Document Refused',
+                '',
+                $docNumber ? "Document: {$docNumber}"  : null,
+                $docTitle  ? "Title: {$docTitle}"      : null,
+                $leadName  ? "Client: {$leadName}"     : null,
+                '',
+                'A signer refused to sign. Review the reason in the CRM before resending.',
+            ],
+
+            'document_expired' => [
+                '[Optomyze CRM] Document Expired',
+                '',
+                $docNumber ? "Document: {$docNumber}"  : null,
+                $docTitle  ? "Title: {$docTitle}"      : null,
+                $leadName  ? "Client: {$leadName}"     : null,
+                '',
+                'The signing deadline passed without every signature. It must be sent again.',
+            ],
+
+            'document_sent' => [
+                '[Optomyze CRM] Document Sent for Signature',
+                '',
+                $docNumber ? "Document: {$docNumber}"    : null,
+                $docTitle  ? "Title: {$docTitle}"        : null,
+                $actorName ? "Sent by: {$actorName}"     : null,
+                '',
+                'Awaiting the counterparty. The CRM updates itself when they act.',
             ],
 
             default => [

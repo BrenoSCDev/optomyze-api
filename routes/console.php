@@ -9,3 +9,7 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('api-logs:prune --days=30')->daily();
+
+// Catches signature requests whose completion webhook never arrived — a
+// vendor outage, a deregistered callback, an endpoint that was down.
+Schedule::command('signatures:reconcile')->hourly()->withoutOverlapping();
